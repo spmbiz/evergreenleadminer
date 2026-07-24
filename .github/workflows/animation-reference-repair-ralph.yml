@@ -1,44 +1,13 @@
 name: Repair Ralph Breaks the Internet pack
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  repair-ralph:
+  archive:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
-      - run: python -m pip install --upgrade pip && python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
-      - name: Harvest corrected Disney Movies page
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          import tools.harvest40 as h
-          h.T=15
-          film=h.D[32]
-          h.pages=lambda x:[
-            'https://disneyanimation.com/films/ralph-breaks-the-internet/',
-            'https://movies.disney.com/ralph-breaks-the-internet-wreck-it-ralph-2'
-          ]
-          root=Path('output/ralph_breaks_the_internet_repair')
-          root.mkdir(parents=True,exist_ok=True)
-          result=h.process(film,root)
-          (root/'REPAIR_SUMMARY.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
-          print(json.dumps(result,ensure_ascii=False,indent=2))
-          if result.get('status')!='complete':
-              raise SystemExit(2)
-          PY
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: repair-ralph-breaks-the-internet
-          path: output/
-          compression-level: 6
-          retention-days: 7
+      - run: echo Superseded by the official Disney Video repair workflow.
