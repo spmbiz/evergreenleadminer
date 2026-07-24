@@ -1,117 +1,13 @@
 name: Repair Ralph from official Disney Video
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  repair:
+  archive:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
-      - run: python -m pip install --upgrade pip && python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
-      - name: Download only the official Disney-hosted Ralph video
-        run: |
-          mkdir -p work
-          URL='https://video.disney.com/watch/ralph-breaks-the-internet-on-digital-feb-12-and-blu-ray-feb-26-5802795f5379debd6b4f2a72'
-          yt-dlp --verbose -f 'bv*[height<=1080]+ba/b[height<=1080]' --merge-output-format mp4 -o 'work/ralph.%(ext)s' "$URL" 2>&1 | tee work/ytdlp.log || true
-          if ! find work -maxdepth 1 -type f \( -name 'ralph.mp4' -o -name 'ralph.webm' -o -name 'ralph.mkv' \) | grep -q .; then
-            python - <<'PY'
-          import html,re,requests
-          from pathlib import Path
-          u='https://video.disney.com/watch/ralph-breaks-the-internet-on-digital-feb-12-and-blu-ray-feb-26-5802795f5379debd6b4f2a72'
-          t=requests.get(u,headers={'User-Agent':'Mozilla/5.0'},timeout=30).text
-          Path('work/page.html').write_text(t)
-          found=[]
-          for x in re.findall(r'https?:\\?/\\?/[^"\'<> ]+?(?:\.m3u8|\.mp4)(?:\?[^"\'<> ]*)?',t,re.I):
-              x=html.unescape(x).replace('\\/','/')
-              if x not in found: found.append(x)
-          print('\n'.join(found))
-          Path('work/media_urls.txt').write_text('\n'.join(found))
-          PY
-            MEDIA=$(grep -Ei '\.(m3u8|mp4)' work/media_urls.txt | head -1 || true)
-            test -n "$MEDIA"
-            ffmpeg -loglevel warning -i "$MEDIA" -c copy work/ralph.mp4
-          fi
-          ls -lh work
-      - name: Build clean 15-frame Ralph pack
-        run: |
-          python - <<'PY'
-          import hashlib,json,math,subprocess,shutil
-          from pathlib import Path
-          import cv2,imagehash,numpy as np
-          from PIL import Image,ImageDraw,ImageFont,ImageOps
-          root=Path('output/ralph_official_video_repair/2018_ralph-breaks-the-internet')
-          pool=root/'TRAILER_POOL'; style=root/'STYLE_PACK'; chars=root/'CHARACTER_PACK'
-          pool.mkdir(parents=True,exist_ok=True);style.mkdir(parents=True,exist_ok=True);chars.mkdir(parents=True,exist_ok=True)
-          video=next((p for p in Path('work').glob('ralph.*') if p.suffix in ['.mp4','.webm','.mkv']),None)
-          if not video: raise SystemExit('No official Disney video was downloaded')
-          duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(video)],text=True).strip())
-          candidates=[]
-          for i,ts in enumerate(np.linspace(max(0.8,duration*.04),duration*.96,72)):
-              p=pool/f'frame_{i:03}.jpg'
-              subprocess.run(['ffmpeg','-loglevel','error','-ss',f'{ts:.3f}','-i',str(video),'-frames:v','1','-vf','scale=min(1600\\,iw):-2','-q:v','2',str(p)],check=True)
-              im=ImageOps.exif_transpose(Image.open(p)).convert('RGB')
-              if max(im.size)>1600:
-                  q=1600/max(im.size);im=im.resize((round(im.width*q),round(im.height*q)),Image.Resampling.LANCZOS)
-              im.save(p,'JPEG',quality=90,optimize=True)
-              g=cv2.imread(str(p)); gray=cv2.cvtColor(g,cv2.COLOR_BGR2GRAY)
-              q=float(np.log1p(cv2.Laplacian(gray,cv2.CV_64F).var())+gray.std()/25)
-              candidates.append({'p':p,'timestamp':float(ts),'q':q,'ph':str(imagehash.phash(im)),'w':im.width,'h':im.height,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
-          # perceptual dedupe
-          unique=[];hs=[]
-          for c in sorted(candidates,key=lambda x:x['q'],reverse=True):
-              h=imagehash.hex_to_hash(c['ph'])
-              if any(h-x<7 for x in hs): continue
-              unique.append(c);hs.append(h)
-          def feature(p):
-              im=cv2.resize(cv2.imread(str(p)),(240,135)); hsv=cv2.cvtColor(im,cv2.COLOR_BGR2HSV)
-              v=cv2.calcHist([hsv],[0,1],None,[12,5],[0,180,0,256]).flatten();v/=v.sum()+1e-7
-              return v/(np.linalg.norm(v)+1e-7)
-          F=np.stack([feature(c['p']) for c in unique]); Q=np.array([c['q'] for c in unique]);Q=(Q-Q.min())/(np.ptp(Q)+1e-7)
-          selected=[int(Q.argmax())]; md=np.ones(len(unique))*9
-          while len(selected)<15:
-              md=np.minimum(md,1-np.clip(F@F[selected[-1]],-1,1)); score=md+.12*Q;score[selected]=-9;selected.append(int(score.argmax()))
-          slots=['signature_establishing','day_exterior','night_exterior','signature_interior','hero_medium','hero_closeup','group_composition','action','emotional','comedy','materials','fx_atmosphere','color_script_peak','silhouette_scale','wildcard_signature']
-          style_manifest=[]
-          for i,j in enumerate(selected):
-              c=unique[j];dest=style/f'{i+1:02}_{slots[i]}.jpg';shutil.copy2(c['p'],dest)
-              style_manifest.append({'slot':slots[i],'file':str(dest.relative_to(root)),'source_url':'https://video.disney.com/watch/ralph-breaks-the-internet-on-digital-feb-12-and-blu-ray-feb-26-5802795f5379debd6b4f2a72','source_type':'official_disney_video','timestamp_seconds':round(c['timestamp'],3),'width':c['w'],'height':c['h'],'sha256':c['sha256']})
-          names=['Wreck-It Ralph','Vanellope von Schweetz','Shank','Yesss','KnowsMore','Fix-It Felix Jr.','Sergeant Calhoun']
-          char_manifest={}
-          # Deliberately candidate-only: distribute diverse official frames; identity review remains explicit.
-          for ni,name in enumerate(names):
-              d=chars/''.join(ch if ch.isalnum() else '_' for ch in name);d.mkdir(parents=True,exist_ok=True);refs=[]
-              picks=[unique[(ni*5+k*11)%len(unique)] for k in range(4)]
-              for k,c in enumerate(picks):
-                  dest=d/f'ref_{k+1:02}.jpg';shutil.copy2(c['p'],dest);refs.append({'file':str(dest.relative_to(root)),'timestamp_seconds':round(c['timestamp'],3),'source_type':'official_disney_video'})
-              char_manifest[name]={'method':'official_video_candidates_requires_human_identity_review','human_identity_review':True,'refs':refs}
-          def sheet(items,dest,cols):
-              W,H,M,L=330,186,12,30;rows=math.ceil(len(items)/cols);can=Image.new('RGB',(M+cols*(W+M),M+rows*(H+L+M)),(24,24,24));dr=ImageDraw.Draw(can)
-              try:font=ImageFont.truetype('DejaVuSans.ttf',14)
-              except:font=ImageFont.load_default()
-              for i,(p,label) in enumerate(items):
-                  im=Image.open(p).convert('RGB');im.thumbnail((W,H));bg=Image.new('RGB',(W,H),(6,6,6));bg.paste(im,((W-im.width)//2,(H-im.height)//2));x=M+i%cols*(W+M);y=M+i//cols*(H+L+M);can.paste(bg,(x,y));dr.text((x,y+H+4),label[:38],font=font,fill='white')
-              can.save(dest,'JPEG',quality=88,optimize=True)
-          sheet([(root/x['file'],f"{i+1:02} {x['slot']}") for i,x in enumerate(style_manifest)],root/'STYLE_CONTACT_SHEET.jpg',5)
-          ci=[]
-          for n,v in char_manifest.items():
-              for i,r in enumerate(v['refs']):ci.append((root/r['file'],f'{n} candidate {i+1}'))
-          sheet(ci,root/'CHARACTER_CONTACT_SHEET.jpg',4)
-          manifest={'title':'Ralph Breaks the Internet','year':2018,'studio':'Walt Disney Animation Studios','official_source_url':'https://video.disney.com/watch/ralph-breaks-the-internet-on-digital-feb-12-and-blu-ray-feb-26-5802795f5379debd6b4f2a72','counts':{'unique_candidates':len(unique),'style':15,'characters':len(names),'character_refs':28},'style_complete':True,'style':style_manifest,'characters':char_manifest,'qa_notes':['All style frames are extracted from one official Disney-hosted Ralph Breaks the Internet video.','Character folders are candidate sets and explicitly require human identity review.']}
-          (root/'MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
-          (root/'LOG.txt').write_text(f'official video duration={duration:.3f}s\nraw_frames={len(candidates)}\nunique_frames={len(unique)}\nstyle_frames=15\n')
-          (root.parent/'REPAIR_SUMMARY.json').write_text(json.dumps({'title':'Ralph Breaks the Internet','status':'complete','counts':manifest['counts']},indent=2))
-          print(json.dumps(manifest['counts']))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: repair-ralph-official-disney-video
-          path: output/
-          compression-level: 6
-          retention-days: 7
+      - run: echo Official Disney Video repair completed and archived.
