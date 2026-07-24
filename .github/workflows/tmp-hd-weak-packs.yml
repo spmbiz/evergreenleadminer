@@ -1,0 +1,46 @@
+name: Temporary HD Weak Pack Supplement
+
+on:
+  pull_request:
+    paths:
+      - 'tmp_hd_harvest_weak_packs.py'
+      - '.github/workflows/tmp-hd-weak-packs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  supplemental-harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install harvester
+        run: python -m pip install -q yt-dlp requests pillow imagehash opencv-python-headless numpy
+      - name: Harvest six weak packs deeply
+        run: python tmp_hd_harvest_weak_packs.py
+      - name: Build archive
+        if: always()
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          root=Path('HD_WEAK_SUPPLEMENT')
+          with zipfile.ZipFile('HD_WEAK_SUPPLEMENT.zip','w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+              for p in root.rglob('*'):
+                  if p.is_file(): z.write(p,p.as_posix())
+          PY
+      - name: Upload supplemental candidates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HD_WEAK_SUPPLEMENT
+          path: |
+            HD_WEAK_SUPPLEMENT.zip
+            HD_WEAK_SUPPLEMENT/QA.json
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
