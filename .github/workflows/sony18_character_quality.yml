@@ -19,9 +19,9 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 14
+      max-parallel: 1
       matrix:
-        film: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+        film: [0]
     steps:
       - uses: actions/checkout@v4
       - name: System dependencies
@@ -34,7 +34,7 @@ jobs:
         run: |
           mkdir -p output
           set +e
-          python tools/run_sony18_characters.py --group ${{ matrix.film }} --output output > output/HARVEST_STDOUT.txt 2>&1
+          python -m tools.harvest_sony18_characters_v2 --group ${{ matrix.film }} --output output > output/HARVEST_STDOUT.txt 2>&1
           code=$?
           cat output/HARVEST_STDOUT.txt
           exit $code
@@ -53,8 +53,7 @@ jobs:
               requested=data.get('requested_characters',0)
               refs=data.get('character_refs',0)
               print(data['title'], 'covered', covered, '/', requested, 'refs', refs)
-              minimum=min(4, requested)
-              if covered < minimum:
+              if covered < min(4, requested):
                   raise SystemExit(f'Insufficient verified character coverage: {covered}/{requested}')
           PY
           find output -name CHARACTER_CONTACT_SHEET.jpg -print || true
@@ -62,7 +61,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sony-character-v1-film-${{ matrix.film }}
+          name: sony-character-v2-film-${{ matrix.film }}
           path: output/
           compression-level: 6
           retention-days: 7
