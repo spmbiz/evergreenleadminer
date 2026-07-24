@@ -1,44 +1,25 @@
 name: Fast tail harvest groups 3 and 4
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   harvest-tail:
-    name: Fast harvest group ${{ matrix.group }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
         group: [2, 3]
     steps:
       - uses: actions/checkout@v4
-      - name: Optimize bounded retry pass
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('tools/harvest40.py')
-          s=p.read_text()
-          s=s.replace("T=30", "T=12")
-          s=s.replace("for i in range(4):", "for i in range(2):")
-          s=s.replace("k>120", "k>45")
-          s=s.replace("dur*.91,90", "dur*.91,45")
-          s=s.replace("a=dedupe(sitepool(x,fd,log)+trailer(x,fd,log));", "sp=sitepool(x,fd,log);a=dedupe(sp+([] if len(sp)>=25 else trailer(x,fd,log)));")
-          p.write_text(s)
-          PY
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
-      - run: python -m pip install --upgrade pip && python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
+      - run: python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
       - run: python tools/harvest40.py --group ${{ matrix.group }} --output output
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fast-tail-group-${{ matrix.group }}
           path: output/
-          compression-level: 6
-          retention-days: 7
-          if-no-files-found: warn
