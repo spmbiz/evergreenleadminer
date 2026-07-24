@@ -1,0 +1,44 @@
+name: Sony Animation 18-film reference harvest
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harvest:
+    name: Sony volume ${{ matrix.group + 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
+      - name: Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
+      - name: Harvest official Sony references
+        run: python tools/harvest_sony18.py --group ${{ matrix.group }} --output output
+      - name: Validate deliverable
+        if: always()
+        run: |
+          find output -name MANIFEST.json -print | wc -l
+          find output -type d -name STYLE_PACK_24 -print
+          find output -name STYLE_CONTACT_SHEET.jpg -print | wc -l
+      - name: Upload volume
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sony-animation-18-volume-${{ matrix.group + 1 }}
+          path: output/
+          compression-level: 6
+          retention-days: 7
+          if-no-files-found: warn
