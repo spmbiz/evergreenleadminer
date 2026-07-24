@@ -1,0 +1,46 @@
+name: Temporary HD Gameplay Harvest
+
+on:
+  pull_request:
+    paths:
+      - 'tmp_hd_harvest_remaining.py'
+      - '.github/workflows/tmp-hd-gameplay-harvest.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  harvest-all-remaining:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install harvester
+        run: python -m pip install -q yt-dlp requests pillow imagehash opencv-python-headless numpy
+      - name: Harvest all sixteen remaining packs continuously
+        run: python tmp_hd_harvest_remaining.py
+      - name: Build archive
+        if: always()
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          root=Path('HD_REMAINING')
+          with zipfile.ZipFile('HD_REMAINING.zip','w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+              for p in root.rglob('*'):
+                  if p.is_file(): z.write(p,p.as_posix())
+          PY
+      - name: Upload remaining candidate packs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HD_REMAINING
+          path: |
+            HD_REMAINING.zip
+            HD_REMAINING/QA.json
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
