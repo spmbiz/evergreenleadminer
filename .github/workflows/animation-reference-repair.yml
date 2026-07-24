@@ -1,0 +1,42 @@
+name: Repair missing A Bugs Life pack
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
+      - run: python -m pip install --upgrade pip && python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
+      - name: Harvest corrected official page
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import tools.harvest40 as h
+          h.T=15
+          film=list(h.D[0])
+          film[3]='a-bugs-life'
+          film=tuple(film)
+          root=Path('output/a_bugs_life_repair')
+          root.mkdir(parents=True,exist_ok=True)
+          result=h.process(film,root)
+          (root/'REPAIR_SUMMARY.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          if result.get('status')!='complete':
+              raise SystemExit(2)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-a-bugs-life
+          path: output/
+          compression-level: 6
+          retention-days: 7
