@@ -31,15 +31,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless "yt-dlp[default]"
       - name: Harvest safe completion pack
-        run: python tools/harvest_sony18_fast.py --group ${{ matrix.film }} --output output
+        run: |
+          mkdir -p output
+          set +e
+          python tools/run_sony18_fast.py --group ${{ matrix.film }} --output output > output/HARVEST_STDOUT.txt 2>&1
+          code=$?
+          cat output/HARVEST_STDOUT.txt
+          exit $code
       - name: Validate deliverable
         if: always()
         run: |
-          find output -name MANIFEST.json -print
-          find output -type f -path '*/STYLE_PACK_24/*.jpg' | wc -l
-          find output -type f -path '*/CHARACTER_PACK/*/*.jpg' | wc -l
-          find output -name STYLE_CONTACT_SHEET.jpg -print
-          find output -name CHARACTER_CONTACT_SHEET.jpg -print
+          find output -name MANIFEST.json -print || true
+          find output -type f -path '*/STYLE_PACK_24/*.jpg' | wc -l || true
+          find output -type f -path '*/CHARACTER_PACK/*/*.jpg' | wc -l || true
+          find output -name STYLE_CONTACT_SHEET.jpg -print || true
+          find output -name CHARACTER_CONTACT_SHEET.jpg -print || true
       - name: Upload completed film pack
         if: always()
         uses: actions/upload-artifact@v4
