@@ -1,0 +1,35 @@
+name: Sony 18 fast parallel v2
+
+on:
+  push:
+    branches:
+      - automation/sony-animation-reference-harvest-18
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  film:
+    name: Fast Sony film ${{ matrix.film }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 18
+      matrix:
+        film: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
+      - run: python -m pip install --upgrade pip && python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless yt-dlp
+      - name: Harvest
+        run: python tools/harvest_sony18_fast.py --group ${{ matrix.film }} --output output
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sony-fast-film-${{ matrix.film }}
+          path: output/
+          compression-level: 6
+          retention-days: 7
+          if-no-files-found: warn
