@@ -4,7 +4,7 @@ import html
 import json
 import re
 import time
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import tools.harvest_sony18_characters as c
 
@@ -19,6 +19,21 @@ f.SAFE_HOST_SUFFIXES = tuple(dict.fromkeys(f.SAFE_HOST_SUFFIXES + (
     "fandom.com",
     "nocookie.net",
 )))
+
+# Keep sequel-defining words in the match. The first pass treated "Into" as a
+# stopword and could accidentally accept Across/Beyond material.
+c.STOP.discard("into")
+c.BLOCK.update({
+    "meme", "memes", "tutorial", "how to draw", "drawing", "fan art",
+    "fanart", "reaction", "live action", "behind the scenes", "cosplay",
+    "costume", "analysis video", "character design analysis",
+})
+
+TRUSTED_SOURCE_HINTS = (
+    "sonypictures", "netflix", "imdb.com", "fandom.com", "wikia.com",
+    "wikipedia.org", "wikimedia.org", "polygon.com", "variety.com",
+    "deadline.com", "collider.com", "screenrant.com", "youtube.com",
+)
 
 
 def _vqd(query: str) -> str | None:
@@ -39,6 +54,38 @@ def _vqd(query: str) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+def sequel_conflict(film: dict, metadata: str) -> bool:
+    title = c.norm(film["title"])
+    hay = c.norm(metadata)
+    if "into the spider verse" in title and any(x in hay for x in ["across the spider verse", "beyond the spider verse"]):
+        return True
+    if "across the spider verse" in title and any(x in hay for x in ["into the spider verse", "beyond the spider verse"]):
+        return True
+    if title == "hotel transylvania" and any(x in hay for x in ["hotel transylvania 2", "hotel transylvania 3", "transformania"]):
+        return True
+    if "hotel transylvania 2" in title and any(x in hay for x in ["hotel transylvania 3", "transformania"]):
+        return True
+    if "hotel transylvania 3" in title and "transformania" in hay:
+        return True
+    if title == "cloudy with a chance of meatballs" and "meatballs 2" in hay:
+        return True
+    return False
+
+
+def source_bonus(source_page: str, title: str) -> int:
+    low = f"{source_page} {title}".lower()
+    bonus = 5 if any(hint in low for hint in TRUSTED_SOURCE_HINTS) else 0
+    if "youtube.com" in low:
+        # YouTube thumbnails are useful only for actual movie clips/scenes.
+        if any(word in low for word in ["scene", "movie clip", "official clip", "trailer"]):
+            bonus += 2
+        else:
+            return -100
+    if any(word in low for word in ["rare-gallery", "wallpaper", "alphacoders"]):
+        bonus -= 1
+    return bonus
 
 
 def query_ddg(film: dict, character: str, query: str, log: list[str], limit=40) -> list[dict]:
@@ -72,13 +119,24 @@ def query_ddg(film: dict, character: str, query: str, log: list[str], limit=40) 
         return []
 
     rows, seen = [], set()
+    exact_film = c.norm(film["title"])
+    exact_character = c.norm(character)
     for item in payload.get("results", []):
         title = html.unescape(item.get("title") or "")
         source_page = item.get("url") or item.get("source") or ""
         metadata = f"{title} {source_page}"
         ok, score = c.relevance(film, character, metadata)
-        if not ok:
+        if not ok or sequel_conflict(film, metadata):
             continue
+        bonus = source_bonus(source_page, title)
+        if bonus <= -100:
+            continue
+        normalized_metadata = c.norm(metadata)
+        if exact_film in normalized_metadata:
+            score += 7
+        if exact_character in normalized_metadata:
+            score += 5
+        score += bonus
         original = item.get("image")
         thumbnail = item.get("thumbnail")
         image_url = original if original and f.safe_host(original) else thumbnail
