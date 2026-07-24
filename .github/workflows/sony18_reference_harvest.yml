@@ -1,72 +1,13 @@
-name: Sony strict quality completion PR
+name: Sony strict quality completion manual
 
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: sony-animation-reference-finish-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  harvest:
-    name: Strict quality Sony film ${{ matrix.film }}
+  disabled-on-character-branch:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      max-parallel: 14
-      matrix:
-        film: [0, 2, 4, 5, 6, 7, 8, 9, 11, 13, 14, 15, 16, 17]
     steps:
-      - uses: actions/checkout@v4
-      - name: System dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
-      - name: Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless "yt-dlp[default]"
-      - name: Harvest strict quality pack
-        run: |
-          mkdir -p output
-          set +e
-          python tools/run_sony18_quality.py --group ${{ matrix.film }} --output output > output/HARVEST_STDOUT.txt 2>&1
-          code=$?
-          cat output/HARVEST_STDOUT.txt
-          exit $code
-      - name: Validate strict deliverable
-        if: always()
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import json
-          manifests=list(Path('output').rglob('MANIFEST.json'))
-          if not manifests:
-              raise SystemExit('No manifest produced')
-          failed=[]
-          for path in manifests:
-              data=json.loads(path.read_text())
-              style=len(list((path.parent/'STYLE_PACK_24').glob('*.jpg')))
-              verified=data.get('qa',{}).get('verified_character_count',0)
-              requested=data.get('qa',{}).get('requested_character_count',0)
-              print(data['title'], 'style', style, '/24', 'verified characters', verified, '/', requested)
-              if style < 24:
-                  failed.append(data['title'])
-          if failed:
-              raise SystemExit('Incomplete style packs: '+', '.join(failed))
-          PY
-          find output -name STYLE_CONTACT_SHEET.jpg -print || true
-          find output -name CHARACTER_CONTACT_SHEET.jpg -print || true
-      - name: Upload strict quality film pack
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sony-quality-v2-film-${{ matrix.film }}
-          path: output/
-          compression-level: 6
-          retention-days: 7
-          if-no-files-found: warn
+      - run: echo "Style completion is owned by PR #4; this branch only builds character references."
