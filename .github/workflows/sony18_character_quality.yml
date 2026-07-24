@@ -19,13 +19,11 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 6
       matrix:
-        film: [0]
+        film: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
     steps:
       - uses: actions/checkout@v4
-      - name: System dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgl1
       - name: Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -61,7 +59,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sony-character-v2-film-${{ matrix.film }}
+          name: sony-character-v3-film-${{ matrix.film }}
           path: output/
           compression-level: 6
           retention-days: 7
