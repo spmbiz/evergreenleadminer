@@ -1,4 +1,4 @@
-name: Anna Claire Clouds IMDb scene still harvest
+name: Anna Claire Clouds fresh browser POV harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,21 +26,24 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest IMDb filmography media stills and posters
+        run: |
+          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+          pip install playwright==1.52.0
+          which google-chrome || which google-chrome-stable || which chromium || true
+      - name: Capture fresh exact-query POV thumbnails in Chrome
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python imdb_scene_300.py
+        run: python browser_exact_scene_300.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat IMDB300_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload IMDb ZIP
+        run: echo "Collected $(cat FRESH_BROWSER_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload fresh browser POV ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-imdb-scene-300
+          name: anna-claire-clouds-fresh-browser-pov-300
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_imdb_scene_300.zip
-            tools/anna_claire_clouds_harvest/IMDB300_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_fresh_browser_pov_300.zip
+            tools/anna_claire_clouds_harvest/FRESH_BROWSER_COUNT.txt
           if-no-files-found: error
           retention-days: 7
