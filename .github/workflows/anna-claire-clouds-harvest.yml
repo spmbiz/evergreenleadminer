@@ -1,4 +1,4 @@
-name: Anna Claire Clouds exact POV multi-engine harvest
+name: Anna Claire Clouds uncropped scene preview harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,20 +27,20 @@ jobs:
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest exact-query POV and VR thumbnails
+      - name: Download uncropped original scene and trailer previews
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python ddg_exact_pov_harvest.py
+        run: python original_scene_previews.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat FRESH_POV_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload exact POV ZIP
+        run: echo "Collected $(cat UNCROPPED_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload uncropped preview ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-exact-pov-300
+          name: anna-claire-clouds-uncropped-scene-previews
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_fresh_pov_300.zip
-            tools/anna_claire_clouds_harvest/FRESH_POV_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_uncropped_scene_previews.zip
+            tools/anna_claire_clouds_harvest/UNCROPPED_COUNT.txt
           if-no-files-found: error
           retention-days: 7
