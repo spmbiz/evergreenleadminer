@@ -1,4 +1,4 @@
-name: Anna Claire Clouds direct source harvest
+name: Anna Claire Clouds Google POV still harvest
 
 on:
   push:
@@ -27,27 +27,20 @@ jobs:
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Crawl XBIZ Getty YouTube and public interview pages
+      - name: Harvest Google POV thumbnails and public video stills
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python direct_source_harvest.py
-      - name: Write count
+        run: python google_pov_harvest.py
+      - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: |
-          python - <<'PY'
-          import csv, pathlib
-          p=pathlib.Path('direct_output/manifest.csv')
-          n=sum(1 for _ in csv.DictReader(p.open(encoding='utf-8-sig'))) if p.exists() else 0
-          pathlib.Path('DIRECT_COUNT.txt').write_text(str(n))
-          print(f'Collected {n}')
-          PY
-      - name: Upload direct-source ZIP
+        run: echo "Collected $(cat GOOGLE_POV_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload Google POV ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-direct-source-photos
+          name: anna-claire-clouds-google-pov-stills
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_direct_source_photos.zip
-            tools/anna_claire_clouds_harvest/DIRECT_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_google_pov_stills.zip
+            tools/anna_claire_clouds_harvest/GOOGLE_POV_COUNT.txt
           if-no-files-found: error
           retention-days: 7
