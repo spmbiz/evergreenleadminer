@@ -1,0 +1,16 @@
+name: GTA Runner Test
+on:
+  pull_request:
+    branches: [main]
+    paths: ['GTA_TEST_TRIGGER.txt']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo runner-ok > runner-ok.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gta-runner-test
+          path: runner-ok.txt
