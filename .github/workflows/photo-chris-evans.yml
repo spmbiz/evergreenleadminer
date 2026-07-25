@@ -1,0 +1,39 @@
+name: Photo Chris Evans Candidates
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: photo-harvest-next93
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest-next93/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Collect Chris Evans candidates
+        run: python chris_evans_candidates.py 2>&1 | tee chris-evans.log
+      - name: Upload candidates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chris-evans-candidates
+          path: |
+            photo-harvest-next93/chris-evans-candidates.zip
+            photo-harvest-next93/chris-evans-candidates/manifest.csv
+            photo-harvest-next93/chris-evans-candidates/contact_sheet.jpg
+            photo-harvest-next93/chris-evans-candidates/README.txt
+            photo-harvest-next93/chris-evans.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
