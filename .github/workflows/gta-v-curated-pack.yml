@@ -1,0 +1,50 @@
+name: GTA V Curated 100 Pack
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'GTA_CURATED_TRIGGER.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests pillow imagehash
+      - name: Download and validate 100 screenshots
+        id: package
+        continue-on-error: true
+        run: python tools/gta_v_curated_download.py 2>&1 | tee GTA_V_CURATED_100.log
+      - name: Ensure diagnostic files
+        if: always()
+        run: |
+          test -f GTA_V_REAL_100/QA_RESULT.json || printf '{"requested":100,"downloaded":0,"status":"failed_before_result"}\n' > GTA_V_REAL_100_QA_FALLBACK.json
+      - name: Upload package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta-v-curated-100-pack
+          path: |
+            GTA_V_REAL_100_SCREENSHOTS.zip
+            GTA_V_REAL_100/CONTACT_SHEET_100.jpg
+            GTA_V_REAL_100/sources.csv
+            GTA_V_REAL_100/sources.json
+            GTA_V_REAL_100/similarity_report.csv
+            GTA_V_REAL_100/failures.csv
+            GTA_V_REAL_100/QA_RESULT.json
+            GTA_V_REAL_100/README.txt
+            GTA_V_REAL_100_QA_FALLBACK.json
+            GTA_V_CURATED_100.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 14
