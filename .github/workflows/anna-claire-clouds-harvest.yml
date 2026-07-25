@@ -1,4 +1,4 @@
-name: Anna Claire Clouds Google POV still harvest
+name: Anna Claire Clouds fast POV harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,20 +27,20 @@ jobs:
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest Google POV thumbnails and public video stills
+      - name: Harvest exact-query POV thumbnails fast
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python google_pov_harvest.py
+        run: python google_pov_fast.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat GOOGLE_POV_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload Google POV ZIP
+        run: echo "Collected $(cat POV_FAST_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload fast POV ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-google-pov-stills
+          name: anna-claire-clouds-pov-fast
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_google_pov_stills.zip
-            tools/anna_claire_clouds_harvest/GOOGLE_POV_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_pov_fast.zip
+            tools/anna_claire_clouds_harvest/POV_FAST_COUNT.txt
           if-no-files-found: error
           retention-days: 7
