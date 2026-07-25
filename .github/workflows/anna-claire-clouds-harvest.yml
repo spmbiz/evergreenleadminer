@@ -1,4 +1,4 @@
-name: Anna Claire Clouds four-browser scene preview harvest
+name: Anna Claire Clouds uncropped currentSrc harvest
 
 on:
   push:
@@ -30,20 +30,20 @@ jobs:
           pip install -r tools/anna_claire_clouds_harvest/requirements.txt
           pip install playwright==1.52.0
           which google-chrome || which google-chrome-stable || which chromium || true
-      - name: Capture previews in four browsers
+      - name: Harvest uncropped Bing source thumbnails
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
         run: python browser_expanded_preview_fast.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat EXPANDED_FAST_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload parallel preview ZIP
+        run: echo "Collected $(cat SOURCE_THUMB_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload uncropped source-thumbnail ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-parallel-scene-previews
+          name: anna-claire-clouds-uncropped-source-thumbnails
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_expanded_scene_previews_fast.zip
-            tools/anna_claire_clouds_harvest/EXPANDED_FAST_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_uncropped_source_thumbnails.zip
+            tools/anna_claire_clouds_harvest/SOURCE_THUMB_COUNT.txt
           if-no-files-found: error
           retention-days: 7
