@@ -1,4 +1,4 @@
-name: Anna Claire Clouds site-locked scene harvest
+name: Anna Claire Clouds exact POV multi-engine harvest
 
 on:
   push:
@@ -26,24 +26,21 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: |
-          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-          pip install playwright==1.52.0
-          which google-chrome || which google-chrome-stable || which chromium || true
-      - name: Harvest exact domain and performer-locked scene thumbnails
+        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+      - name: Harvest exact-query POV and VR thumbnails
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python site_locked_scene_300.py
+        run: python ddg_exact_pov_harvest.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat SITELOCK_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload site-locked ZIP
+        run: echo "Collected $(cat FRESH_POV_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload exact POV ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-site-locked-scene-300
+          name: anna-claire-clouds-exact-pov-300
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_site_locked_scene_300.zip
-            tools/anna_claire_clouds_harvest/SITELOCK_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_fresh_pov_300.zip
+            tools/anna_claire_clouds_harvest/FRESH_POV_COUNT.txt
           if-no-files-found: error
           retention-days: 7
