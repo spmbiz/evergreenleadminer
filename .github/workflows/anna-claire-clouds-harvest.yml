@@ -36,7 +36,7 @@ jobs:
           TARGET_COUNT: "200"
         run: |
           set +e
-          python urlebird_harvest.py
+          python run_urlebird_fixed.py
           echo "harvest_exit=$?" >> "$GITHUB_ENV"
           exit 0
 
