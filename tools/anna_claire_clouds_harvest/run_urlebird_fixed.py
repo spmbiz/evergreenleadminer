@@ -33,5 +33,19 @@ def parse_entries_fixed(fragment: str) -> list[harvest.Entry]:
     return out
 
 
+_original_fetch_image = harvest.fetch_image
+
+
+def fetch_image_safe(meta):
+    # Individual CDN thumbnails sometimes expire or return a non-200 response.
+    # A single failed candidate must not abort the entire 300+ item harvest.
+    try:
+        return _original_fetch_image(meta)
+    except Exception as exc:
+        print(f"SKIP_THUMBNAIL {meta.get('video_page', '')}: {exc}")
+        return None
+
+
 harvest.parse_entries = parse_entries_fixed
+harvest.fetch_image = fetch_image_safe
 raise SystemExit(harvest.main())
