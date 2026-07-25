@@ -8,6 +8,13 @@ on:
       - "environment-harvest-bundle/**"
       - ".github/workflows/environment-harvest-300.yml"
       - "ENVIRONMENT_HARVEST_TRIGGER.txt"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "environment-harvest-bundle/**"
+      - ".github/workflows/environment-harvest-300.yml"
+      - "ENVIRONMENT_HARVEST_TRIGGER.txt"
   workflow_dispatch:
 
 permissions:
