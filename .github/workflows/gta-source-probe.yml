@@ -1,0 +1,45 @@
+name: GTA Source Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'GTA_SOURCE_PROBE_TRIGGER.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe sources
+        shell: bash
+        run: |
+          set +e
+          mkdir -p probe
+          urls=(
+            'https://www.igta5.com/official-screenshots-5'
+            'https://www.igta5.com/images/official-screenshot-pc-up-to-no-good.jpg'
+            'https://wsrv.nl/?url=www.igta5.com/images/official-screenshot-pc-up-to-no-good.jpg&w=1280&output=jpg'
+            'https://images.weserv.nl/?url=www.igta5.com/images/official-screenshot-pc-up-to-no-good.jpg&w=1280&output=jpg'
+            'https://r.jina.ai/https://www.igrandtheftauto.com/gta5/images/screenshots'
+            'https://www.gtabase.com/grand-theft-auto-v/screenshots/'
+            'https://r.jina.ai/https://www.gtabase.com/grand-theft-auto-v/screenshots/'
+          )
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            echo "=== $i $url ===" | tee -a probe/results.txt
+            curl -A 'Mozilla/5.0' -L --max-time 30 -sS -D "probe/$i.headers" -o "probe/$i.body" -w 'code=%{http_code} type=%{content_type} size=%{size_download} final=%{url_effective}\n' "$url" | tee -a probe/results.txt
+            file "probe/$i.body" | tee -a probe/results.txt
+            head -c 120 "probe/$i.body" | xxd | head -5 >> probe/results.txt
+          done
+          cat probe/results.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gta-source-probe
+          path: probe
+          compression-level: 0
+          retention-days: 2
