@@ -1,4 +1,4 @@
-name: Anna Claire Clouds targeted editorial harvest
+name: Anna Claire Clouds direct source harvest
 
 on:
   push:
@@ -27,27 +27,27 @@ jobs:
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest exact-match editorial, interview and event images
+      - name: Crawl XBIZ Getty YouTube and public interview pages
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python targeted_harvest_v2.py
+        run: python direct_source_harvest.py
       - name: Write count
         working-directory: tools/anna_claire_clouds_harvest
         run: |
           python - <<'PY'
           import csv, pathlib
-          p=pathlib.Path('targeted_output/manifest.csv')
+          p=pathlib.Path('direct_output/manifest.csv')
           n=sum(1 for _ in csv.DictReader(p.open(encoding='utf-8-sig'))) if p.exists() else 0
-          pathlib.Path('TARGETED_COUNT.txt').write_text(str(n))
+          pathlib.Path('DIRECT_COUNT.txt').write_text(str(n))
           print(f'Collected {n}')
           PY
-      - name: Upload targeted ZIP
+      - name: Upload direct-source ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-targeted-public-photos-v2
+          name: anna-claire-clouds-direct-source-photos
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_targeted_public_photos.zip
-            tools/anna_claire_clouds_harvest/TARGETED_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_direct_source_photos.zip
+            tools/anna_claire_clouds_harvest/DIRECT_COUNT.txt
           if-no-files-found: error
           retention-days: 7
