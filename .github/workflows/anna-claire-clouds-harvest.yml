@@ -1,4 +1,4 @@
-name: Anna Claire Clouds fast expanded scene preview harvest
+name: Anna Claire Clouds four-browser scene preview harvest
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
           pip install -r tools/anna_claire_clouds_harvest/requirements.txt
           pip install playwright==1.52.0
           which google-chrome || which google-chrome-stable || which chromium || true
-      - name: Capture fast enlarged uncropped previews
+      - name: Capture previews in four browsers
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
@@ -38,10 +38,10 @@ jobs:
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
         run: echo "Collected $(cat EXPANDED_FAST_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload fast expanded preview ZIP
+      - name: Upload parallel preview ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-expanded-scene-previews-fast
+          name: anna-claire-clouds-parallel-scene-previews
           path: |
             tools/anna_claire_clouds_harvest/anna_claire_clouds_expanded_scene_previews_fast.zip
             tools/anna_claire_clouds_harvest/EXPANDED_FAST_COUNT.txt
