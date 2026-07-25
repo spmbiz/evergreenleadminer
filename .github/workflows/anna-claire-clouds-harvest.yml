@@ -1,4 +1,4 @@
-name: Anna Claire Clouds official social photo harvest
+name: Anna Claire Clouds TikTok still harvest
 
 on:
   push:
@@ -30,13 +30,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
 
-      - name: Harvest official public social images
+      - name: Harvest public TikTok stills
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
         run: |
           set +e
-          python social_harvest.py
+          python urlebird_harvest.py
           echo "harvest_exit=$?" >> "$GITHUB_ENV"
           exit 0
 
@@ -46,12 +46,12 @@ jobs:
           echo "Collected: $(cat COLLECTION_COUNT.txt 2>/dev/null || echo 0)"
           echo "Harvester exit: $harvest_exit"
 
-      - name: Upload official-photo artifact and diagnostics
+      - name: Upload photo artifact and diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-official-public-photos
+          name: anna-claire-clouds-200-public-tiktok-stills
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_200_official_public_photos.zip
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_200_public_tiktok_stills.zip
             tools/anna_claire_clouds_harvest/COLLECTION_COUNT.txt
             tools/anna_claire_clouds_harvest/logs/
           if-no-files-found: warn
