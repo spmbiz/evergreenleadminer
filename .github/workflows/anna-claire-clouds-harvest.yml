@@ -1,4 +1,4 @@
-name: Anna Claire Clouds exact POV harvest
+name: Anna Claire Clouds real Google POV results
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 9
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,21 +26,24 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest exact-name POV pages and thumbnails
+        run: |
+          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+          pip install playwright==1.52.0
+          which google-chrome || which google-chrome-stable || true
+      - name: Capture actual Google Images POV result thumbnails
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python pov_exact_pages.py
+        run: python google_dom_screenshots.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat POV_EXACT_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload exact POV ZIP
+        run: echo "Collected $(cat GOOGLE_DOM_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload real Google result ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-pov-exact
+          name: anna-claire-clouds-google-pov-real-results
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_pov_exact.zip
-            tools/anna_claire_clouds_harvest/POV_EXACT_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_google_pov_real_results.zip
+            tools/anna_claire_clouds_harvest/GOOGLE_DOM_COUNT.txt
           if-no-files-found: error
           retention-days: 7
