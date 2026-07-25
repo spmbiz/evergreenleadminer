@@ -1,4 +1,4 @@
-name: Anna Claire Clouds 300 scene still harvest
+name: Anna Claire Clouds browser scene grid harvest
 
 on:
   push:
@@ -26,21 +26,24 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest 300 public scene thumbnails and poster stills
+        run: |
+          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+          pip install playwright==1.52.0
+          which google-chrome || which google-chrome-stable || which chromium || true
+      - name: Screenshot public search-result scene thumbnails in Chrome
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python scene_thumb_harvest_300.py
+        run: python browser_grid_scene_300.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat SCENE300_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload 300-scene ZIP
+        run: echo "Collected $(cat BROWSER300_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload browser-grid ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-300-scene-stills
+          name: anna-claire-clouds-browser-scene-grid-300
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_300_scene_stills.zip
-            tools/anna_claire_clouds_harvest/SCENE300_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_300_scene_grid.zip
+            tools/anna_claire_clouds_harvest/BROWSER300_COUNT.txt
           if-no-files-found: error
           retention-days: 7
