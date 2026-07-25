@@ -6,7 +6,37 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  harvest:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: photo-harvest
     steps:
-      - run: echo runner-ok
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Harvest first 100 people
+        run: python harvest.py 2>&1 | tee harvest.log
+      - name: Show totals
+        if: always()
+        run: cat people-photos-100/README.txt || true
+      - name: Upload harvest ZIP and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: people-photos-100
+          path: |
+            photo-harvest/people-photos-100.zip
+            photo-harvest/people-photos-100/manifest.csv
+            photo-harvest/people-photos-100/failures.csv
+            photo-harvest/people-photos-100/README.txt
+            photo-harvest/harvest.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
