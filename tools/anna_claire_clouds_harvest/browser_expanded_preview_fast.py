@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from playwright.sync_api import sync_playwright
 
 TARGET=int(os.getenv('TARGET_COUNT','300'))
-OUT=Path('expanded_fast300'); PHOTOS=OUT/'photos'; TMP=Path('expanded_fast_tmp')
+OUT=Path('source_thumb300'); PHOTOS=OUT/'photos'; TMP=Path('source_thumb_tmp')
 QUERIES=[
 '"Anna Claire Clouds" POV','"Anna Claire Clouds" POV scene','"Anna Claire Clouds" POV preview','"Anna Claire Clouds" POV trailer',
 '"Anna Claire Clouds" POVR','"Anna Claire Clouds" "Happy Little Clouds"','"Anna Claire Clouds" "A Girl and Her Canvas"',
@@ -32,51 +32,51 @@ BLOCK=['award','awards','avn expo','xbiz','red carpet','gala','interview','podca
 
 
 def compact(s): return re.sub(r'[^a-z0-9]','',html.unescape(s).lower())
-def rel(meta):
+def relevant(meta):
     text=html.unescape(' '.join(str(meta.get(k) or '') for k in ('t','desc','purl','murl'))).lower(); c=compact(text)
-    return any(x in c for x in ('annaclaireclouds','annaclairclouds','anaclouds','annaclouds')) and any(x in text for x in SCENE) and not any(x in text for x in BLOCK)
+    has_name=any(x in c for x in ('annaclaireclouds','annaclairclouds','anaclouds','annaclouds'))
+    return has_name and any(x in text for x in SCENE) and not any(x in text for x in BLOCK)
 
-def largest(page):
-    h=page.evaluate_handle("""() => {const a=[...document.images].map(i=>{const r=i.getBoundingClientRect();return {i,a:r.width*r.height,w:r.width,h:r.height,v:r.width>0&&r.height>0,g:!!i.closest('a.iusc'),s:(i.currentSrc||i.src||'')+(i.alt||'')}}).filter(x=>x.v&&!x.g&&x.w>=360&&x.h>=200&&!/logo|icon|avatar|sprite/i.test(x.s)).sort((x,y)=>y.a-x.a);return a.length?a[0].i:null;}""")
-    try:return h.as_element()
-    except:return None
+def high_skin(im):
+    small=im.convert('YCbCr').resize((160,100),Image.Resampling.BILINEAR)
+    pix=list(small.getdata()); skin=sum(1 for y,cb,cr in pix if 77<=cb<=127 and 133<=cr<=173 and y>45)
+    return skin/len(pix)>0.48
 
-def worker(worker_id, indexed_queries):
-    out=[]; wdir=TMP/f'w{worker_id}'; wdir.mkdir(parents=True,exist_ok=True)
+def worker(wid, items):
+    out=[]; wdir=TMP/f'w{wid}'; wdir.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as p:
         chrome=next((x for x in ('/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium','/usr/bin/chromium-browser') if Path(x).exists()),None)
         b=p.chromium.launch(headless=True,executable_path=chrome,args=['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'])
-        c=b.new_context(viewport={'width':1500,'height':930},device_scale_factor=1.0,locale='en-US',user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36')
+        c=b.new_context(viewport={'width':1500,'height':930},locale='en-US',user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36')
         c.add_cookies([{'name':'SRCHHPGUSR','value':'ADLT=OFF&NRSLT=50','domain':'.bing.com','path':'/'},{'name':'SRCHUSR','value':'DOB=20200101','domain':'.bing.com','path':'/'}])
-        page=c.new_page(); page.set_default_timeout(2200)
-        for qi,q in indexed_queries:
+        page=c.new_page(); page.set_default_timeout(2500)
+        for qi,q in items:
             try: page.goto(f'https://www.bing.com/images/search?q={quote_plus(q)}&form=HDRSC2&adlt=off',wait_until='domcontentloaded',timeout=12000); page.wait_for_timeout(350)
-            except Exception: continue
-            for _ in range(4): page.mouse.wheel(0,2100); page.wait_for_timeout(90)
-            cards=page.locator('a.iusc'); count=min(cards.count(),55); kept=0
+            except: continue
+            for _ in range(5): page.mouse.wheel(0,2300); page.wait_for_timeout(100)
+            cards=page.locator('a.iusc'); count=min(cards.count(),90); kept=0
             for rank in range(count):
-                if kept>=12: break
+                if kept>=16: break
                 card=cards.nth(rank)
-                try: meta=json.loads(card.get_attribute('m') or '{}')
-                except: continue
-                if not rel(meta): continue
-                try: card.scroll_into_view_if_needed(timeout=400); card.click(timeout=1000,force=True); page.wait_for_timeout(120)
-                except: continue
-                imgel=largest(page)
-                if imgel is None: continue
                 try:
-                    box=imgel.bounding_box()
-                    if not box or box['width']<360 or box['height']<200: continue
-                    raw=imgel.screenshot(type='jpeg',quality=91,timeout=2200)
+                    meta=json.loads(card.get_attribute('m') or '{}')
+                    if not relevant(meta): continue
+                    img=card.locator('img.mimg, img').first
+                    src=img.evaluate('(i)=>i.currentSrc||i.src||""')
+                    if not src: continue
+                    r=c.request.get(src,headers={'Referer':'https://www.bing.com/'},timeout=6000)
+                    if not r.ok: continue
+                    raw=r.body()
                     with Image.open(BytesIO(raw)) as im:
                         im=ImageOps.exif_transpose(im).convert('RGB')
-                        if im.width/max(1,im.height)<1.15: continue
-                        fn=f'w{worker_id}_q{qi:02d}_r{rank+1:03d}_{kept+1:02d}.jpg'
+                        if im.width<180 or im.height<110 or im.width/im.height<1.12: continue
+                        if high_skin(im): continue
+                        fn=f'w{wid}_q{qi:02d}_r{rank+1:03d}_{kept+1:02d}.jpg'
                         im.save(wdir/fn,'JPEG',quality=92,optimize=True,progressive=True)
-                    out.append({'tmp_path':str(wdir/fn),'query_index':qi,'query':q,'rank':rank+1,'title':str(meta.get('t') or ''),'source_page':str(meta.get('purl') or ''),'image_url':str(meta.get('murl') or '')})
+                    out.append({'tmp_path':str(wdir/fn),'query_index':qi,'query':q,'rank':rank+1,'title':str(meta.get('t') or ''),'source_page':str(meta.get('purl') or ''),'image_url':str(meta.get('murl') or ''),'thumb_url':src})
                     kept+=1
                 except: continue
-            print(f'worker={worker_id} q{qi} kept={kept}',flush=True)
+            print(f'worker={wid} q{qi} kept={kept}',flush=True)
         b.close()
     return out
 
@@ -99,8 +99,7 @@ def main():
     for item in enumerate(QUERIES,1): chunks[(item[0]-1)%4].append(item)
     gathered=[]
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futs=[ex.submit(worker,i+1,chunks[i]) for i in range(4)]
-        for f in as_completed(futs):
+        for f in as_completed([ex.submit(worker,i+1,chunks[i]) for i in range(4)]):
             try:gathered.extend(f.result())
             except Exception as e: print('WORKER_FAIL',e,flush=True)
     rows=[]; exact=set(); phs=[]
@@ -112,14 +111,14 @@ def main():
             with Image.open(BytesIO(raw)) as im:
                 im=ImageOps.exif_transpose(im).convert('RGB'); ph=imagehash.phash(im)
                 if any((ph-x)<=2 for x in phs): continue
-                idx=len(rows)+1; fn=f'anna_claire_clouds_scene_preview_{idx:03d}.jpg'
+                idx=len(rows)+1; fn=f'anna_claire_clouds_scene_thumb_{idx:03d}.jpg'
                 if im.width<720:
                     s=720/im.width; im=im.resize((720,max(1,int(im.height*s))),Image.Resampling.LANCZOS)
                 im.save(PHOTOS/fn,'JPEG',quality=93,optimize=True,progressive=True)
             exact.add(sha); phs.append(ph); item.pop('tmp_path',None); item.update({'index':idx,'filename':fn}); rows.append(item)
         except: continue
-    fields=['index','filename','query_index','query','rank','title','source_page','image_url']
-    with (OUT/'manifest.csv').open('w',newline='',encoding='utf-8-sig') as f: w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
-    sheet(rows); (OUT/'README.txt').write_text(f'Fresh four-browser expanded preview harvest. Collected: {len(rows)}. No prior files reused.\n',encoding='utf-8')
-    shutil.make_archive('anna_claire_clouds_expanded_scene_previews_fast','zip',OUT); Path('EXPANDED_FAST_COUNT.txt').write_text(str(len(rows)),encoding='utf-8'); print(f'FINAL_COUNT={len(rows)}',flush=True)
+    fields=['index','filename','query_index','query','rank','title','source_page','image_url','thumb_url']
+    with (OUT/'manifest.csv').open('w',newline='',encoding='utf-8-sig') as f: w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
+    sheet(rows); (OUT/'README.txt').write_text(f'Fresh uncropped Bing source-thumbnail harvest. Collected: {len(rows)}. No prior files reused.\n',encoding='utf-8')
+    shutil.make_archive('anna_claire_clouds_uncropped_source_thumbnails','zip',OUT); Path('SOURCE_THUMB_COUNT.txt').write_text(str(len(rows)),encoding='utf-8'); print(f'FINAL_COUNT={len(rows)}',flush=True)
 if __name__=='__main__': main()
