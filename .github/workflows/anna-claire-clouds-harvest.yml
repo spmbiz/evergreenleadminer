@@ -1,4 +1,4 @@
-name: Anna Claire Clouds performer catalog scene harvest
+name: Anna Claire Clouds IMDb scene still harvest
 
 on:
   push:
@@ -26,24 +26,21 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: |
-          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-          pip install playwright==1.52.0
-          which google-chrome || which google-chrome-stable || which chromium || true
-      - name: Capture performer-specific public video-card thumbnails
+        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+      - name: Harvest IMDb filmography media stills and posters
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python performer_catalog_300.py
+        run: python imdb_scene_300.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat CATALOG300_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload performer-catalog ZIP
+        run: echo "Collected $(cat IMDB300_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload IMDb ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-catalog-scene-300
+          name: anna-claire-clouds-imdb-scene-300
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_catalog_scene_300.zip
-            tools/anna_claire_clouds_harvest/CATALOG300_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_imdb_scene_300.zip
+            tools/anna_claire_clouds_harvest/IMDB300_COUNT.txt
           if-no-files-found: error
           retention-days: 7
