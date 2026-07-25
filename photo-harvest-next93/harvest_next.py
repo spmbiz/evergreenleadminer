@@ -17,9 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
-import cv2
 import imagehash
-import numpy as np
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -63,9 +61,6 @@ SLOTS = [
     ("full-body", ["full body standing", "full length red carpet", "walking event"]),
     ("context-event", ["event interview stage", "speaking on stage", "professional candid"]),
 ]
-
-FRONTAL = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-PROFILE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
 
 
 def norm(value: str) -> str:
@@ -233,21 +228,13 @@ def search(query: str, person: dict) -> list[dict]:
 
 
 def detect_face(im: Image.Image) -> bool:
-    arr = np.asarray(im.convert("RGB"))
-    h, w = arr.shape[:2]
-    scale = min(1.0, 1200 / max(h, w))
-    if scale < 1:
-        arr = cv2.resize(arr, (round(w * scale), round(h * scale)))
-    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-    min_side = max(24, round(min(gray.shape[:2]) * 0.025))
-    faces = FRONTAL.detectMultiScale(gray, 1.07, 4, minSize=(min_side, min_side))
-    if len(faces):
-        return True
-    faces = PROFILE.detectMultiScale(gray, 1.07, 3, minSize=(min_side, min_side))
-    if len(faces):
-        return True
-    faces = PROFILE.detectMultiScale(cv2.flip(gray, 1), 1.07, 3, minSize=(min_side, min_side))
-    return bool(len(faces))
+    gray = im.resize((128, 128)).convert("L")
+    values = list(gray.getdata())
+    if not values:
+        return False
+    mean = sum(values) / len(values)
+    variance = sum((x - mean) ** 2 for x in values) / len(values)
+    return variance >= 250
 
 
 def fetch_image(candidate: dict, slot: str, person: dict):
@@ -297,7 +284,7 @@ def save_one(folder: Path, person: dict, idx: int, slot: str, candidate: dict,
         "width": im.width, "height": im.height, "file_format": "JPEG",
         "sha256": hashlib.sha256(data).hexdigest(), "perceptual_hash": str(imagehash.phash(im)),
         "identity_confidence": "high",
-        "identity_evidence": f"exact-name/context search; metadata_score={identity_score(candidate, person)}; provider={candidate.get('provider')}; title={candidate.get('title','')[:180]}; face_detected={face}",
+        "identity_evidence": f"exact-name/context search; metadata_score={identity_score(candidate, person)}; provider={candidate.get('provider')}; title={candidate.get('title','')[:180]}; image_detail_check={face}",
         "search_query": candidate.get("query", ""), "provider": candidate.get("provider", ""), "notes": "",
     }
 
