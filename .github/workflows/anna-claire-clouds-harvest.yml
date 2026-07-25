@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - anna-claire-clouds-harvest
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
