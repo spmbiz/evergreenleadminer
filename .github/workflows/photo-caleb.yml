@@ -1,0 +1,42 @@
+name: Photo Caleb Fallback
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  caleb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: photo-harvest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Harvest Caleb Pressley
+        run: python caleb_harvest.py 2>&1 | tee caleb.log
+      - name: Show totals
+        if: always()
+        run: cat people-photos-caleb/README.txt || true
+      - name: Upload Caleb ZIP and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: people-photos-caleb
+          path: |
+            photo-harvest/people-photos-caleb.zip
+            photo-harvest/people-photos-caleb/manifest.csv
+            photo-harvest/people-photos-caleb/failures.csv
+            photo-harvest/people-photos-caleb/README.txt
+            photo-harvest/caleb.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
