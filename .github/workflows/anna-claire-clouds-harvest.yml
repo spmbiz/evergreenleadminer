@@ -1,4 +1,4 @@
-name: Anna Claire Clouds uncropped scene preview harvest
+name: Anna Claire Clouds expanded scene preview harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,21 +26,24 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Download uncropped original scene and trailer previews
+        run: |
+          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+          pip install playwright==1.52.0
+          which google-chrome || which google-chrome-stable || which chromium || true
+      - name: Capture enlarged uncropped POV and scene previews
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python original_scene_previews.py
+        run: python browser_expanded_preview_300.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat UNCROPPED_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload uncropped preview ZIP
+        run: echo "Collected $(cat EXPANDED_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload expanded preview ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-uncropped-scene-previews
+          name: anna-claire-clouds-expanded-scene-previews
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_uncropped_scene_previews.zip
-            tools/anna_claire_clouds_harvest/UNCROPPED_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_expanded_scene_previews.zip
+            tools/anna_claire_clouds_harvest/EXPANDED_COUNT.txt
           if-no-files-found: error
           retention-days: 7
