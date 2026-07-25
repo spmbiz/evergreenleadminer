@@ -1,4 +1,4 @@
-name: Anna Claire Clouds fresh browser POV harvest
+name: Anna Claire Clouds site-locked scene harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,20 +30,20 @@ jobs:
           pip install -r tools/anna_claire_clouds_harvest/requirements.txt
           pip install playwright==1.52.0
           which google-chrome || which google-chrome-stable || which chromium || true
-      - name: Capture fresh exact-query POV thumbnails in Chrome
+      - name: Harvest exact domain and performer-locked scene thumbnails
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python browser_exact_scene_300.py
+        run: python site_locked_scene_300.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat FRESH_BROWSER_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload fresh browser POV ZIP
+        run: echo "Collected $(cat SITELOCK_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload site-locked ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-fresh-browser-pov-300
+          name: anna-claire-clouds-site-locked-scene-300
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_fresh_browser_pov_300.zip
-            tools/anna_claire_clouds_harvest/FRESH_BROWSER_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_site_locked_scene_300.zip
+            tools/anna_claire_clouds_harvest/SITELOCK_COUNT.txt
           if-no-files-found: error
           retention-days: 7
