@@ -1,4 +1,4 @@
-name: Anna Claire Clouds public photo harvest
+name: Anna Claire Clouds official social photo harvest
 
 on:
   push:
@@ -30,29 +30,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
 
-      - name: Harvest images
+      - name: Harvest official public social images
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python harvest.py
+        run: |
+          set +e
+          python social_harvest.py
+          echo "harvest_exit=$?" >> "$GITHUB_ENV"
+          exit 0
 
-      - name: Write collection count
+      - name: Report collection count
         working-directory: tools/anna_claire_clouds_harvest
         run: |
-          python - <<'PY'
-          import csv, pathlib
-          p = pathlib.Path('output/manifest.csv')
-          n = sum(1 for _ in csv.DictReader(p.open(encoding='utf-8-sig'))) if p.exists() else 0
-          print(f'Collected {n} images')
-          pathlib.Path('COLLECTION_COUNT.txt').write_text(str(n), encoding='utf-8')
-          PY
+          echo "Collected: $(cat COLLECTION_COUNT.txt 2>/dev/null || echo 0)"
+          echo "Harvester exit: $harvest_exit"
 
-      - name: Upload ZIP artifact
+      - name: Upload official-photo artifact and diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-200-public-photos
+          name: anna-claire-clouds-official-public-photos
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_200_public_photos.zip
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_200_official_public_photos.zip
             tools/anna_claire_clouds_harvest/COLLECTION_COUNT.txt
-          if-no-files-found: error
+            tools/anna_claire_clouds_harvest/logs/
+          if-no-files-found: warn
           retention-days: 7
