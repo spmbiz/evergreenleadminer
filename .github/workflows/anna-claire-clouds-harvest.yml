@@ -1,4 +1,4 @@
-name: Anna Claire Clouds fresh exact POV harvest
+name: Anna Claire Clouds performer catalog scene harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,21 +26,24 @@ jobs:
           cache: pip
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
-        run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest fresh exact-query POV search thumbnails
+        run: |
+          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+          pip install playwright==1.52.0
+          which google-chrome || which google-chrome-stable || which chromium || true
+      - name: Capture performer-specific public video-card thumbnails
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "300"
-        run: python ddg_exact_pov_harvest.py
+        run: python performer_catalog_300.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat FRESH_POV_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload fresh POV ZIP
+        run: echo "Collected $(cat CATALOG300_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload performer-catalog ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-fresh-pov-300
+          name: anna-claire-clouds-catalog-scene-300
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_fresh_pov_300.zip
-            tools/anna_claire_clouds_harvest/FRESH_POV_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_catalog_scene_300.zip
+            tools/anna_claire_clouds_harvest/CATALOG300_COUNT.txt
           if-no-files-found: error
           retention-days: 7
