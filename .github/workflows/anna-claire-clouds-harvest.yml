@@ -1,4 +1,4 @@
-name: Anna Claire Clouds fast POV harvest
+name: Anna Claire Clouds exact POV harvest
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,20 +27,20 @@ jobs:
           cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
       - name: Install dependencies
         run: pip install -r tools/anna_claire_clouds_harvest/requirements.txt
-      - name: Harvest exact-query POV thumbnails fast
+      - name: Harvest exact-name POV pages and thumbnails
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python google_pov_fast.py
+        run: python pov_exact_pages.py
       - name: Report count
         working-directory: tools/anna_claire_clouds_harvest
-        run: echo "Collected $(cat POV_FAST_COUNT.txt 2>/dev/null || echo 0)"
-      - name: Upload fast POV ZIP
+        run: echo "Collected $(cat POV_EXACT_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload exact POV ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-pov-fast
+          name: anna-claire-clouds-pov-exact
           path: |
-            tools/anna_claire_clouds_harvest/anna_claire_clouds_pov_fast.zip
-            tools/anna_claire_clouds_harvest/POV_FAST_COUNT.txt
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_pov_exact.zip
+            tools/anna_claire_clouds_harvest/POV_EXACT_COUNT.txt
           if-no-files-found: error
           retention-days: 7
