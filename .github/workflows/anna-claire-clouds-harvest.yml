@@ -31,7 +31,7 @@ jobs:
         working-directory: tools/anna_claire_clouds_harvest
         env:
           TARGET_COUNT: "200"
-        run: python targeted_harvest.py
+        run: python targeted_harvest_v2.py
       - name: Write count
         working-directory: tools/anna_claire_clouds_harvest
         run: |
@@ -45,7 +45,7 @@ jobs:
       - name: Upload targeted ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: anna-claire-clouds-targeted-public-photos
+          name: anna-claire-clouds-targeted-public-photos-v2
           path: |
             tools/anna_claire_clouds_harvest/anna_claire_clouds_targeted_public_photos.zip
             tools/anna_claire_clouds_harvest/TARGETED_COUNT.txt
