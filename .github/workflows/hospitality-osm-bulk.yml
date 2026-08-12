@@ -104,14 +104,33 @@ jobs:
             --workers "$WORKERS" \
             2>&1 | tee "results/$SHARD_NAME/harvest.log"
 
-      - name: Show summary
+      - name: Apply strict luxury / high-end property gate
+        shell: bash
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+          WORKERS: ${{ needs.plan.outputs.workers }}
+        run: |
+          set -o pipefail
+          python tools/premium_property_filter.py \
+            --input "results/$SHARD_NAME/candidates_all.csv" \
+            --outdir "results/$SHARD_NAME" \
+            --workers "$WORKERS" \
+            --max-web-checks 0 \
+            2>&1 | tee "results/$SHARD_NAME/premium_gate.log"
+
+      - name: Show summaries
         if: always()
         shell: bash
         env:
           SHARD_NAME: ${{ matrix.name }}
         run: |
           if [ -f "results/$SHARD_NAME/summary.json" ]; then
+            echo '--- BULK SUMMARY ---'
             cat "results/$SHARD_NAME/summary.json"
+          fi
+          if [ -f "results/$SHARD_NAME/premium_summary.json" ]; then
+            echo '--- PREMIUM SUMMARY ---'
+            cat "results/$SHARD_NAME/premium_summary.json"
           fi
 
       - name: Upload lead artifact
@@ -125,8 +144,14 @@ jobs:
             results/${{ matrix.name }}/candidates_with_public_email.csv
             results/${{ matrix.name }}/priority_ab.csv
             results/${{ matrix.name }}/priority_a.csv
+            results/${{ matrix.name }}/premium_all_scored.csv
+            results/${{ matrix.name }}/premium_selected.csv
+            results/${{ matrix.name }}/premium_selected_with_email.csv
+            results/${{ matrix.name }}/premium_rejected.csv
             results/${{ matrix.name }}/summary.json
+            results/${{ matrix.name }}/premium_summary.json
             results/${{ matrix.name }}/harvest.log
+            results/${{ matrix.name }}/premium_gate.log
           if-no-files-found: warn
           compression-level: 6
           retention-days: 7
