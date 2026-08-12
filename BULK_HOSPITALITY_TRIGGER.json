@@ -1,0 +1,20 @@
+{
+  "run_name": "california-v1",
+  "max_candidates_per_shard": 30000,
+  "max_enrich_per_shard": 3500,
+  "workers": 36,
+  "shards": [
+    {
+      "name": "california-socal",
+      "country": "USA",
+      "region": "Southern California",
+      "url": "https://download.geofabrik.de/north-america/us/california/socal-latest.osm.pbf"
+    },
+    {
+      "name": "california-norcal",
+      "country": "USA",
+      "region": "Northern California",
+      "url": "https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf"
+    }
+  ]
+}
