@@ -1,0 +1,25 @@
+{
+  "run_name": "americas-high-end-first-v4-test1",
+  "max_candidates_per_shard": 30000,
+  "max_screen_per_shard": 12000,
+  "workers": 36,
+  "shards": [
+    {"name":"v4-california-socal","country":"United States","region":"Southern California","url":"https://download.geofabrik.de/north-america/us/california/socal-latest.osm.pbf"},
+    {"name":"v4-california-norcal","country":"United States","region":"Northern California","url":"https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf"},
+    {"name":"v4-florida","country":"United States","region":"Florida","url":"https://download.geofabrik.de/north-america/us/florida-latest.osm.pbf"},
+    {"name":"v4-hawaii","country":"United States","region":"Hawaii","url":"https://download.geofabrik.de/north-america/us/hawaii-latest.osm.pbf"},
+    {"name":"v4-arizona","country":"United States","region":"Arizona","url":"https://download.geofabrik.de/north-america/us/arizona-latest.osm.pbf"},
+    {"name":"v4-colorado","country":"United States","region":"Colorado","url":"https://download.geofabrik.de/north-america/us/colorado-latest.osm.pbf"},
+    {"name":"v4-utah","country":"United States","region":"Utah","url":"https://download.geofabrik.de/north-america/us/utah-latest.osm.pbf"},
+    {"name":"v4-nevada","country":"United States","region":"Nevada","url":"https://download.geofabrik.de/north-america/us/nevada-latest.osm.pbf"},
+    {"name":"v4-new-york","country":"United States","region":"New York","url":"https://download.geofabrik.de/north-america/us/new-york-latest.osm.pbf"},
+    {"name":"v4-massachusetts","country":"United States","region":"Massachusetts","url":"https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf"},
+    {"name":"v4-south-carolina","country":"United States","region":"South Carolina","url":"https://download.geofabrik.de/north-america/us/south-carolina-latest.osm.pbf"},
+    {"name":"v4-puerto-rico","country":"Puerto Rico","region":"Puerto Rico","url":"https://download.geofabrik.de/north-america/us/puerto-rico-latest.osm.pbf"},
+    {"name":"v4-us-virgin-islands","country":"US Virgin Islands","region":"US Virgin Islands","url":"https://download.geofabrik.de/north-america/us/us-virgin-islands-latest.osm.pbf"},
+    {"name":"v4-british-columbia","country":"Canada","region":"British Columbia","url":"https://download.geofabrik.de/north-america/canada/british-columbia-latest.osm.pbf"},
+    {"name":"v4-quebec","country":"Canada","region":"Quebec","url":"https://download.geofabrik.de/north-america/canada/quebec-latest.osm.pbf"},
+    {"name":"v4-mexico","country":"Mexico","region":"Mexico","url":"https://download.geofabrik.de/north-america/mexico-latest.osm.pbf"},
+    {"name":"v4-central-america-caribbean","country":"Central America / Caribbean","region":"Central America + Caribbean aggregate","url":"https://download.geofabrik.de/central-america-latest.osm.pbf"}
+  ]
+}
