@@ -32,12 +32,38 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           cfg=json.load(open('BULK_HOSPITALITY_TRIGGER.json',encoding='utf-8'))
-          shards=cfg.get('shards') or []
+          shards=list(cfg.get('shards') or [])
+          if cfg.get('preset') == 'americas':
+              us = '''alabama alaska arizona arkansas colorado connecticut delaware district-of-columbia florida georgia hawaii idaho illinois indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi missouri montana nebraska nevada new-hampshire new-jersey new-mexico new-york north-carolina north-dakota ohio oklahoma oregon pennsylvania puerto-rico rhode-island south-carolina south-dakota tennessee texas us-virgin-islands utah vermont virginia washington west-virginia wisconsin wyoming'''.split()
+              ca = '''alberta british-columbia manitoba new-brunswick newfoundland-and-labrador northwest-territories nova-scotia nunavut ontario prince-edward-island quebec saskatchewan yukon'''.split()
+              central = '''bahamas belize costa-rica cuba el-salvador guatemala haiti-and-domrep honduras jamaica nicaragua panama'''.split()
+              south = '''argentina bolivia brazil chile colombia ecuador guyana paraguay peru suriname uruguay venezuela'''.split()
+              for s in us:
+                  shards.append({'name':'us-'+s,'country':'USA','region':s.replace('-',' ').title(),'url':f'https://download.geofabrik.de/north-america/us/{s}-latest.osm.pbf'})
+              # California is split for runner efficiency.
+              shards += [
+                  {'name':'us-california-socal','country':'USA','region':'Southern California','url':'https://download.geofabrik.de/north-america/us/california/socal-latest.osm.pbf'},
+                  {'name':'us-california-norcal','country':'USA','region':'Northern California','url':'https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf'}]
+              for s in ca:
+                  shards.append({'name':'canada-'+s,'country':'Canada','region':s.replace('-',' ').title(),'url':f'https://download.geofabrik.de/north-america/canada/{s}-latest.osm.pbf'})
+              shards.append({'name':'mexico','country':'Mexico','region':'Mexico','url':'https://download.geofabrik.de/north-america/mexico-latest.osm.pbf'})
+              for s in central:
+                  country='Haiti / Dominican Republic' if s=='haiti-and-domrep' else s.replace('-',' ').title()
+                  shards.append({'name':'central-'+s,'country':country,'region':country,'url':f'https://download.geofabrik.de/central-america/{s}-latest.osm.pbf'})
+              for s in south:
+                  country=s.title()
+                  shards.append({'name':'south-'+s,'country':country,'region':country,'url':f'https://download.geofabrik.de/south-america/{s}-latest.osm.pbf'})
+          # de-dupe shard names while preserving order
+          uniq=[]; seen=set()
+          for x in shards:
+              if x['name'] in seen: continue
+              seen.add(x['name']); uniq.append(x)
+          shards=uniq
           if not shards: raise SystemExit('No shards configured')
           print('matrix='+json.dumps({'include':shards},separators=(',',':')))
-          print('max_candidates='+str(int(cfg.get('max_candidates_per_shard',25000))))
-          print('max_enrich='+str(int(cfg.get('max_enrich_per_shard',2500))))
-          print('workers='+str(int(cfg.get('workers',32))))
+          print('max_candidates='+str(int(cfg.get('max_candidates_per_shard',30000))))
+          print('max_enrich='+str(int(cfg.get('max_enrich_per_shard',3500))))
+          print('workers='+str(int(cfg.get('workers',36))))
           print('run_name='+str(cfg.get('run_name','bulk-hospitality')))
           PY
 
