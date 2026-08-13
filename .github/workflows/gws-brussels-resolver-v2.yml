@@ -22,7 +22,23 @@ jobs:
           python-version: '3.11'
       - name: Install resolver dependencies
         run: python -m pip install --disable-pip-version-check duckdb
-      - name: Materialize 500 current resolution attempts
+      - name: Prepare 1000-serious volume benchmark
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('tools/gws_brussels_resolver_v2.py')
+          s=p.read_text(encoding='utf-8')
+          old='target=[r for r in hub if target_row(r)]'
+          new='target=[r for r in hub if txt(r.get("name_en") or r.get("name_fr")) not in {"","-"} and "empty commercial cell" not in norm(r.get("type_en") or r.get("type_fr")) and not any(c in norm(r.get("name_en") or r.get("name_fr")) for c in CHAIN_WORDS)]'
+          if old not in s: raise SystemExit('target selector signature changed')
+          s=s.replace(old,new)
+          s=s.replace('serious=(exact+uncertain+rejects)[:500]','serious=(exact+uncertain)[:1000]')
+          s=s.replace('webgate=exact[:150]','webgate=exact[:500]')
+          s=s.replace('"serious500.csv"','"serious1000.csv"')
+          s=s.replace('"web_gate_top150.csv"','"web_gate_top500.csv"')
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Materialize 1000 current resolution attempts
         run: |
           set -o pipefail
           python tools/gws_brussels_resolver_v2.py 2>&1 | tee gws-resolver-v2.log
