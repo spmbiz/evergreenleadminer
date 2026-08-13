@@ -1,0 +1,42 @@
+name: GWS Brussels Resolver V2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/gws_brussels_resolver_v2.py'
+      - '.github/workflows/gws-brussels-resolver-v2.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install resolver dependencies
+        run: python -m pip install --disable-pip-version-check duckdb
+      - name: Materialize 500 current resolution attempts
+        run: |
+          set -o pipefail
+          python tools/gws_brussels_resolver_v2.py 2>&1 | tee gws-resolver-v2.log
+      - name: Show summary
+        if: always()
+        run: |
+          test ! -f results/gws_brussels_resolver_v2/summary.json || cat results/gws_brussels_resolver_v2/summary.json
+      - name: Upload resolver artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gws-brussels-resolver-v2
+          path: |
+            results/gws_brussels_resolver_v2/
+            gws-resolver-v2.log
+          compression-level: 6
+          retention-days: 7
