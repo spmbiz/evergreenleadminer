@@ -1,8 +1,8 @@
 name: GWS Overture First Volume
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [gws-overture-first-volume-20260813]
     paths:
       - 'tools/gws_brussels_overture_first.py'
       - '.github/workflows/gws-overture-first-volume.yml'
