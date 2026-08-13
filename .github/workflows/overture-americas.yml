@@ -1,0 +1,94 @@
+name: Overture Americas Premium Harvest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'OVERTURE_AMERICAS_TRIGGER.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: overture-americas-premium
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      max_rows: ${{ steps.plan.outputs.max_rows }}
+      workers: ${{ steps.plan.outputs.workers }}
+      run_name: ${{ steps.plan.outputs.run_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          c=json.load(open('OVERTURE_AMERICAS_TRIGGER.json',encoding='utf-8'))
+          print('matrix='+json.dumps({'include':c['shards']},separators=(',',':')))
+          print('max_rows='+str(int(c.get('max_rows_per_shard',150000))))
+          print('workers='+str(int(c.get('workers',32))))
+          print('run_name='+c.get('run_name','overture-americas'))
+          PY
+
+  harvest:
+    needs: plan
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests beautifulsoup4
+      - name: Query Overture lodging data
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+          COUNTRY: ${{ matrix.country }}
+          REGION: ${{ matrix.region }}
+          BBOX: ${{ matrix.bbox }}
+          MAX_ROWS: ${{ needs.plan.outputs.max_rows }}
+        run: |
+          set -o pipefail
+          mkdir -p "results/$SHARD_NAME"
+          python tools/overture_premium_harvest.py --bbox "$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --max-rows "$MAX_ROWS" 2>&1 | tee "results/$SHARD_NAME/overture.log"
+      - name: High-precision premium gate
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+          WORKERS: ${{ needs.plan.outputs.workers }}
+        run: |
+          set -o pipefail
+          python tools/premium_property_filter_v3.py --input "results/$SHARD_NAME/overture_lodging_all.csv" --outdir "results/$SHARD_NAME" --workers "$WORKERS" --max-web-checks 12000 2>&1 | tee "results/$SHARD_NAME/premium_v3_gate.log"
+      - name: Show summaries
+        if: always()
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+        run: |
+          test ! -f "results/$SHARD_NAME/overture_summary.json" || cat "results/$SHARD_NAME/overture_summary.json"
+          test ! -f "results/$SHARD_NAME/premium_v3_summary.json" || cat "results/$SHARD_NAME/premium_v3_summary.json"
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overture-${{ needs.plan.outputs.run_name }}-${{ matrix.name }}
+          path: |
+            results/${{ matrix.name }}/overture_lodging_all.csv
+            results/${{ matrix.name }}/overture_summary.json
+            results/${{ matrix.name }}/premium_v3_selected.csv
+            results/${{ matrix.name }}/premium_v3_master_ready.csv
+            results/${{ matrix.name }}/premium_v3_summary.json
+            results/${{ matrix.name }}/overture.log
+            results/${{ matrix.name }}/premium_v3_gate.log
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 14
