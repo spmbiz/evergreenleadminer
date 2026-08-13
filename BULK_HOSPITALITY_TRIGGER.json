@@ -1,10 +1,23 @@
 {
-  "run_name": "california-premium-v3-validation",
+  "run_name": "americas-premium-wave1",
   "max_candidates_per_shard": 30000,
   "max_enrich_per_shard": 3500,
   "workers": 36,
   "shards": [
-    {"name":"california-socal","country":"USA","region":"Southern California","url":"https://download.geofabrik.de/north-america/us/california/socal-latest.osm.pbf"},
-    {"name":"california-norcal","country":"USA","region":"Northern California","url":"https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf"}
+    {"name":"usa-florida","country":"USA","region":"Florida","url":"https://download.geofabrik.de/north-america/us/florida-latest.osm.pbf"},
+    {"name":"usa-hawaii","country":"USA","region":"Hawaii","url":"https://download.geofabrik.de/north-america/us/hawaii-latest.osm.pbf"},
+    {"name":"usa-arizona","country":"USA","region":"Arizona","url":"https://download.geofabrik.de/north-america/us/arizona-latest.osm.pbf"},
+    {"name":"usa-colorado","country":"USA","region":"Colorado","url":"https://download.geofabrik.de/north-america/us/colorado-latest.osm.pbf"},
+    {"name":"usa-utah","country":"USA","region":"Utah","url":"https://download.geofabrik.de/north-america/us/utah-latest.osm.pbf"},
+    {"name":"usa-nevada","country":"USA","region":"Nevada","url":"https://download.geofabrik.de/north-america/us/nevada-latest.osm.pbf"},
+    {"name":"usa-new-york","country":"USA","region":"New York","url":"https://download.geofabrik.de/north-america/us/new-york-latest.osm.pbf"},
+    {"name":"usa-massachusetts","country":"USA","region":"Massachusetts","url":"https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf"},
+    {"name":"usa-new-jersey","country":"USA","region":"New Jersey","url":"https://download.geofabrik.de/north-america/us/new-jersey-latest.osm.pbf"},
+    {"name":"usa-south-carolina","country":"USA","region":"South Carolina","url":"https://download.geofabrik.de/north-america/us/south-carolina-latest.osm.pbf"},
+    {"name":"canada-british-columbia","country":"Canada","region":"British Columbia","url":"https://download.geofabrik.de/north-america/canada/british-columbia-latest.osm.pbf"},
+    {"name":"canada-alberta","country":"Canada","region":"Alberta","url":"https://download.geofabrik.de/north-america/canada/alberta-latest.osm.pbf"},
+    {"name":"canada-ontario","country":"Canada","region":"Ontario","url":"https://download.geofabrik.de/north-america/canada/ontario-latest.osm.pbf"},
+    {"name":"canada-quebec","country":"Canada","region":"Quebec","url":"https://download.geofabrik.de/north-america/canada/quebec-latest.osm.pbf"},
+    {"name":"mexico","country":"Mexico","region":"Mexico","url":"https://download.geofabrik.de/north-america/mexico-latest.osm.pbf"}
   ]
 }
