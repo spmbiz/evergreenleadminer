@@ -1,0 +1,23 @@
+{
+  "run_name": "premium-wave2",
+  "max_candidates_per_shard": 30000,
+  "max_enrich_per_shard": 3500,
+  "workers": 36,
+  "shards": [
+    {"name":"usa-washington","country":"USA","region":"Washington","url":"https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf"},
+    {"name":"usa-oregon","country":"USA","region":"Oregon","url":"https://download.geofabrik.de/north-america/us/oregon-latest.osm.pbf"},
+    {"name":"usa-texas","country":"USA","region":"Texas","url":"https://download.geofabrik.de/north-america/us/texas-latest.osm.pbf"},
+    {"name":"usa-georgia","country":"USA","region":"Georgia","url":"https://download.geofabrik.de/north-america/us/georgia-latest.osm.pbf"},
+    {"name":"usa-north-carolina","country":"USA","region":"North Carolina","url":"https://download.geofabrik.de/north-america/us/north-carolina-latest.osm.pbf"},
+    {"name":"usa-tennessee","country":"USA","region":"Tennessee","url":"https://download.geofabrik.de/north-america/us/tennessee-latest.osm.pbf"},
+    {"name":"usa-louisiana","country":"USA","region":"Louisiana","url":"https://download.geofabrik.de/north-america/us/louisiana-latest.osm.pbf"},
+    {"name":"usa-maryland","country":"USA","region":"Maryland","url":"https://download.geofabrik.de/north-america/us/maryland-latest.osm.pbf"},
+    {"name":"usa-virginia","country":"USA","region":"Virginia","url":"https://download.geofabrik.de/north-america/us/virginia-latest.osm.pbf"},
+    {"name":"usa-pennsylvania","country":"USA","region":"Pennsylvania","url":"https://download.geofabrik.de/north-america/us/pennsylvania-latest.osm.pbf"},
+    {"name":"usa-maine","country":"USA","region":"Maine","url":"https://download.geofabrik.de/north-america/us/maine-latest.osm.pbf"},
+    {"name":"usa-new-hampshire","country":"USA","region":"New Hampshire","url":"https://download.geofabrik.de/north-america/us/new-hampshire-latest.osm.pbf"},
+    {"name":"usa-vermont","country":"USA","region":"Vermont","url":"https://download.geofabrik.de/north-america/us/vermont-latest.osm.pbf"},
+    {"name":"usa-rhode-island","country":"USA","region":"Rhode Island","url":"https://download.geofabrik.de/north-america/us/rhode-island-latest.osm.pbf"},
+    {"name":"usa-connecticut","country":"USA","region":"Connecticut","url":"https://download.geofabrik.de/north-america/us/connecticut-latest.osm.pbf"}
+  ]
+}
