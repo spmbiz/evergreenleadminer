@@ -1,0 +1,117 @@
+name: Americas Parallel Premium Bulk
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'AMERICAS_WAVE*.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: americas-wave-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      max_candidates: ${{ steps.plan.outputs.max_candidates }}
+      max_enrich: ${{ steps.plan.outputs.max_enrich }}
+      workers: ${{ steps.plan.outputs.workers }}
+      run_name: ${{ steps.plan.outputs.run_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          TRIGGER=$(git diff --name-only HEAD^ HEAD | grep -E '^AMERICAS_WAVE.*\.json$' | head -n1)
+          test -n "$TRIGGER"
+          echo "trigger=$TRIGGER" >&2
+          python - "$TRIGGER" <<'PY' >> "$GITHUB_OUTPUT"
+          import json,sys
+          cfg=json.load(open(sys.argv[1],encoding='utf-8'))
+          shards=cfg.get('shards') or []
+          if not shards: raise SystemExit('No shards configured')
+          print('matrix='+json.dumps({'include':shards},separators=(',',':')))
+          print('max_candidates='+str(int(cfg.get('max_candidates_per_shard',30000))))
+          print('max_enrich='+str(int(cfg.get('max_enrich_per_shard',3500))))
+          print('workers='+str(int(cfg.get('workers',36))))
+          print('run_name='+str(cfg.get('run_name','americas-wave')))
+          PY
+
+  harvest:
+    needs: plan
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install osmium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
+      - name: Download Geofabrik shard
+        env:
+          PBF_URL: ${{ matrix.url }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          curl -fL --retry 6 --retry-all-errors --connect-timeout 30 --speed-time 60 --speed-limit 1024 -o work/input.osm.pbf "$PBF_URL"
+      - name: Bulk extract and enrich public hospitality leads
+        env:
+          COUNTRY: ${{ matrix.country }}
+          REGION: ${{ matrix.region }}
+          SHARD_NAME: ${{ matrix.name }}
+          MAX_CANDIDATES: ${{ needs.plan.outputs.max_candidates }}
+          MAX_ENRICH: ${{ needs.plan.outputs.max_enrich }}
+          WORKERS: ${{ needs.plan.outputs.workers }}
+        run: |
+          set -o pipefail
+          mkdir -p "results/$SHARD_NAME"
+          python tools/osm_pbf_hospitality_harvest.py --pbf work/input.osm.pbf --outdir "results/$SHARD_NAME" --country "$COUNTRY" --region "$REGION" --max-candidates "$MAX_CANDIDATES" --max-enrich "$MAX_ENRICH" --workers "$WORKERS" 2>&1 | tee "results/$SHARD_NAME/harvest.log"
+      - name: Apply high-precision luxury property gate v3
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+          WORKERS: ${{ needs.plan.outputs.workers }}
+        run: |
+          set -o pipefail
+          python tools/premium_property_filter_v3.py --input "results/$SHARD_NAME/candidates_all.csv" --outdir "results/$SHARD_NAME" --workers "$WORKERS" --max-web-checks 0 2>&1 | tee "results/$SHARD_NAME/premium_v3_gate.log"
+      - name: Show summaries
+        if: always()
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+        run: |
+          test ! -f "results/$SHARD_NAME/summary.json" || cat "results/$SHARD_NAME/summary.json"
+          test ! -f "results/$SHARD_NAME/premium_v3_summary.json" || cat "results/$SHARD_NAME/premium_v3_summary.json"
+      - name: Upload lead artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: americas-${{ needs.plan.outputs.run_name }}-${{ matrix.name }}
+          path: |
+            results/${{ matrix.name }}/candidates_all.csv
+            results/${{ matrix.name }}/candidates_with_public_email.csv
+            results/${{ matrix.name }}/premium_v3_selected.csv
+            results/${{ matrix.name }}/premium_v3_master_ready.csv
+            results/${{ matrix.name }}/summary.json
+            results/${{ matrix.name }}/premium_v3_summary.json
+            results/${{ matrix.name }}/harvest.log
+            results/${{ matrix.name }}/premium_v3_gate.log
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 14
