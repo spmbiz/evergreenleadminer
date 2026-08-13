@@ -61,7 +61,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "results/$SHARD_NAME"
-          python tools/overture_premium_harvest.py --bbox "$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --max-rows "$MAX_ROWS" 2>&1 | tee "results/$SHARD_NAME/overture.log"
+          python tools/overture_premium_harvest.py --bbox="$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --max-rows "$MAX_ROWS" 2>&1 | tee "results/$SHARD_NAME/overture.log"
       - name: High-precision premium gate
         env:
           SHARD_NAME: ${{ matrix.name }}
