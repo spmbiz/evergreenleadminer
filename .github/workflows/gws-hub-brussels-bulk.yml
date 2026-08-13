@@ -1,0 +1,140 @@
+name: GWS Hub Brussels Bulk
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'GWS_HUB_BRUSSELS_BULK_TRIGGER.json'
+      - '.github/workflows/gws-hub-brussels-bulk.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and materialize official hub.brussels dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python - <<'PY'
+          import csv, json, time, urllib.parse, urllib.request
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          DATASET = 'commerces-recenses-par-hubbrussels-vbx'
+          BASE = f'https://opendata.brussels.be/api/explore/v2.1/catalog/datasets/{DATASET}/records'
+          UA = 'Mozilla/5.0 GWS-Brussels-Volume-Harvester/1.0'
+
+          def fetch(params, attempts=4):
+              url = BASE + '?' + urllib.parse.urlencode(params)
+              last = None
+              for i in range(attempts):
+                  try:
+                      req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': 'application/json'})
+                      with urllib.request.urlopen(req, timeout=45) as r:
+                          return json.load(r), url, r.status
+                  except Exception as e:
+                      last = repr(e)
+                      time.sleep(1.5 * (i + 1))
+              raise RuntimeError(f'fetch failed {url}: {last}')
+
+          first, first_url, first_status = fetch({'limit': 100, 'offset': 0})
+          total = int(first.get('total_count', len(first.get('results', []))))
+          records = list(first.get('results', []))
+          page_log = [{'offset': 0, 'count': len(records), 'status': first_status, 'url': first_url}]
+
+          offset = len(records)
+          while offset < total:
+              data, url, status = fetch({'limit': 100, 'offset': offset})
+              batch = data.get('results', [])
+              if not batch:
+                  raise RuntimeError(f'empty page before total_count at offset {offset}/{total}')
+              records.extend(batch)
+              page_log.append({'offset': offset, 'count': len(batch), 'status': status, 'url': url})
+              offset += len(batch)
+
+          # Material identity means a concrete returned API record, not the dataset headline count.
+          # Preserve every record exactly as returned, then build a stable flattened export.
+          out = Path('out')
+          with (out / 'hub_brussels_current.jsonl').open('w', encoding='utf-8') as f:
+              for r in records:
+                  f.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + '\n')
+
+          all_keys = sorted({k for r in records for k in r.keys()})
+          with (out / 'hub_brussels_current.csv').open('w', encoding='utf-8', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=all_keys, extrasaction='ignore')
+              w.writeheader()
+              for r in records:
+                  row = {}
+                  for k in all_keys:
+                      v = r.get(k)
+                      row[k] = json.dumps(v, ensure_ascii=False, sort_keys=True) if isinstance(v, (dict,list)) else v
+                  w.writerow(row)
+
+          # Profile fields so the orchestrator can choose the freshest/highest-signal serious slice without guessing schema.
+          field_profile = {}
+          for k in all_keys:
+              vals = [r.get(k) for r in records]
+              nonempty = [v for v in vals if v not in (None, '', [], {})]
+              samples = []
+              seen = set()
+              for v in nonempty:
+                  s = json.dumps(v, ensure_ascii=False, sort_keys=True) if isinstance(v,(dict,list)) else str(v)
+                  if s not in seen:
+                      samples.append(s[:300]); seen.add(s)
+                  if len(samples) >= 8: break
+              field_profile[k] = {'nonempty': len(nonempty), 'empty': len(vals)-len(nonempty), 'samples': samples}
+
+          # Conservative identity signature discovery from likely name/address fields. This is profiling only,
+          # not a substitute for canonical MASTER dedupe downstream.
+          name_keys = [k for k in all_keys if any(t in k.lower() for t in ('nom','name','enseigne','commerce','denomination'))]
+          addr_keys = [k for k in all_keys if any(t in k.lower() for t in ('adresse','address','rue','street'))]
+
+          summary = {
+              'dataset': DATASET,
+              'api_total_count': total,
+              'materialized_records': len(records),
+              'pages': len(page_log),
+              'all_keys': all_keys,
+              'likely_name_keys': name_keys,
+              'likely_address_keys': addr_keys,
+              'field_profile': field_profile,
+              'integrity': {
+                  'materialized_equals_api_total': len(records) == total,
+                  'empty_pages': sum(1 for p in page_log if p['count'] == 0),
+                  'page_record_sum': sum(p['count'] for p in page_log),
+              },
+              'page_log': page_log,
+          }
+          (out / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+
+          print('GWS_HUB_BULK_SUMMARY=' + json.dumps({
+              'api_total_count': total,
+              'materialized_records': len(records),
+              'pages': len(page_log),
+              'keys': all_keys,
+              'likely_name_keys': name_keys,
+              'likely_address_keys': addr_keys,
+              'materialized_equals_api_total': len(records) == total,
+          }, ensure_ascii=False))
+          print('FIELD_PROFILE_BEGIN')
+          print(json.dumps(field_profile, ensure_ascii=False, indent=2))
+          print('FIELD_PROFILE_END')
+          PY
+
+          wc -l out/hub_brussels_current.jsonl out/hub_brussels_current.csv
+          du -h out/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gws-hub-brussels-bulk
+          path: out
+          compression-level: 6
+          retention-days: 3
