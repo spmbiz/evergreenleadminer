@@ -1,0 +1,24 @@
+{
+  "run_name": "premium-wave5-south-america",
+  "max_candidates_per_shard": 30000,
+  "max_enrich_per_shard": 3500,
+  "workers": 36,
+  "shards": [
+    {"name":"south-argentina","country":"Argentina","region":"Argentina","url":"https://download.geofabrik.de/south-america/argentina-latest.osm.pbf"},
+    {"name":"south-bolivia","country":"Bolivia","region":"Bolivia","url":"https://download.geofabrik.de/south-america/bolivia-latest.osm.pbf"},
+    {"name":"brazil-centro-oeste","country":"Brazil","region":"Centro-Oeste","url":"https://download.geofabrik.de/south-america/brazil/centro-oeste-latest.osm.pbf"},
+    {"name":"brazil-nordeste","country":"Brazil","region":"Nordeste","url":"https://download.geofabrik.de/south-america/brazil/nordeste-latest.osm.pbf"},
+    {"name":"brazil-norte","country":"Brazil","region":"Norte","url":"https://download.geofabrik.de/south-america/brazil/norte-latest.osm.pbf"},
+    {"name":"brazil-sudeste","country":"Brazil","region":"Sudeste","url":"https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf"},
+    {"name":"brazil-sul","country":"Brazil","region":"Sul","url":"https://download.geofabrik.de/south-america/brazil/sul-latest.osm.pbf"},
+    {"name":"south-chile","country":"Chile","region":"Chile","url":"https://download.geofabrik.de/south-america/chile-latest.osm.pbf"},
+    {"name":"south-colombia","country":"Colombia","region":"Colombia","url":"https://download.geofabrik.de/south-america/colombia-latest.osm.pbf"},
+    {"name":"south-ecuador","country":"Ecuador","region":"Ecuador","url":"https://download.geofabrik.de/south-america/ecuador-latest.osm.pbf"},
+    {"name":"south-guyana","country":"Guyana","region":"Guyana","url":"https://download.geofabrik.de/south-america/guyana-latest.osm.pbf"},
+    {"name":"south-paraguay","country":"Paraguay","region":"Paraguay","url":"https://download.geofabrik.de/south-america/paraguay-latest.osm.pbf"},
+    {"name":"south-peru","country":"Peru","region":"Peru","url":"https://download.geofabrik.de/south-america/peru-latest.osm.pbf"},
+    {"name":"south-suriname","country":"Suriname","region":"Suriname","url":"https://download.geofabrik.de/south-america/suriname-latest.osm.pbf"},
+    {"name":"south-uruguay","country":"Uruguay","region":"Uruguay","url":"https://download.geofabrik.de/south-america/uruguay-latest.osm.pbf"},
+    {"name":"south-venezuela","country":"Venezuela","region":"Venezuela","url":"https://download.geofabrik.de/south-america/venezuela-latest.osm.pbf"}
+  ]
+}
