@@ -13,11 +13,11 @@ RELEASE="2026-06-17.0"
 OVERTURE=f"s3://overturemaps-us-west-2/release/{RELEASE}/theme=places/type=place/*"
 
 TARGET_KWS=(
- "hair","coiff","barber","beauty","aesthetic","nail","manicure","pedicure",
- "garage","car maintenance","auto repair","bodywork","tyre","tire",
- "mobile phone","telephone","telecom","laundromat","laundry","dry clean",
- "bakery","baker","butcher","shoe repair","locksmith","tailor","photograph",
- "printing","printer","florist","jewelry repair","watch repair","pet groom",
+ "hairdresser","barber","beauty salon","aesthetic","nails","manicure","pedicure",
+ "garage","car maintenance","auto repair","bodywork","tyres","tires",
+ "mobile phones","telephone booths","telecom","laundromat","laundry","dry cleaning",
+ "bakery","butcher","charcuterie","shoe repair","locksmith","tailor","photo studio",
+ "printing","printer","florist","jewelry repair","watch repair","pet grooming",
 )
 CHAIN_WORDS=(
  "carrefour","delhaize","lidl","aldi","action","kruidvat","ici paris","di beauty",
@@ -108,9 +108,10 @@ def target_row(r):
     typ=norm(r.get("type_en") or r.get("type_fr"))
     cat=norm(r.get("category_en") or r.get("category_fr"))
     if not n or n=="-" or "empty commercial cell" in typ:return False
-    hay=" ".join((n,typ,cat))
+    # Scope by the official business TYPE, never by words in the business name.
+    # This prevents false positives such as a pub named "The Hairy Canary".
     if any(c in n for c in CHAIN_WORDS): return False
-    return any(k in hay for k in TARGET_KWS)
+    return any(k in typ for k in TARGET_KWS)
 
 def gp(r):
     g=r.get("geo_point_2d") or {}
