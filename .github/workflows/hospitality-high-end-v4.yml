@@ -82,7 +82,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "results/$SHARD_NAME"
-          python tools/osm_high_end_first_v4.py \
+          python tools/osm_high_end_first_v41.py \
             --pbf work/input.osm.pbf \
             --outdir "results/$SHARD_NAME" \
             --country "$COUNTRY" \
