@@ -33,7 +33,7 @@ jobs:
           python tools/gws_brussels_web_gate.py \
             --input results/gws_brussels_resolver_v2/web_gate_top150.csv \
             --outdir results/gws_brussels_resolver_v2 \
-            --workers 4 2>&1 | tee gws-web-gate.log
+            --workers 6 2>&1 | tee gws-web-gate.log
       - name: Show summaries
         if: always()
         run: |
