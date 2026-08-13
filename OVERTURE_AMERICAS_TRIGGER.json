@@ -1,0 +1,10 @@
+{
+  "run_name":"americas-overture-probe-v1",
+  "max_rows_per_shard":150000,
+  "workers":36,
+  "shards":[
+    {"name":"california","country":"USA","region":"California","bbox":"-124.6,32.3,-114.0,42.1"},
+    {"name":"florida","country":"USA","region":"Florida","bbox":"-87.8,24.3,-79.8,31.1"},
+    {"name":"caribbean-core","country":"Caribbean","region":"Caribbean","bbox":"-85.5,8.0,-58.0,28.5"}
+  ]
+}
