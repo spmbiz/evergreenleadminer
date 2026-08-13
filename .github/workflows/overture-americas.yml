@@ -68,7 +68,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "results/$SHARD_NAME"
-          python tools/overture_operator_first_v5.py --bbox "$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --release "$RELEASE" --max-rows "$MAX_ROWS" --max-web-checks "$MAX_WEB_CHECKS" --workers "$WORKERS" 2>&1 | tee "results/$SHARD_NAME/v5.log"
+          python tools/overture_operator_first_v5.py --bbox="$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --release "$RELEASE" --max-rows "$MAX_ROWS" --max-web-checks "$MAX_WEB_CHECKS" --workers "$WORKERS" 2>&1 | tee "results/$SHARD_NAME/v5.log"
       - name: Show V5 summary
         if: always()
         env:
