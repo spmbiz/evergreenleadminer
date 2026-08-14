@@ -1,0 +1,256 @@
+name: Hospitality Autonomous Fleet 24/7
+
+on:
+  schedule:
+    - cron: '3,18,33,48 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_test.json'
+  workflow_dispatch:
+    inputs:
+      force_workers:
+        description: 'Optional canary worker count (0 = durable autoscaler)'
+        required: false
+        default: '0'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: hospitality-autonomous-fleet
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.emit.outputs.enabled }}
+      cycle_id: ${{ steps.emit.outputs.cycle_id }}
+      matrix: ${{ steps.emit.outputs.matrix }}
+      worker_count: ${{ steps.emit.outputs.worker_count }}
+      cloud_capacity: ${{ steps.emit.outputs.cloud_capacity }}
+      local_workers: ${{ steps.emit.outputs.local_workers }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Initialize and inspect fleet capacity
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          mkdir -p planner
+          python tools/fleet_runtime.py init
+          python tools/fleet_runtime.py probe \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --limit 20 \
+            --reserve 0 \
+            --default-workers 20 \
+            --ignore-run-id "$RUN_ID" \
+            --out planner/provider-capacity.json
+      - name: Choose adaptive cloud canary and plan shards
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_FORCE: ${{ github.event.inputs.force_workers || '0' }}
+        run: |
+          AVAILABLE=$(python - <<'PY'
+          import json
+          p=json.load(open('planner/provider-capacity.json'))
+          print(int((p.get('github') or {}).get('available_worker_capacity') or 0))
+          PY
+          )
+          FORCE=0
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            FORCE="${DISPATCH_FORCE:-0}"
+          elif [ "$EVENT_NAME" = "push" ] && [ -f control/hospitality_test.json ]; then
+            FORCE=$(python - <<'PY'
+          import json
+          try:
+              print(int(json.load(open('control/hospitality_test.json')).get('force_workers') or 0))
+          except Exception:
+              print(0)
+          PY
+          )
+          fi
+          if [ "${FORCE:-0}" -gt 0 ]; then
+            CAP_JSON=$(python tools/hospitality_scheduler.py capacity --available "$AVAILABLE" --force "$FORCE")
+          else
+            CAP_JSON=$(python tools/hospitality_scheduler.py capacity --available "$AVAILABLE")
+          fi
+          echo "$CAP_JSON" | tee planner/cloud-capacity.json
+          CAP=$(python -c 'import json,sys; print(json.load(sys.stdin)["chosen"])' <<<"$CAP_JSON")
+          python tools/fleet_runtime.py plan --provider github --capacity "$CAP" --out planner/plan.json
+      - id: emit
+        name: Emit dynamic matrix
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('planner/plan.json'))
+          c=json.load(open('planner/cloud-capacity.json'))
+          inc=p.get('include') or []
+          print('enabled='+str(bool(p.get('enabled'))).lower())
+          print('cycle_id='+str(p.get('cycle_id') or 'none'))
+          print('matrix='+json.dumps({'include':inc},separators=(',',':')))
+          print('worker_count='+str(len(inc)))
+          print('cloud_capacity='+str(int(c.get('chosen') or 0)))
+          print('local_workers='+str(int(p.get('local_workers') or 0)))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-plan-${{ steps.emit.outputs.cycle_id }}
+          path: planner/
+          retention-days: 1
+          compression-level: 6
+
+  harvest:
+    needs: plan
+    if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal worker dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests
+      - name: Harvest and live-verify shard
+        run: |
+          mkdir -p "results/${{ matrix.key }}"
+          python tools/fleet_runtime.py worker \
+            --provider github \
+            --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
+            --name "${{ matrix.name }}" \
+            --country "${{ matrix.country }}" \
+            --region "${{ matrix.region }}" \
+            --bbox "${{ matrix.bbox }}" \
+            --release "${{ matrix.release }}" \
+            --max-rows "${{ matrix.max_rows }}" \
+            --local-workers "${{ matrix.local_workers }}" \
+            --outdir "results/${{ matrix.key }}"
+      - name: Upload transport artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-worker-${{ needs.plan.outputs.cycle_id }}-${{ matrix.key }}
+          path: results/${{ matrix.key }}/
+          if-no-files-found: warn
+          retention-days: 1
+          compression-level: 6
+
+  aggregate:
+    needs: [plan, harvest]
+    if: always() && needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CYCLE_ID: ${{ needs.plan.outputs.cycle_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download plan and worker partitions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hospitality-*
+          path: incoming
+      - name: Restore durable canonical SQLite if present
+        run: |
+          mkdir -p canonical aggregate_out
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir canonical \
+            --clobber || true
+      - name: Single-writer canonical aggregate
+        run: |
+          python tools/hospitality_fleet_aggregate.py \
+            --results-root incoming \
+            --cycle-id "$CYCLE_ID" \
+            --provider github \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --outdir aggregate_out
+          python tools/hospitality_scheduler.py after --metrics metrics/latest.json
+      - name: Preserve fast-ready observations beyond temporary artifacts
+        run: |
+          python - <<'PY'
+          import csv,gzip,json,os
+          from pathlib import Path
+          cycle=os.environ['CYCLE_ID']
+          root=Path('incoming')
+          out=Path('aggregate_out')/f'observations-{cycle}.jsonl.gz'
+          n=0
+          with gzip.open(out,'wt',encoding='utf-8') as z:
+              for p in root.rglob('v6_fast_ready.csv'):
+                  with p.open(encoding='utf-8',newline='') as f:
+                      for r in csv.DictReader(f):
+                          r['_transport_path']=str(p)
+                          z.write(json.dumps(r,ensure_ascii=False)+'\n')
+                          n+=1
+          print(json.dumps({'observations_persisted':n,'path':str(out)}))
+          PY
+      - name: Package immutable cycle bundle
+        run: |
+          BUNDLE="aggregate_out/hospitality-bundle-${CYCLE_ID}.tar.gz"
+          FILES=$(find aggregate_out -maxdepth 1 -type f \( -name 'partition-*.jsonl.gz' -o -name 'gpt-review-*.jsonl' -o -name 'observations-*.jsonl.gz' -o -name 'aggregate_summary.json' \) -print)
+          tar -czf "$BUNDLE" $FILES
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+          echo "HISTORY_TAG=harvest-history-$(date -u +%F)" >> "$GITHUB_ENV"
+      - name: Persist canonical and immutable cycle bundle to Releases
+        run: |
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file canonical/hospitality-canonical.sqlite
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag "$HISTORY_TAG" --file "$BUNDLE"
+      - name: Commit small checkpoint / coverage / GPT state
+        run: |
+          if [ -f state/provider_capacity.json ]; then
+            cp state/provider_capacity.json state/hospitality_provider_capacity.json
+            git checkout -- state/provider_capacity.json || true
+          fi
+          git config user.name "ai-prod-harvest-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            state/coverage.json \
+            state/checkpoints.json \
+            state/source_state.json \
+            state/hospitality_provider_capacity.json \
+            state/hospitality_scheduler.json \
+            metrics/latest.json \
+            metrics/history.jsonl \
+            gpt/latest_summary.json \
+            gpt/pending_batches.json
+          if git diff --cached --quiet; then
+            echo "No small-state changes to commit"
+            exit 0
+          fi
+          git commit -m "fleet: hospitality checkpoint ${CYCLE_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 3))
+          done
+          echo "Failed to persist Git small state after retries" >&2
+          exit 1
+
+  idle:
+    needs: plan
+    if: needs.plan.outputs.enabled != 'true' || needs.plan.outputs.worker_count == '0'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Hospitality fleet idle: enabled=${{ needs.plan.outputs.enabled }}, workers=${{ needs.plan.outputs.worker_count }}"
