@@ -20,6 +20,16 @@
       "license": "ODbL",
       "notes": "Used to widen all-commune coverage. Explicit owned websites are removed before expensive verification."
     },
+    "overture_direct": {
+      "enabled": true,
+      "role": "primary_regional_poi_discovery",
+      "status": "live",
+      "release": "2026-06-17.0",
+      "transport": "GeoParquet on public S3 queried by DuckDB",
+      "cheap_screen_owned_website": true,
+      "priority": 300,
+      "notes": "Query the Brussels bbox directly instead of using Overture only as a resolver around Hub seeds. Candidate absence of website still requires strict downstream verification."
+    },
     "foursquare_os_places": {
       "enabled": false,
       "role": "high_volume_poi_discovery_and_enrichment",
@@ -31,7 +41,7 @@
         "name", "latitude", "longitude", "address", "postcode", "category",
         "telephone", "website", "email", "instagram", "facebook_id", "date_refreshed", "date_closed"
       ],
-      "notes": "Preferred next bulk source once Places Portal access token is configured."
+      "notes": "Preferred additional bulk source once Places Portal access token is configured."
     },
     "belgian_cbe_open_data": {
       "enabled": false,
