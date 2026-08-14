@@ -1,81 +1,49 @@
 version: 2.1
+setup: true
 
 parameters:
   fleet:
     type: boolean
     default: false
+  workload:
+    type: string
+    default: "hospitality"
+
+orbs:
+  continuation: circleci/continuation@1.1.0
 
 jobs:
-  harvest:
-    parallelism: 28
-    docker:
-      - image: cimg/python:3.11
-    resource_class: small
+  setup_fleet:
+    executor: continuation/default
     steps:
       - checkout
       - run:
-          name: Plan my disjoint CircleCI shard
+          name: Build an exact-size provider plan
           command: |
-            python tools/fleet_runtime.py plan --provider circleci --capacity 28 --node-index "$CIRCLE_NODE_INDEX" --out circle-plan.json
-            python - <<'PY'
-            import json
-            p=json.load(open("circle-plan.json"))
-            s=p.get("selected")
-            if not p.get("enabled") or not s:
-                print("No enabled/useful CircleCI work for this node.")
-                raise SystemExit(0)
-            open("/tmp/haswork","w").write("1")
-            PY
-      - run:
-          name: Install only when work exists
-          command: |
-            test -f /tmp/haswork || circleci-agent step halt
-            python -m pip install --disable-pip-version-check duckdb requests
-      - run:
-          name: Provider-neutral harvest
-          command: |
-            python - <<'PY'
-            import json,subprocess,sys,os
-            p=json.load(open("circle-plan.json")); s=p["selected"]
-            out=f"results/node-{os.environ['CIRCLE_NODE_INDEX']}"
-            cmd=[sys.executable,"tools/fleet_runtime.py","worker","--provider","circleci","--cycle-id",p["cycle_id"],
-                 "--name",s["name"],"--country",s.get("country",""),"--region",s.get("region",""),
-                 "--bbox",s["bbox"],"--release",s.get("release","2026-06-17.0"),
-                 "--max-rows",str(s.get("max_rows",250000)),"--local-workers",str(s.get("local_workers",64)),
-                 "--outdir",out]
-            subprocess.check_call(cmd)
-            PY
-      - persist_to_workspace:
-          root: .
+            set -euo pipefail
+            mkdir -p results/fleet_plan
+            workload="<< pipeline.parameters.workload >>"
+            if [ "<< pipeline.parameters.fleet >>" != "true" ]; then
+              selected=0
+            elif [ "$workload" = "gws" ]; then
+              python tools/gws_fleet_plan.py --provider circleci --fixed-capacity 30 --outdir results/fleet_plan
+              selected="$(python -c 'import json; print(json.load(open("results/fleet_plan/plan.json"))["selected_count"])')"
+            elif [ "$workload" = "hospitality" ]; then
+              python tools/fleet_runtime.py plan --provider circleci --capacity 30 --out results/fleet_plan/plan.json
+              selected="$(python -c 'import json; print(len(json.load(open("results/fleet_plan/plan.json")).get("include") or []))')"
+            else
+              echo "Unsupported workload: $workload" >&2
+              exit 2
+            fi
+            python tools/circleci_fleet_continue.py --workload "$workload" --selected-count "$selected" --out /tmp/continue.yml
+      - save_cache:
+          key: fleet-plan-v1-<< pipeline.id >>
           paths:
-            - results
-
-  inbox:
-    docker:
-      - image: cimg/python:3.11
-    resource_class: small
-    steps:
-      - checkout
-      - attach_workspace:
-          at: .
-      - run:
-          name: Build immutable provider inbox bundle
-          command: |
-            tar -czf "circleci-inbox-${CIRCLE_WORKFLOW_ID}.tar.gz" results
-      - run:
-          name: Persist to GitHub durable inbox
-          command: |
-            test -n "$FLEET_GH_TOKEN" || { echo "FLEET_GH_TOKEN missing; refusing ephemeral-only harvest."; exit 2; }
-            python tools/fleet_runtime.py upload \
-              --repo walidgdg1-ai/evergreenleadminer \
-              --tag harvest-inbox \
-              --file "circleci-inbox-${CIRCLE_WORKFLOW_ID}.tar.gz"
+            - results/fleet_plan
+      - continuation/continue:
+          configuration_path: /tmp/continue.yml
 
 workflows:
-  fleet:
-    when: << pipeline.parameters.fleet >>
+  setup_fleet_workflow:
     jobs:
-      - harvest
-      - inbox:
-          requires:
-            - harvest
+      - setup_fleet

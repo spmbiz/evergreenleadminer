@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "workload_id": "gws_brussels_no_website",
+  "enabled": true,
+  "priority": 200,
+  "peer_repositories": [
+    "walidgdg1-ai/tender-engine"
+  ],
+  "refresh_after_hours": 168,
+  "max_serious_per_task": 300,
+  "source_profile": "gws_hub_overture",
+  "territories": [
+    {"name":"Uccle","postal_codes":["1180"],"priority":180,"south":true},
+    {"name":"Ixelles","postal_codes":["1050"],"priority":175,"south":true},
+    {"name":"Saint-Gilles","postal_codes":["1060"],"priority":175,"south":true},
+    {"name":"Forest","postal_codes":["1190"],"priority":175,"south":true},
+    {"name":"Auderghem","postal_codes":["1160"],"priority":165,"south":true},
+    {"name":"Watermael-Boitsfort","postal_codes":["1170"],"priority":165,"south":true},
+    {"name":"Etterbeek","postal_codes":["1040"],"priority":80},
+    {"name":"Anderlecht","postal_codes":["1070"],"priority":70},
+    {"name":"Molenbeek","postal_codes":["1080"],"priority":60},
+    {"name":"Koekelberg","postal_codes":["1081"],"priority":55},
+    {"name":"Berchem-Sainte-Agathe","postal_codes":["1082"],"priority":55},
+    {"name":"Ganshoren","postal_codes":["1083"],"priority":55},
+    {"name":"Jette","postal_codes":["1090"],"priority":60},
+    {"name":"Schaerbeek","postal_codes":["1030"],"priority":65},
+    {"name":"Evere","postal_codes":["1140"],"priority":55},
+    {"name":"Woluwe-Saint-Pierre","postal_codes":["1150"],"priority":65},
+    {"name":"Woluwe-Saint-Lambert","postal_codes":["1200"],"priority":65},
+    {"name":"Saint-Josse","postal_codes":["1210"],"priority":55},
+    {"name":"Brussels-City","postal_codes":["1000","1020","1120","1130"],"priority":60}
+  ],
+  "families": [
+    {"name":"hair_beauty","keywords":["hairdresser","barber","beauty salon","aesthetic","nails","manicure","pedicure"],"priority":110},
+    {"name":"food_artisans","keywords":["bakery","butcher","charcuterie"],"priority":120},
+    {"name":"auto","keywords":["garage","car maintenance","auto repair","bodywork","tyres","tires"],"priority":95},
+    {"name":"laundry_tailor","keywords":["laundromat","laundry","dry cleaning","tailor","shoe repair"],"priority":105},
+    {"name":"print_photo","keywords":["printing","printer","photo studio","copy shop"],"priority":105},
+    {"name":"florist_garden_pet","keywords":["florist","garden center","pet grooming"],"priority":105},
+    {"name":"repairs_retail","keywords":["locksmith","jewelry repair","watch repair","mobile phones","telecom"],"priority":95},
+    {"name":"home_services","keywords":["electrician","plumber","heating","locksmith"],"priority":100},
+    {"name":"wellness_optical","keywords":["massage","wellness","optician","optical","podiatry","podology"],"priority":105}
+  ],
+  "final_canonical_store": {
+    "type": "google_sheets",
+    "url": "https://docs.google.com/spreadsheets/d/1pYzNHoEepjmZ1GK0YpkMV3fG5wMteZ0JECx1fUzKEm8/edit",
+    "strict_high_label": "VERIFIED_NO_WEBSITE",
+    "ci_write_mode": "precanonical_observations_and_review_only",
+    "note": "CI workers never promote Overture absence directly to strict HIGH; final strict verification remains canonical in the MASTER."
+  },
+  "id": "gws_brussels_no_website",
+  "worker": "gws_hub_overture"
+}

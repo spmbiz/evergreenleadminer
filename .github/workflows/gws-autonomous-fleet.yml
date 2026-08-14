@@ -1,0 +1,160 @@
+name: GWS Autonomous Harvest Fleet
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'control/desired_state.json'
+      - 'config/providers.json'
+      - 'config/gws_fleet.json'
+      - 'tools/gws_fleet_*.py'
+      - '.github/workflows/gws-autonomous-fleet.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: autonomous-harvest-fleet
+  queue: max
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    outputs:
+      enabled: ${{ steps.plan.outputs.enabled }}
+      selected_count: ${{ steps.plan.outputs.selected_count }}
+      max_parallel: ${{ steps.plan.outputs.max_parallel }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        name: Measure account capacity, lease GWS work, snapshot Hub once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python tools/gws_fleet_plan.py --provider github --outdir results/fleet_plan
+      - name: Upload one-day plan transport
+        if: steps.plan.outputs.selected_count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gws-fleet-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/fleet_plan/
+          compression-level: 6
+          retention-days: 1
+
+  harvest:
+    needs: plan
+    if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.selected_count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install worker dependency only
+        run: python -m pip install --disable-pip-version-check duckdb
+      - name: Download shared Hub snapshot and plan
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-fleet-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/fleet_plan
+      - name: Run provider-neutral GWS shard
+        env:
+          TASK_ID: ${{ matrix.task_id }}
+          WORKLOAD_ID: ${{ matrix.workload_id }}
+          TERRITORY: ${{ matrix.territory }}
+          POSTAL_CODES_JSON: ${{ matrix.postal_codes_json }}
+          FAMILY: ${{ matrix.family }}
+          KEYWORDS_JSON: ${{ matrix.keywords_json }}
+          MAX_SERIOUS: ${{ matrix.max_serious }}
+          LEASE_ID: ${{ matrix.lease_id }}
+          LEASE_EXPIRES_AT: ${{ matrix.lease_expires_at }}
+        run: |
+          set -o pipefail
+          out="results/shards/${LEASE_ID}"
+          python tools/gws_fleet_worker.py \
+            --task-id "$TASK_ID" \
+            --workload-id "$WORKLOAD_ID" \
+            --territory "$TERRITORY" \
+            --postal-codes-json "$POSTAL_CODES_JSON" \
+            --family "$FAMILY" \
+            --keywords-json "$KEYWORDS_JSON" \
+            --max-serious "$MAX_SERIOUS" \
+            --lease-id "$LEASE_ID" \
+            --lease-expires-at "$LEASE_EXPIRES_AT" \
+            --hub-snapshot results/fleet_plan/hub_brussels_current.jsonl \
+            --outdir "$out" \
+            --threads 4
+      - name: Upload one-day shard transport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gws-fleet-shard-${{ matrix.lease_id }}
+          path: results/shards/${{ matrix.lease_id }}/
+          compression-level: 6
+          retention-days: 1
+
+  aggregate:
+    needs: [plan, harvest]
+    if: always() && needs.plan.outputs.enabled == 'true' && needs.plan.outputs.selected_count != '0'
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download plan/source snapshot
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-fleet-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/fleet_plan
+      - name: Download all shard transports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gws-fleet-shard-*
+          path: results/shards
+      - name: Single-writer dedupe, checkpoint and GPT handoff
+        run: python tools/gws_fleet_aggregate.py --provider github --plan-dir results/fleet_plan --shards-root results/shards
+      - name: Persist durable GWS state and useful observations
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "evergreen-gws-fleet"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            state/gws_coverage.json \
+            state/gws_entity_index.json \
+            state/gws_source_state.json \
+            state/gws_source_profiles.json \
+            state/provider_capacity.json \
+            metrics/gws_latest.json \
+            metrics/gws_history.jsonl \
+            gpt/gws_latest_summary.json \
+            gpt/gws_pending_batches.json \
+            gpt/gws_review/ \
+            data/gws/
+          if git diff --cached --quiet; then
+            echo "No durable GWS delta."
+            exit 0
+          fi
+          git commit -m "[fleet-state] GWS autonomous checkpoint ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3; do
+            git pull --rebase origin "$BRANCH"
+            if git push origin "HEAD:$BRANCH"; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Failed to persist GWS fleet state after retries" >&2
+          exit 1
