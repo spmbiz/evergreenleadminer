@@ -1,17 +1,17 @@
 {
-  "run_name":"v6-fresh-western-r3-20260814-0202",
+  "run_name":"v6-western-core-r4-20260814-1210",
   "release":"2026-06-17.0",
   "max_rows_per_shard":200000,
   "max_web_checks_per_shard":10000,
   "workers":48,
   "shards":[
-    {"name":"usa-pacific-northwest","country":"USA","region":"Washington-Oregon","bbox":"-124.8,42.0,-116.4,49.1"},
-    {"name":"usa-texas","country":"USA","region":"Texas","bbox":"-106.7,25.8,-93.5,36.6"},
-    {"name":"usa-smokies-appalachia","country":"USA","region":"Tennessee-NorthCarolina-Mountains","bbox":"-86.5,34.4,-80.8,36.8"},
-    {"name":"usa-new-england","country":"USA","region":"NewEngland","bbox":"-73.7,41.0,-66.8,47.6"},
-    {"name":"portugal","country":"Portugal","region":"Portugal","bbox":"-9.6,36.8,-6.0,42.2"},
-    {"name":"spain-mediterranean","country":"Spain","region":"Mediterranean-Balearics","bbox":"-1.5,36.0,4.5,43.0"},
-    {"name":"france-riviera-alps","country":"France","region":"Riviera-Alps","bbox":"4.0,42.3,7.8,46.3"},
-    {"name":"italy-north-tuscany","country":"Italy","region":"North-Tuscany","bbox":"7.0,42.0,13.5,46.8"}
+    {"name":"usa-california-socal","country":"USA","region":"Southern-California","bbox":"-121.2,32.4,-114.1,35.9"},
+    {"name":"usa-california-norcal","country":"USA","region":"Northern-California-Napa-Tahoe","bbox":"-124.5,35.8,-119.0,42.1"},
+    {"name":"usa-arizona","country":"USA","region":"Arizona-Scottsdale-Sedona","bbox":"-114.9,31.2,-109.0,37.1"},
+    {"name":"usa-utah-colorado","country":"USA","region":"Utah-Colorado-Mountain-Resorts","bbox":"-114.1,36.9,-102.0,42.1"},
+    {"name":"usa-hawaii","country":"USA","region":"Hawaii","bbox":"-160.5,18.8,-154.5,22.4"},
+    {"name":"canada-bc-alberta","country":"Canada","region":"British-Columbia-Alberta","bbox":"-139.1,48.2,-110.0,60.1"},
+    {"name":"uk-core","country":"United Kingdom","region":"England-Wales-Scotland-Core","bbox":"-7.8,49.8,1.9,58.7"},
+    {"name":"ireland-core","country":"Ireland","region":"Ireland-Core","bbox":"-10.7,51.3,-5.4,55.5"}
   ]
 }
