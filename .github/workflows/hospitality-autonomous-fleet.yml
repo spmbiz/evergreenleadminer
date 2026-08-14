@@ -127,13 +127,13 @@ jobs:
       - name: Harvest and live-verify shard
         run: |
           mkdir -p "results/${{ matrix.key }}"
-          python tools/fleet_runtime.py worker \
+          python tools/hospitality_worker.py \
             --provider github \
             --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
             --name "${{ matrix.name }}" \
             --country "${{ matrix.country }}" \
             --region "${{ matrix.region }}" \
-            --bbox "${{ matrix.bbox }}" \
+            --bbox="${{ matrix.bbox }}" \
             --release "${{ matrix.release }}" \
             --max-rows "${{ matrix.max_rows }}" \
             --local-workers "${{ matrix.local_workers }}" \
