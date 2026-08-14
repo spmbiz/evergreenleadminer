@@ -1,8 +1,22 @@
 {
   "schema_version": 1,
-  "steps": [4, 8, 12, 16, 20],
+  "steps": [
+    4,
+    8,
+    12,
+    16,
+    20
+  ],
   "recommended_cloud_workers": 4,
-  "last_cycle": null,
-  "last_decision": "initial_canary",
-  "updated_at": "2026-08-14T23:45:00Z"
+  "last_cycle": "20260814T235355Z-github",
+  "last_decision": "hold",
+  "updated_at": "2026-08-14T23:54:21.610895Z",
+  "last_health": {
+    "429_rate": 0.0,
+    "timeout_rate": 0.0,
+    "error_rate": 0.0,
+    "errors": 0
+  },
+  "last_workers_completed": 0,
+  "last_live_ready": 0
 }
