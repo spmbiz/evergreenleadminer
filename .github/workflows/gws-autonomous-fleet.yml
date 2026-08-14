@@ -40,15 +40,27 @@ jobs:
         run: |
           set -euo pipefail
           python tools/gws_fleet_plan.py --provider github --outdir results/fleet_plan
+      - name: Install discovery dependency
+        if: steps.plan.outputs.selected_count != '0'
+        run: python -m pip install --disable-pip-version-check duckdb
       - name: Prepare regional discovery reservoir (Hub + OSM)
         if: steps.plan.outputs.selected_count != '0'
         run: |
           set -euo pipefail
           python tools/gws_source_osm.py prepare \
             --hub-snapshot results/fleet_plan/hub_brussels_current.jsonl \
-            --out-candidates results/fleet_plan/gws_candidates_current.jsonl \
+            --out-candidates results/fleet_plan/gws_candidates_hub_osm.jsonl \
             --plan-dir results/fleet_plan \
             --max-age-hours 6
+      - name: Add direct Overture regional discovery
+        if: steps.plan.outputs.selected_count != '0'
+        run: |
+          set -euo pipefail
+          python tools/gws_source_overture.py prepare \
+            --input-candidates results/fleet_plan/gws_candidates_hub_osm.jsonl \
+            --out-candidates results/fleet_plan/gws_candidates_current.jsonl \
+            --plan-dir results/fleet_plan \
+            --threads 4
       - name: Upload one-day plan transport
         if: steps.plan.outputs.selected_count != '0'
         uses: actions/upload-artifact@v4
@@ -134,8 +146,10 @@ jobs:
         with:
           pattern: gws-fleet-shard-*
           path: results/shards
-      - name: Persist regional OSM source state
-        run: python tools/gws_source_osm.py persist --plan-dir results/fleet_plan
+      - name: Persist regional discovery source state
+        run: |
+          python tools/gws_source_osm.py persist --plan-dir results/fleet_plan
+          python tools/gws_source_overture.py persist --plan-dir results/fleet_plan
       - name: Single-writer dedupe, checkpoint and GPT handoff
         run: python tools/gws_fleet_aggregate.py --provider github --plan-dir results/fleet_plan --shards-root results/shards
       - name: Persist durable GWS state and useful observations
