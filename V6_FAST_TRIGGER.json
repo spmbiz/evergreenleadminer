@@ -1,15 +1,15 @@
 {
-  "run_name":"western-diversify-r7-20260814-2226",
+  "run_name":"western-fill-r7b-20260814-2238",
   "release":"2026-06-17.0",
   "max_rows_per_shard":250000,
   "shards":[
-    {"name":"usa-mid-atlantic-r7","country":"USA","region":"Mid-Atlantic-Chesapeake","bbox":"-80.7,36.5,-73.5,42.5"},
-    {"name":"usa-gulf-central-r7","country":"USA","region":"Gulf-Central","bbox":"-94.1,28.4,-84.5,33.8"},
-    {"name":"canada-atlantic-r7","country":"Canada","region":"Atlantic-Canada","bbox":"-68.5,43.0,-52.0,49.9"},
-    {"name":"uk-scotland-r7","country":"United Kingdom","region":"Scotland-Highlands-Islands","bbox":"-7.8,55.0,-1.0,58.8"},
-    {"name":"uk-wales-southwest-r7","country":"United Kingdom","region":"Wales-Southwest-England","bbox":"-6.0,49.7,-1.0,53.6"},
-    {"name":"france-southeast-r7","country":"France","region":"Alps-Provence-Riviera","bbox":"4.0,43.0,7.8,46.5"},
-    {"name":"spain-southeast-r7","country":"Spain","region":"Mediterranean-South-East","bbox":"-5.8,36.0,1.0,41.8"},
-    {"name":"portugal-r7","country":"Portugal","region":"Portugal-Core-Algarve-Lisbon-Douro","bbox":"-9.6,36.8,-6.0,42.2"}
+    {"name":"spain-balearics-r7b","country":"Spain","region":"Balearic-Islands","bbox":"1.0,38.5,4.5,40.2"},
+    {"name":"spain-canaries-r7b","country":"Spain","region":"Canary-Islands","bbox":"-18.3,27.5,-13.3,29.5"},
+    {"name":"portugal-madeira-r7b","country":"Portugal","region":"Madeira","bbox":"-17.3,32.4,-16.2,33.2"},
+    {"name":"netherlands-r7b","country":"Netherlands","region":"Netherlands-Premium-Stays","bbox":"3.2,50.7,7.3,53.6"},
+    {"name":"belgium-r7b","country":"Belgium","region":"Belgium-Coast-Ardennes-Cities","bbox":"2.5,49.4,6.4,51.6"},
+    {"name":"germany-south-r7b","country":"Germany","region":"Bavaria-Black-Forest","bbox":"7.4,47.2,12.5,49.5"},
+    {"name":"austria-west-r7b","country":"Austria","region":"Tyrol-Salzburg-Western-Austria","bbox":"9.5,46.5,14.0,48.5"},
+    {"name":"italy-northwest-r7b","country":"Italy","region":"Lakes-Piedmont-Liguria","bbox":"7.0,43.7,10.8,46.6"}
   ]
 }
