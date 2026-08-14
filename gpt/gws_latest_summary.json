@@ -1,1 +1,35 @@
-{"schema_version":1,"status":"BOOTSTRAP_PENDING_FIRST_CYCLE"}
+{
+  "autoscaling": {
+    "after": 12,
+    "before": 8,
+    "reason": "healthy_canary_scale_up"
+  },
+  "coverage_delta": {
+    "tasks_completed": 8,
+    "tasks_failed_or_missing": 0
+  },
+  "duplicates": 0,
+  "errors": 0,
+  "gpt_review_added": 13,
+  "gpt_review_pending": 13,
+  "new_unique": 24,
+  "next_backlog": 163,
+  "owned_site_or_chain_rejects": 11,
+  "provider": "github",
+  "provider_usage": {
+    "github": {
+      "active_observed_before": 1,
+      "limit": 20,
+      "queued_observed_before": 0,
+      "selected_workers": 8
+    }
+  },
+  "qualified_for_strict_review": 1,
+  "raw_discovered": 24,
+  "review_batch": "gpt/gws_review/2026-08-14T215833Z_31844601983-1.jsonl",
+  "run_id": "31844601983-1",
+  "schema_version": 1,
+  "status": "CYCLE_COMPLETE",
+  "uncertain": 12,
+  "updated_at": "2026-08-14T21:58:33+00:00"
+}
