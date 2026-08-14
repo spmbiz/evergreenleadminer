@@ -1,15 +1,15 @@
 {
-  "run_name":"western-volume-r5-20260814-1632",
+  "run_name":"caribbean-volume-r6-20260814-1740",
   "release":"2026-06-17.0",
   "max_rows_per_shard":250000,
   "shards":[
-    {"name":"usa-florida-southeast","country":"USA","region":"Florida-Southeast","bbox":"-87.8,24.3,-79.8,31.2"},
-    {"name":"usa-northeast-coastal","country":"USA","region":"NY-NJ-CT-RI-MA-Coastal","bbox":"-75.7,39.2,-69.0,43.1"},
-    {"name":"canada-ontario-quebec","country":"Canada","region":"Ontario-Quebec-Core","bbox":"-84.9,44.0,-63.0,50.8"},
-    {"name":"uk-core-v2","country":"United Kingdom","region":"England-Wales-Scotland-Core","bbox":"-7.8,49.8,1.9,58.7"},
-    {"name":"benelux","country":"Belgium-Netherlands-Luxembourg","region":"Benelux","bbox":"2.5,49.4,7.3,53.7"},
-    {"name":"dach-alpine","country":"Germany-Austria","region":"South-Germany-Austria-Alpine","bbox":"8.0,46.3,15.5,49.8"},
-    {"name":"switzerland-alpine","country":"Switzerland","region":"Swiss-Alps-Core","bbox":"5.8,45.8,10.6,47.9"},
-    {"name":"france-atlantic-alpine","country":"France","region":"Atlantic-West-Alps","bbox":"-5.2,43.0,7.6,48.8"}
+    {"name":"caribbean-bahamas","country":"Bahamas","region":"Bahamas-Core","bbox":"-79.6,20.7,-72.4,27.8"},
+    {"name":"caribbean-turks-caicos","country":"Turks and Caicos Islands","region":"Turks-Caicos","bbox":"-72.7,21.0,-70.8,22.2"},
+    {"name":"caribbean-dominican-premium","country":"Dominican Republic","region":"Punta-Cana-Cap-Cana-Samana","bbox":"-72.1,17.4,-68.0,20.2"},
+    {"name":"caribbean-puerto-rico","country":"Puerto Rico","region":"Puerto-Rico-Core","bbox":"-67.4,17.8,-65.2,18.6"},
+    {"name":"caribbean-barbados","country":"Barbados","region":"Barbados-Core","bbox":"-59.8,12.9,-59.3,13.4"},
+    {"name":"caribbean-cayman","country":"Cayman Islands","region":"Cayman-Core","bbox":"-81.5,19.0,-79.6,19.9"},
+    {"name":"caribbean-lesser-antilles","country":"Caribbean","region":"St-Martin-Antigua-St-Lucia-Martinique-Guadeloupe","bbox":"-63.5,13.4,-60.0,18.4"},
+    {"name":"caribbean-jamaica","country":"Jamaica","region":"Jamaica-Core","bbox":"-78.5,17.5,-76.0,18.6"}
   ]
 }
