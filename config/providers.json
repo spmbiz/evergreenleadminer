@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-08-14T21:27:00Z",
+  "providers": {
+    "github": {
+      "enabled": true,
+      "verified_eligible": true,
+      "plan": "Free",
+      "concurrency_limit": 20,
+      "worker_target": 18,
+      "control_reserve": 2,
+      "public_repo_standard_runners_unlimited_minutes": true,
+      "source": "https://docs.github.com/en/actions/reference/limits"
+    },
+    "circleci": {
+      "enabled": false,
+      "configured": true,
+      "verified_eligible": false,
+      "plan": "Free",
+      "concurrency_limit": 30,
+      "worker_target": 28,
+      "control_reserve": 2,
+      "open_source_linux_credits_per_month": 400000,
+      "activation_requirements": [
+        "Connect walidgdg1-ai/evergreenleadminer to a CircleCI Free organization",
+        "Confirm the project is recognized as public/open-source",
+        "Set FLEET_GH_TOKEN in CircleCI with write access to this repository for durable inbox upload",
+        "Create a scheduled CircleCI pipeline with parameter fleet=true"
+      ],
+      "source": "https://circleci.com/pricing/"
+    }
+  }
+}
