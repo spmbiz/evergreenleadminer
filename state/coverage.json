@@ -1,4 +1,57 @@
 {
   "schema_version": 1,
-  "shards": {}
+  "shards": {
+    "d2dccc341e4f2131": {
+      "name": "canada-bc-alberta",
+      "country": "Canada",
+      "region": "British-Columbia-Alberta",
+      "bbox": "-139.1,48.2,-110.0,60.1",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-14T23:59:35.771745Z",
+      "last_success": "2026-08-14T23:59:35.771745Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 237,
+      "last_elapsed_seconds": 44.31
+    },
+    "b9a9bef94e6ebea3": {
+      "name": "usa-hawaii",
+      "country": "USA",
+      "region": "Hawaii",
+      "bbox": "-160.5,18.8,-154.5,22.4",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-14T23:59:35.771745Z",
+      "last_success": "2026-08-14T23:59:35.771745Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 63,
+      "last_elapsed_seconds": 28.56
+    },
+    "e11959ed243b8777": {
+      "name": "usa-texas-r7c",
+      "country": "USA",
+      "region": "Texas-Coast-Hill-Country",
+      "bbox": "-106.7,25.7,-93.4,33.2",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-14T23:59:35.771745Z",
+      "last_success": "2026-08-14T23:59:35.771745Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 250,
+      "last_elapsed_seconds": 131.29
+    },
+    "d0838e1680a46745": {
+      "name": "usa-california-socal",
+      "country": "USA",
+      "region": "Southern-California",
+      "bbox": "-121.2,32.4,-114.1,35.9",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-14T23:59:35.771745Z",
+      "last_success": "2026-08-14T23:59:35.771745Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 382,
+      "last_elapsed_seconds": 189.71
+    }
+  }
 }
