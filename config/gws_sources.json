@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-15T00:00:00Z",
+  "principle": "Discovery sources may nominate candidates; only the strict downstream verifier may promote VERIFIED_NO_WEBSITE.",
+  "sources": {
+    "hub_city_brussels": {
+      "enabled": true,
+      "role": "discovery_seed",
+      "status": "live",
+      "scope_note": "Official hub.brussels shop census is primarily City of Brussels territory, not a full Brussels-Capital business registry.",
+      "license": "CC BY 4.0"
+    },
+    "openstreetmap": {
+      "enabled": true,
+      "role": "regional_discovery",
+      "status": "live",
+      "transport": "Overpass with durable cached snapshot",
+      "refresh_hours": 6,
+      "cheap_screen_owned_website": true,
+      "license": "ODbL",
+      "notes": "Used to widen all-commune coverage. Explicit owned websites are removed before expensive verification."
+    },
+    "foursquare_os_places": {
+      "enabled": false,
+      "role": "high_volume_poi_discovery_and_enrichment",
+      "status": "pending_access_token",
+      "secret": "FSQ_OS_TOKEN",
+      "license": "Apache-2.0",
+      "priority": 250,
+      "expected_fields": [
+        "name", "latitude", "longitude", "address", "postcode", "category",
+        "telephone", "website", "email", "instagram", "facebook_id", "date_refreshed", "date_closed"
+      ],
+      "notes": "Preferred next bulk source once Places Portal access token is configured."
+    },
+    "belgian_cbe_open_data": {
+      "enabled": false,
+      "role": "authoritative_identity_activity_registry",
+      "status": "pending_registration_or_sftp",
+      "priority": 230,
+      "legal_person_only_for_marketing": true,
+      "natural_person_direct_marketing_reuse": false,
+      "notes": "Use active legal-person entities/establishments for identity, address and activity coverage; do not reuse registered natural-person data for direct marketing."
+    },
+    "best_address_brussels": {
+      "enabled": false,
+      "role": "auxiliary_geocoding",
+      "status": "optional",
+      "notes": "Regional address register can help resolve postcode/commune when a POI source omits them."
+    }
+  }
+}
