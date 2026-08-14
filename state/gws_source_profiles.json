@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "gws_hub_overture": {
+      "initial_parallel": 8,
+      "stable_parallel": 8,
+      "max_parallel": 30,
+      "scale_step": 4,
+      "duckdb_threads": 4,
+      "last_error_rate": 0.0,
+      "last_429_rate": 0.0,
+      "last_useful_per_minute": null,
+      "canary_stage": 0,
+      "expected_worker_minutes": 20
+    }
+  }
+}

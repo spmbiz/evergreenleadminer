@@ -1,0 +1,60 @@
+name: GWS CircleCI Inbox Aggregate
+
+on:
+  schedule:
+    - cron: '12,27,42,57 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autonomous-harvest-fleet
+  queue: max
+
+jobs:
+  aggregate_circleci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Canonicalize durable CircleCI GWS inboxes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/gws_circleci_inbox.py --max-assets 4
+      - name: Persist CircleCI ingestion and canonical GWS state
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "evergreen-gws-circleci-ingest"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            state/gws_circleci_inbox.json \
+            state/gws_coverage.json \
+            state/gws_entity_index.json \
+            state/gws_source_state.json \
+            state/gws_source_profiles.json \
+            state/provider_capacity.json \
+            metrics/gws_latest.json \
+            metrics/gws_history.jsonl \
+            gpt/gws_latest_summary.json \
+            gpt/gws_pending_batches.json \
+            gpt/gws_review/ \
+            data/gws/
+          if git diff --cached --quiet; then
+            echo "No CircleCI GWS inbox delta."
+            exit 0
+          fi
+          git commit -m "[fleet-state] ingest CircleCI GWS inbox ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3; do
+            git pull --rebase origin "$BRANCH"
+            if git push origin "HEAD:$BRANCH"; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "Failed to persist CircleCI GWS ingest after retries" >&2
+          exit 1
