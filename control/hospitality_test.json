@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-14T23:49:00Z",
+  "requested_at": "2026-08-14T23:58:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "24/7-canary",
+  "mode": "24/7-canary-retry",
   "force_workers": 4,
-  "note": "One immediate canary. Scheduled cycles ignore this force and use durable autoscaling."
+  "note": "Retry after negative-bbox CLI fix. Scheduled cycles ignore this force and use durable autoscaling."
 }
