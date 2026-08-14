@@ -1,8 +1,8 @@
 {
   "autoscaling": {
-    "after": 12,
+    "after": 16,
     "before": 12,
-    "reason": "hold_marginal_throughput"
+    "reason": "healthy_canary_scale_up"
   },
   "coverage_delta": {
     "tasks_completed": 12,
@@ -11,10 +11,10 @@
   "duplicates": 0,
   "errors": 0,
   "gpt_review_added": 1,
-  "gpt_review_pending": 14,
-  "new_unique": 2,
-  "next_backlog": 151,
-  "owned_site_or_chain_rejects": 1,
+  "gpt_review_pending": 15,
+  "new_unique": 3,
+  "next_backlog": 139,
+  "owned_site_or_chain_rejects": 2,
   "provider": "github",
   "provider_usage": {
     "github": {
@@ -25,11 +25,11 @@
     }
   },
   "qualified_for_strict_review": 0,
-  "raw_discovered": 2,
-  "review_batch": "gpt/gws_review/2026-08-14T223425Z_31847033673-1.jsonl",
-  "run_id": "31847033673-1",
+  "raw_discovered": 3,
+  "review_batch": "gpt/gws_review/2026-08-14T225551Z_31848380970-1.jsonl",
+  "run_id": "31848380970-1",
   "schema_version": 1,
   "status": "CYCLE_COMPLETE",
   "uncertain": 1,
-  "updated_at": "2026-08-14T22:34:25+00:00"
+  "updated_at": "2026-08-14T22:55:51+00:00"
 }
