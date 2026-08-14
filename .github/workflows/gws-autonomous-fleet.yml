@@ -10,7 +10,9 @@ on:
       - 'control/desired_state.json'
       - 'config/providers.json'
       - 'config/gws_fleet.json'
+      - 'config/gws_sources.json'
       - 'tools/gws_fleet_*.py'
+      - 'tools/gws_source_*.py'
       - '.github/workflows/gws-autonomous-fleet.yml'
 
 permissions:
@@ -38,6 +40,15 @@ jobs:
         run: |
           set -euo pipefail
           python tools/gws_fleet_plan.py --provider github --outdir results/fleet_plan
+      - name: Prepare regional discovery reservoir (Hub + OSM)
+        if: steps.plan.outputs.selected_count != '0'
+        run: |
+          set -euo pipefail
+          python tools/gws_source_osm.py prepare \
+            --hub-snapshot results/fleet_plan/hub_brussels_current.jsonl \
+            --out-candidates results/fleet_plan/gws_candidates_current.jsonl \
+            --plan-dir results/fleet_plan \
+            --max-age-hours 6
       - name: Upload one-day plan transport
         if: steps.plan.outputs.selected_count != '0'
         uses: actions/upload-artifact@v4
@@ -63,7 +74,7 @@ jobs:
           python-version: '3.11'
       - name: Install worker dependency only
         run: python -m pip install --disable-pip-version-check duckdb
-      - name: Download shared Hub snapshot and plan
+      - name: Download shared discovery reservoir and plan
         uses: actions/download-artifact@v4
         with:
           name: gws-fleet-plan-${{ github.run_id }}-${{ github.run_attempt }}
@@ -92,7 +103,7 @@ jobs:
             --max-serious "$MAX_SERIOUS" \
             --lease-id "$LEASE_ID" \
             --lease-expires-at "$LEASE_EXPIRES_AT" \
-            --hub-snapshot results/fleet_plan/hub_brussels_current.jsonl \
+            --hub-snapshot results/fleet_plan/gws_candidates_current.jsonl \
             --outdir "$out" \
             --threads 4
       - name: Upload one-day shard transport
@@ -123,6 +134,8 @@ jobs:
         with:
           pattern: gws-fleet-shard-*
           path: results/shards
+      - name: Persist regional OSM source state
+        run: python tools/gws_source_osm.py persist --plan-dir results/fleet_plan
       - name: Single-writer dedupe, checkpoint and GPT handoff
         run: python tools/gws_fleet_aggregate.py --provider github --plan-dir results/fleet_plan --shards-root results/shards
       - name: Persist durable GWS state and useful observations
