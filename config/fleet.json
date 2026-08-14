@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "source_family": "overture_hospitality_v6",
+  "max_rows_per_shard": 250000,
+  "stale_after_hours": 168,
+  "github_cycle_minutes": 15,
+  "artifact_retention_days": 1,
+  "release_state_tag": "harvest-state",
+  "release_inbox_tag": "harvest-inbox",
+  "local_http_workers": {
+    "min": 32,
+    "default": 64,
+    "max": 96,
+    "step": 16
+  },
+  "autoscale_thresholds": {
+    "429_rate_down": 0.02,
+    "timeout_rate_down": 0.15,
+    "error_rate_down": 0.2,
+    "healthy_error_rate_up": 0.08
+  },
+  "gpt_review": {
+    "include_live_medium": true,
+    "include_free_webmail": true,
+    "max_records_per_batch": 500
+  }
+}
