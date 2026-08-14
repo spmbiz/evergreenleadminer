@@ -1,0 +1,82 @@
+name: Overture V6 Fast Lane
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'V6_FAST_TRIGGER.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: overture-v6-fast-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      max_rows: ${{ steps.plan.outputs.max_rows }}
+      release: ${{ steps.plan.outputs.release }}
+      run_name: ${{ steps.plan.outputs.run_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          c=json.load(open('V6_FAST_TRIGGER.json',encoding='utf-8'))
+          print('matrix='+json.dumps({'include':c['shards']},separators=(',',':')))
+          print('max_rows='+str(int(c.get('max_rows_per_shard',250000))))
+          print('release='+str(c.get('release','2026-06-17.0')))
+          print('run_name='+c.get('run_name','v6-fast'))
+          PY
+
+  harvest:
+    needs: plan
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install DuckDB
+        run: python -m pip install --disable-pip-version-check duckdb
+      - name: V6 fast-lane harvest
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+          COUNTRY: ${{ matrix.country }}
+          REGION: ${{ matrix.region }}
+          BBOX: ${{ matrix.bbox }}
+          MAX_ROWS: ${{ needs.plan.outputs.max_rows }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+        run: |
+          set -o pipefail
+          mkdir -p "results/$SHARD_NAME"
+          python tools/overture_v6_fastlane.py --bbox="$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --release "$RELEASE" --max-rows "$MAX_ROWS" 2>&1 | tee "results/$SHARD_NAME/fast.log"
+      - name: Show summary
+        if: always()
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+        run: test ! -f "results/$SHARD_NAME/v6_fast_summary.json" || cat "results/$SHARD_NAME/v6_fast_summary.json"
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6-fast-${{ needs.plan.outputs.run_name }}-${{ matrix.name }}
+          path: |
+            results/${{ matrix.name }}/v6_fast_ready.csv
+            results/${{ matrix.name }}/v6_fast_summary.json
+            results/${{ matrix.name }}/fast.log
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 14
