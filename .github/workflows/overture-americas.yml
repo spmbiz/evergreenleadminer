@@ -12,7 +12,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: overture-americas-premium
+  group: overture-americas-premium-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
