@@ -13,6 +13,7 @@ on:
       - 'config/gws_sources.json'
       - 'tools/gws_fleet_*.py'
       - 'tools/gws_source_*.py'
+      - 'tools/gws_worker_postprocess.py'
       - '.github/workflows/gws-autonomous-fleet.yml'
 
 permissions:
@@ -118,6 +119,7 @@ jobs:
             --hub-snapshot results/fleet_plan/gws_candidates_current.jsonl \
             --outdir "$out" \
             --threads 4
+          python tools/gws_worker_postprocess.py --shard-dir "$out"
       - name: Upload one-day shard transport
         if: always()
         uses: actions/upload-artifact@v4
