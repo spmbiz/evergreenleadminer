@@ -1,19 +1,19 @@
 {
   "profiles": {
     "gws_hub_overture": {
-      "canary_stage": 4,
+      "canary_stage": 5,
       "duckdb_threads": 4,
       "expected_worker_minutes": 1.0,
       "initial_parallel": 8,
       "last_429_rate": 0.0,
       "last_autoscale_reason": "healthy_canary_scale_up",
-      "last_cycle_useful_per_worker_minute": 106.3132,
+      "last_cycle_useful_per_worker_minute": 453.9785,
       "last_error_rate": 0.0,
-      "last_updated": "2026-08-14T23:53:54+00:00",
-      "last_useful_per_minute": 6.8392,
+      "last_updated": "2026-08-14T23:57:53+00:00",
+      "last_useful_per_minute": 36.6409,
       "max_parallel": 30,
       "scale_step": 4,
-      "stable_parallel": 24
+      "stable_parallel": 28
     }
   },
   "schema_version": 1

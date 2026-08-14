@@ -4,10 +4,22 @@
     "hub_brussels": {
       "api_total": 7174,
       "last_changed": "2026-08-14T23:53:54+00:00",
-      "last_seen": "2026-08-14T23:53:54+00:00",
+      "last_seen": "2026-08-14T23:57:53+00:00",
       "materialized": 7174,
       "persisted_snapshot": "data/gws/source/hub_brussels_20260814T235354Z_f40dc663036a.jsonl.gz",
       "sha256": "f40dc663036a27328614d0a00509a26a3dcfb54649ad9a62d482e158b826040b"
+    },
+    "osm_brussels": {
+      "cross_source_duplicates": 0,
+      "error": "",
+      "last_changed": "2026-08-14T23:57:53+00:00",
+      "last_fetched": "2026-08-14T23:57:16+00:00",
+      "last_seen": "2026-08-14T23:57:53+00:00",
+      "materialized": 0,
+      "osm_unique_after_hub_dedupe": 0,
+      "persisted_snapshot": "data/gws/source/osm_brussels_20260814T235753Z_e3b0c44298fc.jsonl.gz",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "fresh"
     }
   }
 }
