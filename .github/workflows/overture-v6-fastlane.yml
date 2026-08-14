@@ -49,8 +49,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install DuckDB
-        run: python -m pip install --disable-pip-version-check duckdb
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests
       - name: V6 fast-lane harvest
         env:
           SHARD_NAME: ${{ matrix.name }}
@@ -63,19 +63,29 @@ jobs:
           set -o pipefail
           mkdir -p "results/$SHARD_NAME"
           python tools/overture_v6_fastlane.py --bbox="$BBOX" --country "$COUNTRY" --region "$REGION" --outdir "results/$SHARD_NAME" --release "$RELEASE" --max-rows "$MAX_ROWS" 2>&1 | tee "results/$SHARD_NAME/fast.log"
-      - name: Show summary
+      - name: V6 current-site verification
+        env:
+          SHARD_NAME: ${{ matrix.name }}
+        run: |
+          python tools/v6_live_verify.py --input "results/$SHARD_NAME/v6_fast_ready.csv" --outdir "results/$SHARD_NAME" --workers 64 --timeout 7
+      - name: Show summaries
         if: always()
         env:
           SHARD_NAME: ${{ matrix.name }}
-        run: test ! -f "results/$SHARD_NAME/v6_fast_summary.json" || cat "results/$SHARD_NAME/v6_fast_summary.json"
+        run: |
+          test ! -f "results/$SHARD_NAME/v6_fast_summary.json" || cat "results/$SHARD_NAME/v6_fast_summary.json"
+          test ! -f "results/$SHARD_NAME/v6_live_summary.json" || cat "results/$SHARD_NAME/v6_live_summary.json"
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v6-fast-${{ needs.plan.outputs.run_name }}-${{ matrix.name }}
+          name: v6-live-${{ needs.plan.outputs.run_name }}-${{ matrix.name }}
           path: |
             results/${{ matrix.name }}/v6_fast_ready.csv
             results/${{ matrix.name }}/v6_fast_summary.json
+            results/${{ matrix.name }}/v6_live_verified.csv
+            results/${{ matrix.name }}/v6_live_ready.csv
+            results/${{ matrix.name }}/v6_live_summary.json
             results/${{ matrix.name }}/fast.log
           if-no-files-found: warn
           compression-level: 6
