@@ -11,14 +11,13 @@ commands:
           name: Install dependencies
           command: python -m pip install --disable-pip-version-check duckdb requests
       - run:
-          name: Plan and harvest guaranteed real shard
+          name: Harvest one deterministic real shard
           command: |
             set -euo pipefail
             export GLOBAL_INDEX=$((CIRCLE_NODE_INDEX + << parameters.offset >>))
             mkdir -p results/fleet_plan "results/shards/node-${GLOBAL_INDEX}"
-            python tools/fleet_runtime.py plan --provider github --capacity 30 --out results/fleet_plan/plan.json
-            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); p['cycle_id']='circleci-'+os.environ['CIRCLE_WORKFLOW_ID']; json.dump(p,open('results/fleet_plan/plan.json','w'))"
-            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); i=int(os.environ['GLOBAL_INDEX']); assert len(p.get('include') or []) > i, (len(p.get('include') or []), i)"
+            python tools/circleci_stress_plan.py --capacity 30 --local-workers 64 --out results/fleet_plan/plan.json
+            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); i=int(os.environ['GLOBAL_INDEX']); assert len(p['include']) > i, (len(p['include']),i)"
             python tools/circleci_hospitality_worker.py --plan-json results/fleet_plan/plan.json --task-index "$GLOBAL_INDEX" --verify-engine thread --local-workers 64 --outdir "results/shards/node-${GLOBAL_INDEX}"
 
 jobs:
