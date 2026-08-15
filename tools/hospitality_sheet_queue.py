@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Materialize durable, text-based Sheet-sync queues from the hospitality canonical DB.
+"""Materialize durable, text-based Google Sheet sync queues from canonical hospitality SQLite.
 
-GitHub Actions cannot write the private Google Sheet directly without Google credentials.
-This bridge persists queue chunks in the repo so a connected Google Sheets agent can
-consume them idempotently, dedupe against MASTER, append, verify, then delete chunks.
+The private MASTER Sheet is not directly writable from GitHub Actions without Google
+credentials. This bridge turns canonical state into small repo queue chunks. A connected
+Google Sheets agent can consume chunks idempotently, MASTER-dedupe, append+verify, then
+delete processed chunks.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import gzip
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -50,8 +52,8 @@ def write_chunk(path: Path, records: list[dict]) -> None:
             f.write(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
-def enqueue_partition(partition: Path, queue_dir: Path, cycle_id: str) -> int:
-    if not partition.exists():
+def enqueue_partition(partition: Path | None, queue_dir: Path, cycle_id: str) -> int:
+    if not partition or not partition.exists():
         return 0
     records: list[dict] = []
     with gzip.open(partition, "rt", encoding="utf-8") as f:
@@ -66,8 +68,7 @@ def enqueue_partition(partition: Path, queue_dir: Path, cycle_id: str) -> int:
             records.append(normalize_record(r, cycle_id, "cycle_delta"))
     if not records:
         return 0
-    out = queue_dir / f"cycle-{safe_name(cycle_id)}.jsonl"
-    write_chunk(out, records)
+    write_chunk(queue_dir / f"cycle-{safe_name(cycle_id)}.jsonl", records)
     return len(records)
 
 
@@ -78,12 +79,10 @@ def canonical_records(db_path: Path) -> list[dict]:
     out: list[dict] = []
     for row in rows:
         d = dict(row)
-        raw = {}
         try:
             raw = json.loads(d.get("raw_json") or "{}")
         except Exception:
             raw = {}
-        # Raw worker row is preferred because it carries scoring/contact context.
         r = dict(raw) if isinstance(raw, dict) else {}
         for k in (
             "domain", "name", "country", "region", "city", "state", "street",
@@ -98,51 +97,78 @@ def canonical_records(db_path: Path) -> list[dict]:
     return out
 
 
-def bootstrap_once(db_path: Path, queue_dir: Path, state_path: Path, chunk_size: int) -> tuple[int, int]:
-    state = load_json(state_path, {"schema_version": 1, "done": False})
-    if state.get("done"):
-        return 0, 0
-    records = canonical_records(db_path)
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+def signature(r: dict) -> str:
+    keys = (
+        "domain", "name", "country", "region", "city", "state", "street",
+        "website", "public_email", "public_phone", "instagram", "live_status",
+        "fit_tier", "operator_score", "premium_score", "source_url", "overture_id",
+    )
+    payload = "\x1f".join(str(r.get(k) or "").strip() for k in keys)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def chunk_records(records: list[dict], queue_dir: Path, prefix: str, kind: str, chunk_size: int) -> int:
     chunks = 0
     for i in range(0, len(records), chunk_size):
-        batch = [normalize_record(r, f"bootstrap-{stamp}", "canonical_bootstrap") for r in records[i:i + chunk_size]]
+        batch = [normalize_record(r, prefix, kind) for r in records[i:i + chunk_size]]
         chunks += 1
-        write_chunk(queue_dir / f"bootstrap-{stamp}-{chunks:03d}.jsonl", batch)
+        write_chunk(queue_dir / f"{safe_name(prefix)}-{chunks:03d}.jsonl", batch)
+    return chunks
+
+
+def snapshot_diff(db_path: Path, queue_dir: Path, state_path: Path, cycle_id: str, chunk_size: int) -> tuple[int, int, bool]:
+    records = canonical_records(db_path)
+    current = {str(r.get("domain") or "").strip().lower(): signature(r) for r in records if r.get("domain")}
+    state = load_json(state_path, {"schema_version": 1, "initialized": False, "signatures": {}})
+    previous = state.get("signatures") or {}
+    first = not bool(state.get("initialized"))
+
+    if first:
+        changed = records
+        kind = "canonical_bootstrap"
+        prefix = f"bootstrap-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    else:
+        changed = [r for r in records if current.get(str(r.get("domain") or "").strip().lower()) != previous.get(str(r.get("domain") or "").strip().lower())]
+        kind = "canonical_delta"
+        prefix = f"delta-{safe_name(cycle_id)}"
+
+    chunks = chunk_records(changed, queue_dir, prefix, kind, chunk_size) if changed else 0
     write_json(state_path, {
         "schema_version": 1,
-        "done": True,
-        "completed_at": now_z(),
-        "records_exported": len(records),
-        "chunks_created": chunks,
-        "chunk_size": chunk_size,
-        "note": "One-time full canonical export for MASTER reconciliation. Consumer must MASTER-dedupe before append."
+        "initialized": True,
+        "updated_at": now_z(),
+        "cycle_id": cycle_id,
+        "canonical_records": len(records),
+        "queued_records_this_pass": len(changed),
+        "chunks_created_this_pass": chunks,
+        "signatures": current,
+        "note": "Queue only. Google Sheet consumer must MASTER-dedupe and verify before deleting queue chunks."
     })
-    return len(records), chunks
+    return len(changed), chunks, first
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--canonical-db", required=True)
-    ap.add_argument("--partition", required=True)
     ap.add_argument("--cycle-id", required=True)
+    ap.add_argument("--partition")
     ap.add_argument("--queue-dir", default="gpt/sheet_sync_queue")
-    ap.add_argument("--bootstrap-state", default="state/sheet_sync_bootstrap.json")
-    ap.add_argument("--bootstrap-chunk-size", type=int, default=400)
+    ap.add_argument("--snapshot-state", default="state/sheet_sync_snapshot.json")
+    ap.add_argument("--chunk-size", type=int, default=400)
     a = ap.parse_args()
 
     db = Path(a.canonical_db)
-    partition = Path(a.partition)
     queue = Path(a.queue_dir)
-    state = Path(a.bootstrap_state)
     queue.mkdir(parents=True, exist_ok=True)
+    chunk_size = max(50, int(a.chunk_size))
 
-    boot_records, boot_chunks = bootstrap_once(db, queue, state, max(50, a.bootstrap_chunk_size))
-    delta_records = enqueue_partition(partition, queue, a.cycle_id)
+    queued, chunks, first = snapshot_diff(db, queue, Path(a.snapshot_state), a.cycle_id, chunk_size)
+    partition_records = enqueue_partition(Path(a.partition) if a.partition else None, queue, a.cycle_id)
     print(json.dumps({
-        "bootstrap_records": boot_records,
-        "bootstrap_chunks": boot_chunks,
-        "delta_records": delta_records,
+        "snapshot_bootstrap": first,
+        "snapshot_records_queued": queued,
+        "snapshot_chunks_created": chunks,
+        "partition_records_queued": partition_records,
         "queue_dir": str(queue),
         "cycle_id": a.cycle_id,
     }, separators=(",", ":")))
