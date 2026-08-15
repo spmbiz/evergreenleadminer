@@ -2,17 +2,17 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.16981,
-    "recent_429_rate": 0.01887,
-    "recent_timeout_rate": 0.01887,
+    "recent_error_rate": 0.28125,
+    "recent_429_rate": 0.01875,
+    "recent_timeout_rate": 0.025,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-15T21:23:12.867365Z"
+    "last_updated": "2026-08-15T21:31:28.279046Z"
   },
   "hospitality_lanes": {
     "fast_email": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 4,
+      "last_raw_discovered": 8,
       "last_fast_ready": 0,
       "last_live_ready": 0,
       "last_recovery_candidates": 0,
@@ -73,24 +73,24 @@
     "site_recovery": {
       "last_workers_completed": 11,
       "last_workers_failed": 0,
-      "last_raw_discovered": 3826,
-      "last_fast_ready": 53,
-      "last_live_ready": 31,
-      "last_recovery_candidates": 54,
-      "last_recovered_public_emails": 7,
+      "last_raw_discovered": 6964,
+      "last_fast_ready": 160,
+      "last_live_ready": 79,
+      "last_recovery_candidates": 162,
+      "last_recovered_public_emails": 21,
       "last_live_health": {
-        "429_rate": 0.01887,
-        "timeout_rate": 0.01887,
-        "error_rate": 0.16981
+        "429_rate": 0.01875,
+        "timeout_rate": 0.025,
+        "error_rate": 0.28125
       },
       "last_contact_health": {
-        "429_rate": 0.03703,
-        "timeout_rate": 0.03704,
-        "error_rate": 0.0
+        "429_rate": 0.00617,
+        "timeout_rate": 0.02469,
+        "error_rate": 0.02469
       },
       "recommended_contact_workers": 40,
-      "last_contact_ready": 53,
-      "last_social_or_contact_without_email": 46
+      "last_contact_ready": 160,
+      "last_social_or_contact_without_email": 139
     }
   }
 }
