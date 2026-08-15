@@ -1,0 +1,124 @@
+name: Hospitality Grid 20 Benchmark
+
+on:
+  push:
+    branches: [hospitality-grid-bench]
+    paths:
+      - '.github/workflows/hospitality-grid-benchmark.yml'
+      - 'control/hospitality_grid_bench.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      cycle_id: ${{ steps.plan.outputs.cycle_id }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - id: plan
+        name: Build 20-cell deterministic grid plan
+        run: |
+          mkdir -p bench/plan
+          python tools/hospitality_grid_plan.py --provider github --capacity 20 --ignore-coverage --out bench/plan/plan.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('bench/plan/plan.json'))
+          print('matrix='+json.dumps({'include':p.get('include') or []},separators=(',',':')))
+          print('cycle_id='+p['cycle_id'])
+          print('count='+str(len(p.get('include') or [])))
+          print('catalog_size='+str(p.get('catalog_size') or 0))
+          PY
+          cat bench/plan/plan.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-grid-plan
+          path: bench/plan/
+          retention-days: 1
+
+  harvest:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    name: grid-${{ matrix.key }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check duckdb requests
+      - name: Harvest and verify grid cell
+        run: |
+          mkdir -p "bench/${{ matrix.key }}"
+          python tools/hospitality_worker.py \
+            --provider github \
+            --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
+            --name "${{ matrix.name }}" \
+            --country "${{ matrix.country }}" \
+            --region "${{ matrix.region }}" \
+            --bbox="${{ matrix.bbox }}" \
+            --release "${{ matrix.release }}" \
+            --max-rows "${{ matrix.max_rows }}" \
+            --local-workers 64 \
+            --verify-engine thread \
+            --outdir "bench/${{ matrix.key }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hospitality-grid-worker-${{ matrix.key }}
+          path: bench/${{ matrix.key }}/
+          retention-days: 1
+
+  summarize:
+    needs: [plan, harvest]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hospitality-grid-worker-*
+          path: incoming
+      - name: Aggregate benchmark-only metrics
+        run: |
+          python - <<'PY'
+          import json,glob
+          rows=[]
+          for p in glob.glob('incoming/**/worker_summary.json',recursive=True):
+              try: rows.append(json.load(open(p)))
+              except Exception: pass
+          checked=sum(int(r.get('fast_ready') or 0) for r in rows)
+          weighted=lambda k: sum(float(r.get(k) or 0)*int(r.get('fast_ready') or 0) for r in rows)/(checked or 1)
+          out={
+            'workers_seen':len(rows),
+            'workers_success':sum(r.get('status')=='success' for r in rows),
+            'raw_site_email_rows':sum(int(r.get('raw_site_email_rows') or 0) for r in rows),
+            'fast_ready':sum(int(r.get('fast_ready') or 0) for r in rows),
+            'live_ready':sum(int(r.get('live_ready') or 0) for r in rows),
+            'live_high':sum(int(r.get('live_high') or 0) for r in rows),
+            'instagram_found':sum(int(r.get('instagram_found') or 0) for r in rows),
+            'weighted_429_rate':round(weighted('http_429_rate'),5),
+            'weighted_timeout_rate':round(weighted('timeout_rate'),5),
+            'weighted_error_rate':round(weighted('error_rate'),5),
+            'peak_worker_seconds':max([float(r.get('elapsed_seconds') or 0) for r in rows] or [0]),
+            'sum_worker_seconds':round(sum(float(r.get('elapsed_seconds') or 0) for r in rows),2),
+          }
+          print(json.dumps(out,indent=2))
+          open('grid_benchmark_summary.json','w').write(json.dumps(out,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-grid-benchmark-summary
+          path: grid_benchmark_summary.json
+          retention-days: 1
