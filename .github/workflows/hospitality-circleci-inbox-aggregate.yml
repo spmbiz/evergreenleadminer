@@ -7,7 +7,8 @@ on:
 
 permissions:
   contents: write
-\concurrency:
+
+concurrency:
   group: hospitality-autonomous-fleet
   cancel-in-progress: false
 
@@ -48,8 +49,7 @@ jobs:
           fi
           git commit -m "fleet: ingest CircleCI hospitality inbox ${GITHUB_RUN_ID} [skip ci]"
           for attempt in 1 2 3 4; do
-            git pull --rebase origin "$BRANCH"
-            if git push origin "HEAD:$BRANCH"; then
+            if git pull --rebase origin "$BRANCH" && git push origin "HEAD:$BRANCH"; then
               exit 0
             fi
             git rebase --abort || true
