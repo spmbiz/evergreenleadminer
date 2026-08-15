@@ -1,4 +1,4 @@
-name: AllThePlaces API Probe
+name: AllThePlaces Parquet Probe
 
 on:
   push:
@@ -11,26 +11,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: atp-api-probe
+  group: atp-parquet-probe
   cancel-in-progress: true
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install --disable-pip-version-check requests
+      - run: python -m pip install --disable-pip-version-check requests duckdb
       - run: |
           mkdir -p probe
           python tools/atp_api_probe.py --out probe/atp_api_probe.json
+          python tools/atp_parquet_probe.py --out probe/atp_parquet_probe.json --sample 3
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: atp-api-probe-${{ github.run_id }}
+          name: atp-parquet-probe-${{ github.run_id }}
           path: probe/
           if-no-files-found: warn
           retention-days: 2
