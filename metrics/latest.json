@@ -1,52 +1,52 @@
 {
-  "cycle_id": "20260815T235425Z-github-multilane",
+  "cycle_id": "20260815T235638Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T23:55:40.125299Z",
-  "workers_completed": 8,
+  "finished_at": "2026-08-15T23:57:45.680462Z",
+  "workers_completed": 4,
   "workers_failed": 1,
-  "raw_discovered": 2894,
-  "live_ready_before_canonical_dedupe": 7,
-  "new_unique": 7,
+  "raw_discovered": 3114,
+  "live_ready_before_canonical_dedupe": 11,
+  "new_unique": 11,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 3,
-  "gpt_review_pending": 1,
+  "instagram_found": 5,
+  "gpt_review_pending": 2,
   "errors": 1,
-  "peak_wall_seconds": 29.3,
-  "new_unique_per_worker_minute": 4.144,
-  "canonical_total": 29507,
+  "peak_wall_seconds": 33.26,
+  "new_unique_per_worker_minute": 9.656,
+  "canonical_total": 29518,
   "health": {
     "429_rate": 0.0,
     "timeout_rate": 0.0,
-    "error_rate": 0.16667
+    "error_rate": 0.14286
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 6,
+      "workers_completed": 3,
       "workers_failed": 1,
-      "raw_discovered": 2894,
-      "fast_ready": 12,
-      "live_ready": 7,
+      "raw_discovered": 3114,
+      "fast_ready": 14,
+      "live_ready": 11,
       "recovery_candidates": 102,
       "recovered_public_emails": 2,
-      "contact_ready": 12,
-      "social_or_contact_without_email": 10,
-      "instagram_found": 3,
+      "contact_ready": 14,
+      "social_or_contact_without_email": 12,
+      "instagram_found": 5,
       "facebook_found": 3,
       "live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.16667
+        "error_rate": 0.14286
       },
       "contact_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0098
+        "error_rate": 0.0
       }
     },
     "fast_email": {
-      "workers_completed": 2,
+      "workers_completed": 1,
       "workers_failed": 0,
       "raw_discovered": 0,
       "fast_ready": 0,
