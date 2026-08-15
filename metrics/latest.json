@@ -1,55 +1,32 @@
 {
-  "cycle_id": "20260815T203337Z-github-multilane",
+  "cycle_id": "20260815T204324Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T20:37:12.311529Z",
+  "finished_at": "2026-08-15T20:44:14.329042Z",
   "workers_completed": 5,
   "workers_failed": 0,
-  "raw_discovered": 24730,
-  "live_ready_before_canonical_dedupe": 352,
-  "new_unique": 352,
+  "raw_discovered": 730,
+  "live_ready_before_canonical_dedupe": 10,
+  "new_unique": 10,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 111,
-  "gpt_review_pending": 76,
+  "instagram_found": 1,
+  "gpt_review_pending": 4,
   "errors": 0,
-  "peak_wall_seconds": 166.57,
-  "new_unique_per_worker_minute": 102.944,
-  "canonical_total": 27957,
+  "peak_wall_seconds": 22.32,
+  "new_unique_per_worker_minute": 13.012,
+  "canonical_total": 27967,
   "health": {
-    "429_rate": 0.00365,
-    "timeout_rate": 0.01646,
-    "error_rate": 0.17916
+    "429_rate": 0.0,
+    "timeout_rate": 0.0,
+    "error_rate": 0.2
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
-    "site_recovery": {
-      "workers_completed": 3,
-      "workers_failed": 0,
-      "raw_discovered": 24730,
-      "fast_ready": 547,
-      "live_ready": 352,
-      "recovery_candidates": 561,
-      "recovered_public_emails": 104,
-      "contact_ready": 547,
-      "social_or_contact_without_email": 443,
-      "instagram_found": 111,
-      "facebook_found": 160,
-      "live_health": {
-        "429_rate": 0.00365,
-        "timeout_rate": 0.01646,
-        "error_rate": 0.17916
-      },
-      "contact_health": {
-        "429_rate": 0.00356,
-        "timeout_rate": 0.02139,
-        "error_rate": 0.03565
-      }
-    },
     "fast_email": {
       "workers_completed": 2,
       "workers_failed": 0,
-      "raw_discovered": 0,
-      "fast_ready": 0,
+      "raw_discovered": 143,
+      "fast_ready": 1,
       "live_ready": 0,
       "recovery_candidates": 0,
       "recovered_public_emails": 0,
@@ -60,7 +37,30 @@
       "live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
+        "error_rate": 1.0
+      },
+      "contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
         "error_rate": 0.0
+      }
+    },
+    "site_recovery": {
+      "workers_completed": 3,
+      "workers_failed": 0,
+      "raw_discovered": 587,
+      "fast_ready": 14,
+      "live_ready": 10,
+      "recovery_candidates": 14,
+      "recovered_public_emails": 5,
+      "contact_ready": 14,
+      "social_or_contact_without_email": 9,
+      "instagram_found": 1,
+      "facebook_found": 6,
+      "live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.14286
       },
       "contact_health": {
         "429_rate": 0.0,

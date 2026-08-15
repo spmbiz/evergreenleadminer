@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.17916,
-    "recent_429_rate": 0.00365,
-    "recent_timeout_rate": 0.01646,
+    "recent_error_rate": 0.2,
+    "recent_429_rate": 0.0,
+    "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-15T20:37:12.311529Z"
+    "last_updated": "2026-08-15T20:44:14.329042Z"
   },
   "hospitality_lanes": {
     "fast_email": {
       "last_workers_completed": 2,
       "last_workers_failed": 0,
-      "last_raw_discovered": 0,
-      "last_fast_ready": 0,
+      "last_raw_discovered": 143,
+      "last_fast_ready": 1,
       "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 1.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -73,24 +73,24 @@
     "site_recovery": {
       "last_workers_completed": 3,
       "last_workers_failed": 0,
-      "last_raw_discovered": 24730,
-      "last_fast_ready": 547,
-      "last_live_ready": 352,
-      "last_recovery_candidates": 561,
-      "last_recovered_public_emails": 104,
+      "last_raw_discovered": 587,
+      "last_fast_ready": 14,
+      "last_live_ready": 10,
+      "last_recovery_candidates": 14,
+      "last_recovered_public_emails": 5,
       "last_live_health": {
-        "429_rate": 0.00365,
-        "timeout_rate": 0.01646,
-        "error_rate": 0.17916
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.14286
       },
       "last_contact_health": {
-        "429_rate": 0.00356,
-        "timeout_rate": 0.02139,
-        "error_rate": 0.03565
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
       },
       "recommended_contact_workers": 48,
-      "last_contact_ready": 547,
-      "last_social_or_contact_without_email": 443
+      "last_contact_ready": 14,
+      "last_social_or_contact_without_email": 9
     }
   }
 }
