@@ -1,0 +1,92 @@
+name: Hospitality Verifier Benchmark
+
+on:
+  push:
+    branches: [hospitality-async-bench]
+    paths:
+      - '.github/workflows/hospitality-verifier-benchmark.yml'
+      - 'control/hospitality_async_bench.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check duckdb
+      - name: Materialize one identical BC/Alberta fast-ready pool
+        run: |
+          mkdir -p bench/input
+          python tools/overture_v6_fastlane.py \
+            --bbox=-139.1,48.2,-110.0,60.1 \
+            --country Canada \
+            --region British-Columbia-Alberta \
+            --outdir bench/input \
+            --release 2026-06-17.0 \
+            --max-rows 200000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-benchmark-input
+          path: |
+            bench/input/v6_fast_ready.csv
+            bench/input/v6_fast_summary.json
+          retention-days: 1
+
+  verify:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: thread64
+            engine: thread
+            workers: 64
+          - label: async128
+            engine: async
+            workers: 128
+          - label: async192
+            engine: async
+            workers: 192
+    name: verify-${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check requests aiohttp
+      - uses: actions/download-artifact@v4
+        with:
+          name: hospitality-benchmark-input
+          path: bench/input
+      - name: Run identical-input verifier benchmark
+        run: |
+          mkdir -p "bench/${{ matrix.label }}"
+          if [ "${{ matrix.engine }}" = "async" ]; then
+            python tools/v6_live_verify_async.py \
+              --input bench/input/v6_fast_ready.csv \
+              --outdir "bench/${{ matrix.label }}" \
+              --workers "${{ matrix.workers }}" \
+              --per-host 4 \
+              --timeout 7
+          else
+            python tools/v6_live_verify.py \
+              --input bench/input/v6_fast_ready.csv \
+              --outdir "bench/${{ matrix.label }}" \
+              --workers "${{ matrix.workers }}" \
+              --timeout 7
+          fi
+          cat "bench/${{ matrix.label }}/v6_live_summary.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-benchmark-${{ matrix.label }}
+          path: bench/${{ matrix.label }}/
+          retention-days: 1
