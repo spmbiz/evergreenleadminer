@@ -6,26 +6,93 @@ on:
       - '.github/workflows/tmp-sheet-sync-071-080.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
-  package:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Stage exact queue chunks
+          fetch-depth: 0
+      - name: Build exact recall-first staging CSV
         run: |
           set -euo pipefail
-          mkdir payload
-          for n in 071 072 073 074 075 076 077 078 079 080; do
-            cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${n}.jsonl" payload/
-          done
-          sha256sum payload/* > payload/SHA256SUMS.txt
-          wc -l payload/*.jsonl
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sheet-sync-071-080
-          path: payload/
-          retention-days: 1
-          compression-level: 6
+          python - <<'PY'
+          import csv,json,re,unicodedata
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          exclude=set(Path('gpt/tmp_sync_071_080_exclude.txt').read_text().split())
+          files=[Path(f'gpt/sheet_sync_queue/bootstrap-20260815T011144Z-{n:03d}.jsonl') for n in range(71,81)]
+          assert all(p.exists() for p in files), 'one or more locked queue chunks disappeared'
+          rows=[]
+          for p in files:
+              for line in p.read_text(encoding='utf-8').splitlines():
+                  r=json.loads(line)
+                  if str(r.get('overture_id') or '') not in exclude:
+                      rows.append(r)
+          assert len(rows)==368, f'expected 368 selected rows, got {len(rows)}'
+
+          multipart={'co.uk','org.uk','me.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          platform={'square.site','wixsite.com','wordpress.com','weebly.com','booking.com','airbnb.com','vrbo.com','tripadvisor.com','expedia.com','facebook.com','instagram.com','google.com','linktr.ee','reserve-online.net'}
+          def norm(s):
+              s=unicodedata.normalize('NFKD',str(s or ''))
+              s=''.join(c for c in s if not unicodedata.combining(c)).lower()
+              return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',s)).strip()
+          def digits(s): return re.sub(r'\D','',str(s or ''))
+          def regdom(u):
+              if not u:return ''
+              s=str(u); h=(urlparse(s if '://' in s else 'http://'+s).hostname or '').lower().strip('.')
+              if h.startswith('www.'):h=h[4:]
+              ps=h.split('.')
+              if len(ps)<2:return h
+              last2='.'.join(ps[-2:])
+              return '.'.join(ps[-3:]) if last2 in multipart and len(ps)>=3 else last2
+          def market(r): return str(r.get('city') or str(r.get('region') or '').split('::')[0] or '').strip()
+          def address(r):
+              st=str(r.get('street') or '').strip(); city=str(r.get('city') or '').strip(); state=str(r.get('state') or '').strip(); out=[]
+              if st:out.append(st)
+              if city and city.lower() not in st.lower():out.append(city)
+              if state and state.lower() not in st.lower():out.append(state)
+              return ', '.join(out)
+          def clear(r):
+              ident=(' '.join(str(r.get(k) or '') for k in ('name','category','brand'))).lower()
+              kws=('vacation','holiday','villa','villas','hotel','resort','residence','residences','serviced apartment','aparthotel','cabin','cottage','ski resort','beachfront','retreat','lodging','chalet','guesthouse','guest house','short stay','short-term','short term')
+              if any(k in ident for k in kws):return True
+              return str(r.get('category') or '').lower() in {'hotel','resort','beach_resort','lodging','holiday_rental_home','cabin','cottage','ski_resort','rv_park'}
+          def score(r,c):
+              if not c:return 70
+              cat=str(r.get('category') or '').lower(); op=int(float(r.get('operator_score') or 0))
+              return 91 if cat in {'holiday_rental_home','cabin','cottage','ski_resort','rv_park'} or op>=60 else 88
+
+          combined=[]; a=b=0
+          for i,r in enumerate(rows):
+              rank=8565+i; c=clear(r); pri='A' if c else 'B'; a+=int(c); b+=int(not c)
+              site=str(r.get('website') or '').strip(); d=regdom(site); nd='' if d in platform else d
+              ph=digits(r.get('public_phone')); mk=market(r); co=str(r.get('country') or '')
+              live=str(r.get('live_status') or '').upper(); em=str(r.get('email_domain_match') or '').upper(); ih=int(float(r.get('identity_hits') or 0))
+              conf='High' if c and live=='HIGH' and ((em=='YES' and ih>=1) or ih>=2) else 'Medium'
+              note='' if c else 'Recall-first: plausible adjacent hospitality/STR buyer retained.'
+              src=str(r.get('source_url') or '').strip(); oid=str(r.get('overture_id') or '')
+              lead=[rank,pri,score(r,c),mk,co,str(r.get('name') or ''),'',str(r.get('category') or ''),address(r),str(r.get('public_phone') or ''),1,'','','High','','','',('overture:'+oid if oid else ''),46249,'New',note,site,str(r.get('public_email') or ''),'',str(r.get('instagram') or ''),'','','','','','','Email',conf,('Verified' if c else 'Recall-first'),src,'']
+              nm=norm(r.get('name'))
+              key=('domain:'+nd) if nd else (('phone:'+ph) if ph else f'name:{nm}|{norm(mk)}|{norm(co)}')
+              ded=[key,ph,nd,nm,mk,co,str(r.get('name') or ''),rank]
+              assert len(lead)==36 and len(ded)==8
+              combined.append(lead+ded)
+          assert a+b==368
+          out=Path('gpt/tmp_sync_071_080_staging.csv')
+          with out.open('w',encoding='utf-8',newline='') as f:
+              csv.writer(f).writerows(combined)
+          Path('gpt/tmp_sync_071_080_summary.json').write_text(json.dumps({'inspected':500,'duplicates':129,'clear_rejects':3,'selected':368,'priority_a':a,'recall_first_b':b,'rank_start':8565,'rank_end':8932},indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'rows':len(combined),'priority_a':a,'recall_first_b':b,'first_rank':combined[0][0],'last_rank':combined[-1][0]}))
+          PY
+      - name: Commit staging payload
+        run: |
+          git config user.name 'ai-prod-sheet-sync'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/tmp_sync_071_080_staging.csv gpt/tmp_sync_071_080_summary.json
+          git commit -m 'sync: materialize 071-080 verified staging [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
