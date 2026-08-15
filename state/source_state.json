@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.375,
-    "recent_429_rate": 0.0,
-    "recent_timeout_rate": 0.02083,
+    "recent_error_rate": 0.21411,
+    "recent_429_rate": 0.00756,
+    "recent_timeout_rate": 0.05037,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-15T21:55:14.084160Z"
+    "last_updated": "2026-08-15T22:02:48.483993Z"
   },
   "hospitality_lanes": {
     "fast_email": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 1474,
-      "last_fast_ready": 31,
-      "last_live_ready": 18,
+      "last_raw_discovered": 54,
+      "last_fast_ready": 1,
+      "last_live_ready": 1,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.3871
+        "error_rate": 0.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -71,26 +71,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 9,
+      "last_workers_completed": 10,
       "last_workers_failed": 0,
-      "last_raw_discovered": 1987,
-      "last_fast_ready": 17,
-      "last_live_ready": 6,
-      "last_recovery_candidates": 17,
-      "last_recovered_public_emails": 4,
+      "last_raw_discovered": 13360,
+      "last_fast_ready": 396,
+      "last_live_ready": 240,
+      "last_recovery_candidates": 397,
+      "last_recovered_public_emails": 54,
       "last_live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.05882,
-        "error_rate": 0.35294
+        "429_rate": 0.00758,
+        "timeout_rate": 0.0505,
+        "error_rate": 0.21465
       },
       "last_contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.05882,
-        "error_rate": 0.05882
+        "429_rate": 0.00252,
+        "timeout_rate": 0.05289,
+        "error_rate": 0.01259
       },
       "recommended_contact_workers": 24,
-      "last_contact_ready": 17,
-      "last_social_or_contact_without_email": 13
+      "last_contact_ready": 396,
+      "last_social_or_contact_without_email": 342
     }
   }
 }
