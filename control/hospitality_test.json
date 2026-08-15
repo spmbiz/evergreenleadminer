@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T13:25:00Z",
+  "requested_at": "2026-08-15T13:31:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "runner-local-work-stealing-canary",
-  "force_workers": 4,
-  "note": "Benchmark packed geo runner queues: target roughly 6 exploit recovery work units plus 4 cheap exploration units across 4 GitHub runner slots. Verify matrix transport, per-cell artifacts, canonical aggregate, persistence, and useful output per runner-minute before retaining."
+  "mode": "global-capacity-broker-v2-canary",
+  "force_workers": 20,
+  "note": "Request all 20 slots intentionally. PASS requires broker to preserve Tender minimum headroom when Tender durable backlog exists, rather than granting Hospitality the whole account. No productive running jobs are cancelled."
 }
