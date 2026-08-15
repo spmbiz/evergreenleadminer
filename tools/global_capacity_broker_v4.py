@@ -5,18 +5,25 @@ V4 keeps v3's no-preemption policy but treats already queued jobs as committed
 capacity. That prevents a workload from pre-booking the next free slots while a
 demanding sibling is below its fair share. Long-running jobs are never killed;
 rebalancing is admission-only and happens as capacity naturally frees.
+
+Release-driven refill is deliberately emitted from the broker rather than relying
+on arbitrarily deep workflow_run chains. A fleet that actually held a lease emits
+one repository_dispatch event after releasing it; a tiny controller then starts
+the next run if no successor already exists.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import json
+import urllib.request
 from collections import Counter
 from pathlib import Path
 
 import fleet_runtime as fr
 from global_capacity_broker_v3 import (
     ROOT,
+    api_json,
     classify_job,
     effective_lease_accounting,
     fair_target,
@@ -26,9 +33,9 @@ from global_capacity_broker_v3 import (
     local_demand,
     now_utc,
     prune_leases,
-    release,
     save_remote_state,
     status,
+    token,
 )
 
 
@@ -163,6 +170,78 @@ def reserve(args):
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, indent=2))
+
+
+def _emit_release_refill(repo: str, workload: str, source_run_id: str, released_slots: int):
+    """Emit a repository_dispatch refill signal after a real lease is released.
+
+    repository_dispatch is intentionally used because GitHub allows it to trigger
+    a new workflow when emitted with GITHUB_TOKEN, while ordinary generated events
+    are recursion-suppressed. The refill controller excludes source_run_id from its
+    active-run check so the final release job does not block its own successor.
+    """
+    if workload not in {"hospitality", "gws"} or released_slots <= 0:
+        return {"emitted": False, "reason": "no_real_fleet_lease"}
+
+    desired = fr.load_json(ROOT / "control/desired_state.json", {})
+    fleet_cfg = fr.load_json(ROOT / "config/global_fleet.json", {})
+    workload_cfg = (fleet_cfg.get("workloads") or {}).get(workload) or {}
+    if not bool(desired.get("enabled", True)) or not bool(desired.get("continuous", True)):
+        return {"emitted": False, "reason": "continuous_fleet_disabled"}
+    if not bool(workload_cfg.get("enabled", True)):
+        return {"emitted": False, "reason": "workload_disabled"}
+
+    tok = token()
+    if not tok:
+        return {"emitted": False, "reason": "missing_github_token"}
+
+    body = json.dumps({
+        "event_type": "fleet_refill",
+        "client_payload": {
+            "workload": workload,
+            "source_run_id": str(source_run_id),
+            "released_slots": int(released_slots),
+            "emitted_at": iso(now_utc()),
+        },
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/dispatches",
+        data=body,
+        method="POST",
+    )
+    request.add_header("Accept", "application/vnd.github+json")
+    request.add_header("Authorization", f"Bearer {tok}")
+    request.add_header("User-Agent", "ai-prod-global-broker/4.1")
+    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+    request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            response.read()
+        return {"emitted": True, "reason": "release_driven_refill"}
+    except Exception as exc:
+        # Release must never fail because the refill signal failed. The existing
+        # 5-minute watchdog remains a safety net for this exact path.
+        return {"emitted": False, "reason": "dispatch_failed", "error": str(exc)[:300]}
+
+
+def release(args):
+    state = load_remote_state(args.repo)
+    all_leases = list(state.get("leases") or [])
+    matched = [l for l in all_leases if str(l.get("run_id")) == str(args.run_id)]
+    workload = str(next((l.get("workload") for l in matched if l.get("workload")), ""))
+    released_slots = sum(max(0, int(l.get("slots") or 0)) for l in matched)
+    before = len(all_leases)
+    state["leases"] = [l for l in all_leases if str(l.get("run_id")) != str(args.run_id)]
+    after = len(state["leases"])
+    save_remote_state(args.repo, state)
+    refill = _emit_release_refill(args.repo, workload, str(args.run_id), released_slots)
+    print(json.dumps({
+        "released": before - after,
+        "released_slots": released_slots,
+        "workload": workload,
+        "run_id": str(args.run_id),
+        "refill": refill,
+    }))
 
 
 def main():
