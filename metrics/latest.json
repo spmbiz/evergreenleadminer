@@ -1,31 +1,31 @@
 {
-  "cycle_id": "20260815T175516Z-github-multilane",
+  "cycle_id": "20260815T180002Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T17:57:09.900339Z",
-  "workers_completed": 1,
+  "finished_at": "2026-08-15T18:02:00.816435Z",
+  "workers_completed": 4,
   "workers_failed": 0,
-  "raw_discovered": 0,
-  "live_ready_before_canonical_dedupe": 0,
-  "new_unique": 0,
+  "raw_discovered": 7348,
+  "live_ready_before_canonical_dedupe": 64,
+  "new_unique": 64,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 0,
-  "gpt_review_pending": 0,
+  "instagram_found": 33,
+  "gpt_review_pending": 36,
   "errors": 0,
-  "peak_wall_seconds": 3.19,
-  "new_unique_per_worker_minute": 0.0,
-  "canonical_total": 26780,
+  "peak_wall_seconds": 85.87,
+  "new_unique_per_worker_minute": 37.17,
+  "canonical_total": 26844,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.0,
-    "error_rate": 0.0
+    "timeout_rate": 0.02752,
+    "error_rate": 0.33945
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 1,
+      "workers_completed": 3,
       "workers_failed": 0,
-      "raw_discovered": 0,
+      "raw_discovered": 24,
       "fast_ready": 0,
       "live_ready": 0,
       "recovery_candidates": 0,
@@ -38,6 +38,29 @@
         "429_rate": 0.0,
         "timeout_rate": 0.0,
         "error_rate": 0.0
+      },
+      "contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      }
+    },
+    "fast_email": {
+      "workers_completed": 1,
+      "workers_failed": 0,
+      "raw_discovered": 7324,
+      "fast_ready": 109,
+      "live_ready": 64,
+      "recovery_candidates": 0,
+      "recovered_public_emails": 0,
+      "contact_ready": 0,
+      "social_or_contact_without_email": 0,
+      "instagram_found": 33,
+      "facebook_found": 0,
+      "live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.02752,
+        "error_rate": 0.33945
       },
       "contact_health": {
         "429_rate": 0.0,
