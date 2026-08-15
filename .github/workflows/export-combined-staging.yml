@@ -1,0 +1,19 @@
+name: Export Combined Staging
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/export_combined_trigger.json'
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: combined-sheet-staging
+          path: gpt/sheet_sync_staging/combined.tsv
+          retention-days: 1
+          compression-level: 6
