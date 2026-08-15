@@ -24,7 +24,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export
-          for n in $(seq -w 17 26); do
+          for i in $(seq 17 26); do
+            n=$(printf '%03d' "$i")
             f="$QUEUE_DIR/bootstrap-20260815T011144Z-${n}.jsonl"
             test -f "$f"
             cp "$f" export/
