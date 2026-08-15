@@ -2,7 +2,7 @@ version: 2.1
 
 jobs:
   harvest_real:
-    parallelism: 16
+    parallelism: 30
     docker:
       - image: cimg/python:3.11
     steps:
@@ -11,12 +11,13 @@ jobs:
           name: Install dependencies
           command: python -m pip install --disable-pip-version-check duckdb requests
       - run:
-          name: Plan and harvest one disjoint shard per node
+          name: Plan and harvest one guaranteed real shard per node
           command: |
             set -euo pipefail
             mkdir -p results/fleet_plan "results/shards/node-${CIRCLE_NODE_INDEX}"
-            python tools/fleet_runtime.py plan --provider circleci --capacity 16 --out results/fleet_plan/plan.json
+            python tools/fleet_runtime.py plan --provider github --capacity 30 --out results/fleet_plan/plan.json
             python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); p['cycle_id']='circleci-'+os.environ['CIRCLE_WORKFLOW_ID']; json.dump(p,open('results/fleet_plan/plan.json','w'))"
+            python -c "import json; p=json.load(open('results/fleet_plan/plan.json')); assert len(p.get('include') or []) > int(__import__('os').environ['CIRCLE_NODE_INDEX']), (len(p.get('include') or []), __import__('os').environ['CIRCLE_NODE_INDEX'])"
             python tools/circleci_hospitality_worker.py --plan-json results/fleet_plan/plan.json --task-index "$CIRCLE_NODE_INDEX" --outdir "results/shards/node-${CIRCLE_NODE_INDEX}"
 
 workflows:
