@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  continue_if_useful:
+  refill_all_useful_workloads:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -27,71 +27,70 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Decide whether useful autonomous work remains
-        id: decide
-        env:
-          COMPLETED_WORKFLOW: ${{ github.event.workflow_run.name }}
+
+      - name: Compute both local backlogs after every natural completion
         run: |
           set -euo pipefail
-          python - <<'PY' > /tmp/decision.json
-          import json, os, subprocess
+          python tools/hospitality_master_plan.py \
+            --provider github --capacity 1 --out /tmp/hospitality-plan.json >/dev/null
+          python - <<'PY' >/tmp/demand.json
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('tools').resolve()))
+          import global_capacity_broker as broker
           desired=json.load(open('control/desired_state.json'))
-          enabled=bool(desired.get('enabled')) and bool(desired.get('continuous', True))
-          workflow=os.environ['COMPLETED_WORKFLOW']
-          out={'enabled':enabled,'workflow':workflow,'backlog':0,'dispatch':'','lane_backlog':{}}
-
-          if enabled and workflow == 'Hospitality Autonomous Fleet 24/7':
-              subprocess.run([
-                  'python','tools/hospitality_master_plan.py','--provider','github',
-                  '--capacity','1','--out','/tmp/hospitality-plan.json'
-              ],check=True,stdout=subprocess.DEVNULL)
-              plan=json.load(open('/tmp/hospitality-plan.json'))
-              n=int(plan.get('useful_backlog') or 0)
-              out['backlog']=n
-              out['lane_backlog']=plan.get('lane_backlog') or {}
-              if n:
-                  out['dispatch']='hospitality-autonomous-fleet.yml'
-
-          elif enabled and workflow == 'GWS Autonomous Harvest Fleet':
-              import sys
-              from pathlib import Path
-              sys.path.insert(0, str(Path('tools').resolve()))
-              import global_capacity_broker as broker
-              n=int((broker.local_demand() or {}).get('gws') or 0)
-              out['backlog']=n
-              if n:
-                  out['dispatch']='gws-autonomous-fleet.yml'
-
-          print(json.dumps(out))
+          hp=json.load(open('/tmp/hospitality-plan.json'))
+          d=broker.local_demand()
+          print(json.dumps({
+              'enabled': bool(desired.get('enabled')) and bool(desired.get('continuous', True)),
+              'hospitality': int(hp.get('useful_backlog') or 0),
+              'gws': int(d.get('gws') or 0),
+              'tenders': int(d.get('tenders') or 0),
+              'hospitality_lanes': hp.get('lane_backlog') or {},
+          }))
           PY
-          cat /tmp/decision.json
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          d=json.load(open('/tmp/decision.json'))
-          print('enabled='+str(bool(d['enabled'])).lower())
-          print('backlog='+str(int(d['backlog'])))
-          print('dispatch='+str(d['dispatch']))
-          print('lane_backlog='+json.dumps(d.get('lane_backlog') or {},separators=(',',':')))
-          PY
-      - name: Redispatch useful workload immediately
-        if: steps.decide.outputs.enabled == 'true' && steps.decide.outputs.backlog != '0' && steps.decide.outputs.dispatch != ''
+          cat /tmp/demand.json
+
+      - name: Refill whichever local workload is idle
         env:
           GH_TOKEN: ${{ github.token }}
-          WORKFLOW_FILE: ${{ steps.decide.outputs.dispatch }}
         run: |
           set -euo pipefail
-          if [ "$WORKFLOW_FILE" = "hospitality-autonomous-fleet.yml" ]; then
-            printf '%s\n' '{"ref":"main","inputs":{"force_workers":"0"}}' | \
-              gh api --method POST \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/dispatches" \
-                --input -
-          else
-            printf '%s\n' '{"ref":"main"}' | \
-              gh api --method POST \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/dispatches" \
-                --input -
-          fi
-          echo "Redispatched $WORKFLOW_FILE for remaining backlog=${{ steps.decide.outputs.backlog }} lanes=${{ steps.decide.outputs.lane_backlog }}"
-      - name: Report idle
-        if: steps.decide.outputs.enabled != 'true' || steps.decide.outputs.backlog == '0' || steps.decide.outputs.dispatch == ''
-        run: echo "No immediate continuation required. Cron remains the safety heartbeat."
+          ENABLED=$(python -c 'import json; print("true" if json.load(open("/tmp/demand.json"))["enabled"] else "false")')
+          [ "$ENABLED" = "true" ] || { echo "Continuous fleet disabled."; exit 0; }
+
+          dispatch_if_idle () {
+            local workflow_file="$1"
+            local backlog="$2"
+            local label="$3"
+            [ "$backlog" -gt 0 ] || { echo "$label backlog empty; share borrowable."; return 0; }
+            local active
+            active=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs?per_page=30" \
+              --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length')
+            if [ "$active" -gt 0 ]; then
+              echo "$label already active/queued=$active"
+              return 0
+            fi
+            if [ "$workflow_file" = "hospitality-autonomous-fleet.yml" ]; then
+              printf '%s\n' '{"ref":"main","inputs":{"force_workers":"0"}}' | \
+                gh api --method POST \
+                  "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/dispatches" \
+                  --input -
+            else
+              printf '%s\n' '{"ref":"main"}' | \
+                gh api --method POST \
+                  "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/dispatches" \
+                  --input -
+            fi
+            echo "Redispatched $label immediately for backlog=$backlog"
+          }
+
+          HOSP=$(python -c 'import json; print(json.load(open("/tmp/demand.json"))["hospitality"])')
+          GWS=$(python -c 'import json; print(json.load(open("/tmp/demand.json"))["gws"])')
+
+          # Evaluate both workloads on every completion. This is what lets freshly
+          # freed capacity get claimed by the workload currently below its share.
+          dispatch_if_idle hospitality-autonomous-fleet.yml "$HOSP" hospitality
+          dispatch_if_idle gws-autonomous-fleet.yml "$GWS" gws
+
+          echo "Long runs are never preempted here; rebalancing happens at natural job completion."
