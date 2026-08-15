@@ -1,0 +1,151 @@
+name: Build Sheet Sync Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_sync_exclusions.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-sheet-sync-staging
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build deterministic TSV staging
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,json,re
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          cfg=json.load(open('control/sheet_sync_exclusions.json',encoding='utf-8'))
+          excluded={x['id']:x['reason'] for x in cfg.get('exclude',[])}
+          start=int(cfg['start_rank'])
+          files=cfg['files']
+          out=Path('gpt/sheet_sync_staging'); out.mkdir(parents=True,exist_ok=True)
+          MULTIPART={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          GENERIC={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com'}
+          def host(u):
+              try:
+                  s=str(u or '').strip()
+                  if not s:return ''
+                  if '://' not in s:s='http://'+s
+                  h=(urlparse(s).hostname or '').lower().strip('.')
+                  return h[4:] if h.startswith('www.') else h
+              except:return ''
+          def root(h):
+              h=(h or '').lower().strip('.')
+              if not h:return ''
+              p=h.split('.')
+              for s in MULTIPART:
+                  if h==s:return h
+                  if h.endswith('.'+s):return '.'.join(p[-3:]) if len(p)>=3 else h
+              return '.'.join(p[-2:]) if len(p)>=2 else h
+          def nt(x):return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
+          def phone(x):return re.sub(r'\D','',str(x or ''))
+          def market(r):
+              c=str(r.get('city') or '').strip()
+              if c:return c
+              return str(r.get('region') or '').split('::',1)[0].replace('-',' ').strip()
+          def strong(r):
+              t=' '.join(str(r.get(k) or '') for k in ('name','category','brand','notes')).lower()
+              return any(x in t for x in ('vacation','holiday','short term','short-term','airbnb','vrbo','villa','villas','hotel','resort','aparthotel','serviced apartment','cabin','chalet','lodge','lodging','guesthouse','guest house','bed and breakfast','bnb','condo rental','beach house','retreat'))
+          def ambiguous(r):
+              t=(str(r.get('name') or '')+' '+str(r.get('category') or '')).lower()
+              g=any(x in t for x in ('property_management','property management','real_estate','real estate','rental agency'))
+              return g and not strong(r)
+          def address(r):
+              st=str(r.get('street') or '').strip(); city=str(r.get('city') or '').strip(); state=str(r.get('state') or '').strip(); parts=[]
+              if st:parts.append(st)
+              low=st.lower()
+              if city and city.lower() not in low:parts.append(city)
+              if state and state.lower() not in low:parts.append(state)
+              return ', '.join(parts)
+          def official(r):
+              u=str(r.get('website') or '').strip(); rh=root(host(u))
+              return '' if rh in {'airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com'} else u
+          def scores(r,amb):
+              try:op=int(float(r.get('operator_score') or 0))
+              except:op=0
+              try:pr=int(float(r.get('premium_score') or 0))
+              except:pr=0
+              ex=strong(r)
+              if amb:return ('B',70 if str(r.get('live_status') or '').upper()=='MEDIUM' else 78)
+              if ex and op>=60:return ('A',91)
+              if ex and pr>=34:return ('A',88)
+              if ex:return ('A',84)
+              if op>=60 or pr>=34:return ('B',78)
+              return ('B',70)
+          kept=[]; inspected=0
+          for fn in files:
+              p=Path('gpt/sheet_sync_queue')/fn
+              if not p.exists():raise SystemExit(f'missing queue file {p}')
+              for line in p.read_text(encoding='utf-8').splitlines():
+                  if not line.strip():continue
+                  inspected+=1; r=json.loads(line)
+                  oid=str(r.get('overture_id') or '')
+                  if oid in excluded:continue
+                  kept.append((fn,r))
+          leads=[]; dedupe=[]; ambn=0
+          rank=start
+          for fn,r in kept:
+              m=market(r); c=str(r.get('country') or '').strip(); amb=ambiguous(r); ambn+=int(amb)
+              pri,score=scores(r,amb)
+              try:op=int(float(r.get('operator_score') or 0))
+              except:op=0
+              try:pr=int(float(r.get('premium_score') or 0))
+              except:pr=0
+              portfolio='High' if op>=60 or pr>=34 else ''
+              live=str(r.get('live_status') or '').upper()
+              try:ih=int(r.get('identity_hits') or 0)
+              except:ih=0
+              conf='High' if live=='HIGH' and ih>=1 and str(r.get('email_domain_match') or '').upper()=='YES' and not amb else 'Medium'
+              status='Recall-first' if amb else 'Verified'
+              note='Recall-first: plausible adjacent hospitality/STR buyer retained.' if amb else ''
+              oid=str(r.get('overture_id') or '').strip(); source_ref=('overture:'+oid) if oid else str(r.get('source_url') or '')
+              pp=phone(r.get('public_phone')); d=root(str(r.get('domain') or '') or host(r.get('website')))
+              if d in GENERIC:d=''
+              row=[rank,pri,score,m,c,str(r.get('name') or '').strip(),'',
+                   str(r.get('category') or '').strip(),address(r),str(r.get('public_phone') or '').strip(),1 if pp else '','','',portfolio,
+                   '','','',source_ref,'2026-08-15','New',note,official(r),str(r.get('public_email') or '').strip(),'',
+                   str(r.get('instagram') or '').strip(),'','','','','','',conf,status,str(r.get('source_url') or '').strip(),'','']
+              assert len(row)==36
+              leads.append(row)
+              nn=nt(r.get('name'))
+              key=('domain:'+d) if d else (('phone:'+pp) if pp else f'name:{nn}|market:{nt(m)}|country:{nt(c)}')
+              dedupe.append([key,pp,d,nn,m,c,str(r.get('name') or '').strip(),rank])
+              rank+=1
+          for path,rows in [(out/'leads.tsv',leads),(out/'dedupe.tsv',dedupe)]:
+              with path.open('w',encoding='utf-8',newline='') as f:
+                  csv.writer(f,delimiter='\t',lineterminator='\n').writerows(rows)
+          reasons={}
+          for v in excluded.values():reasons[v]=reasons.get(v,0)+1
+          summary={'files':files,'inspected':inspected,'excluded':len(excluded),'excluded_reasons':reasons,'new_rows':len(leads),'ambiguous_plausible_retained':ambn,'start_rank':start,'end_rank':rank-1}
+          (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary))
+          PY
+      - name: Commit staging output
+        run: |
+          set -euo pipefail
+          git config user.name 'sheet-sync-staging-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/sheet_sync_staging/
+          git commit -m 'sync: build oldest-10 sheet staging [skip ci]' || exit 0
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            git rebase --abort || true
+            sleep $((attempt*2))
+          done
+          exit 1
