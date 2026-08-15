@@ -1,0 +1,99 @@
+name: GWS v5.7 Free 86 Calibration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_v57_free_86_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: tools
+      FOURGET_URL: http://127.0.0.1:8090
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check aiohttp
+      - name: Regression gate
+        run: python tools/gws_v5_selftest.py
+      - name: Download exact 86-survivor calibration queue
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-v55-shortlist-screen-31909704545
+          path: shortlist
+          github-token: ${{ github.token }}
+          repository: walidgdg1-ai/evergreenleadminer
+          run-id: 31909704545
+      - name: Strict zero-paid two-pass shard
+        run: |
+          set -euo pipefail
+          mkdir -p "out-${{ matrix.shard }}"
+          python tools/gws_v56_strict_subset.py \
+            --input shortlist/strict_survivors.jsonl \
+            --outdir "out-${{ matrix.shard }}" \
+            --shard-index "${{ matrix.shard }}" \
+            --shard-count 4 \
+            --http-concurrency 24 \
+            --search-concurrency 3
+      - name: Verify shard is zero-paid and intact
+        run: |
+          python - <<'PY'
+          import json, os
+          shard=os.environ['SHARD']
+          s=json.load(open(f'out-{shard}/summary.json'))
+          assert s['zero_paid_api'] is True,s
+          assert s['integrity']['ok'] is True,s
+          assert s['shard_count']==4,s
+          print('GWS_V57_SHARD_OK',json.dumps(s))
+          PY
+        env:
+          SHARD: ${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-v57-free-86-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: out-${{ matrix.shard }}/
+          if-no-files-found: error
+          retention-days: 4
+
+  aggregate:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download all four shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gws-v57-free-86-shard-*-${{ github.run_id }}
+          path: shards
+          merge-multiple: false
+      - name: Aggregate and prove exact 86 integrity
+        run: |
+          mkdir -p aggregate
+          python tools/gws_v57_aggregate_shards.py --root shards --expected 86 --outdir aggregate
+      - name: Publish blind GPT calibration queue
+        run: |
+          cp aggregate/high_candidates.jsonl aggregate/gpt_redteam_blind.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gws-v57-free-86-aggregate-${{ github.run_id }}
+          path: aggregate/
+          retention-days: 5
