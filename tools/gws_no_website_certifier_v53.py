@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """GWS autonomous no-website certifier production entrypoint.
 
-Runtime-hardening layers discovered by live GitHub calibration:
-1) fail-closed Overture STAC fallback that still must pass S3/schema smoke;
-2) throttled multi-provider search resilient to runner rate limits;
-3) conservative provider-family normalization;
-4) Belgian national/E.164 phone canonicalization;
-5) unresolved identities still receive a web challenge but remain HIGH-ineligible;
-6) unresolved Overture guesses never become canonical dedupe keys;
-7) unresolved identities stop after one complete adversarial pass because a second
-   pass cannot make them HIGH; resolved HIGH candidates still require two passes;
-8) worker checkpoints are mirrored as live GitHub Check annotations.
+Production hardening is deliberately fail-closed. Broad/high-ineligible rows get
+bounded discovery; only strongly corroborated current identities can enter the
+strict two-pass path. Deterministic brand-domain probes are first-class evidence,
+while social networks and business directories never count as owned websites.
 """
 from __future__ import annotations
 
@@ -24,6 +18,12 @@ import gws_worker_v55 as _worker_policy
 
 FALLBACK_RELEASE = os.getenv("OVERTURE_FALLBACK_RELEASE", "2026-07-22.0").strip()
 _original_resolve = _core.resolve_overture_release
+_original_guesses = _core.v4.guesses
+_original_web_identity = _core.v4.identity
+
+# Known directory/aggregation surfaces must never be promoted to owned websites.
+_extra_platforms = ("creditsafe.", "numero-pro.", "busibee.")
+_core.v2.PLAT = tuple(dict.fromkeys(tuple(_core.v2.PLAT) + _extra_platforms))
 
 
 def resolve_overture_release() -> str:
@@ -43,6 +43,74 @@ _core.v2.indexes = _identity.indexes
 _core.v2.resolve = _identity.resolve
 
 
+def guesses_hardened(c):
+    """Put short-token brand domains early enough to survive bounded direct checks.
+
+    Legacy roots dropped <=2-char brand tokens, so `ID.CITE ARCHITECTS` could never
+    generate `idcite.be`. The first two normalized brand tokens are now probed
+    before the broader legacy lattice.
+    """
+    name_tokens = [
+        x for x in _core.v2.n(c.get("n")).split()
+        if len(x) >= 2 and x not in _core.v2.STOP
+    ]
+    extra = []
+    if len(name_tokens) >= 2:
+        pair = name_tokens[:2]
+        for root in ("".join(pair), "-".join(pair)):
+            if 5 <= len(root) <= 45:
+                for suffix in (".be", ".com", ".eu"):
+                    extra.append("https://" + root + suffix + "/")
+    merged = []
+    seen = set()
+    for u in extra + list(_original_guesses(c)):
+        h = _core.v2.host(u)
+        if h and h not in seen and not _core.v2.platform(u):
+            seen.add(h); merged.append("https://" + h + "/")
+        if len(merged) >= 20:
+            break
+    return merged
+
+
+_core.v4.guesses = guesses_hardened
+
+
+def web_identity_hardened(c, body, url=""):
+    ev = dict(_original_web_identity(c, body, url))
+    if ev.get("matched"):
+        ev.setdefault("match_mode", "legacy_identity")
+        return ev
+
+    tx = _core.v2.textish(body)
+    h = _core.v2.host(url)
+    root = (h.split(".", 1)[0] if h else "").replace("-", "")
+    toks = [x for x in _core.v2.n(c.get("n")).split() if len(x) >= 2 and x not in _core.v2.STOP]
+    pair = "".join(toks[:2]) if len(toks) >= 2 else ""
+    full = "".join(toks[:4])
+    domain_brand = bool(
+        len(root) >= 6 and (
+            root == pair or root == full or
+            (len(pair) >= 6 and root.startswith(pair) and len(root) <= len(pair) + 12)
+        )
+    )
+    name_on_page = _core.v2.ov(c.get("n"), tx)
+    brussels_geo = any(x in tx for x in ("brussels", "bruxelles", "brussel"))
+
+    # This catches a current owned brand site even when the legacy source phone or
+    # address is stale after a move. Brand-domain + page-name + Brussels are all
+    # required; a directory/generic domain cannot satisfy this route.
+    if domain_brand and name_on_page >= 0.60 and brussels_geo and not _core.v2.platform(url):
+        ev["matched"] = True
+        ev["match_mode"] = "brand_domain_page_name_brussels"
+        ev["brand_domain"] = True
+        ev["page_name_overlap"] = round(name_on_page, 3)
+        ev["brussels_geo"] = True
+    return ev
+
+
+_core.v4.identity = web_identity_hardened
+
+
 def preclassify_hardened(c, p, pe, ovok):
     base = {"r": int(c["r"]), "candidate": c, "place": pe}
     complete, _ = _core.v5.complete_identity(c)
@@ -58,7 +126,6 @@ def preclassify_hardened(c, p, pe, ovok):
             return {**base, "status": "REJECT", "reason": "OWNED_SITE_OVERTURE", "owned_site": site}
         if _core.v2.t(p.get("operating_status")).lower() in {"closed", "permanently_closed"}:
             return {**base, "status": "REJECT", "reason": "CLOSED_OVERTURE"}
-    # unresolved current identity deliberately continues to web challenge
     return None
 
 
@@ -87,10 +154,7 @@ _core.v5.canonical_key = canonical_key_hardened
 
 async def provider_webcheck(rows, conc, search_conc):
     ans = await _providers.webcheck(rows, conc, search_conc)
-    family = {
-        "ddg_html": "ddg", "ddg_lite": "ddg", "ddg": "ddg",
-        "bing": "bing", "yahoo": "bing",
-    }
+    family = {"bing": "bing", "yahoo": "bing", "exa": "exa"}
     for ev in ans.values():
         normalized = []
         for p in ev.get("healthy_providers") or []:
@@ -113,6 +177,8 @@ globals()["resolve_overture_release"] = resolve_overture_release
 globals()["provider_webcheck"] = provider_webcheck
 globals()["preclassify_hardened"] = preclassify_hardened
 globals()["canonical_key_hardened"] = canonical_key_hardened
+globals()["guesses_hardened"] = guesses_hardened
+globals()["web_identity_hardened"] = web_identity_hardened
 globals()["phone_keys"] = _identity.phone_keys
 
 
