@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Account-wide GitHub worker broker for AI Prod harvest fleets.
+"""Account-wide GitHub worker broker for the automation fleet.
 
-The broker prevents a planner race where multiple autonomous workloads observe the
-same free GitHub slots and all claim them. Planner jobs using this broker must
-share one GitHub Actions concurrency group. Reservations are persisted as a tiny
-GitHub Release asset and expire automatically if a workflow dies.
+The broker allocates expiring GitHub-hosted-runner leases while observing all
+owner repositories. Hospitality/GWS write leases in this repository. Tender is
+read as a remote-demand workload and receives guaranteed headroom before an
+Evergreen workload borrows elastic capacity.
 
-Current scope:
-- hospitality and GWS consume explicit broker leases;
-- tender-engine and other owner repos are observed account-wide;
-- queued jobs are tracked as demand, while only in-progress jobs consume observed
-  runner occupancy (future tender fanout is separately capped to preserve headroom);
-- CircleCI has its own provider pool and is not counted in GitHub's 20 slots.
+Important semantics:
+- only in-progress jobs consume observed runner occupancy;
+- queued jobs are demand, not occupancy;
+- sibling guarantees reserve only the *missing* part of a floor/weighted target;
+- unused guarantees are borrowable when sibling demand is zero;
+- leases expire automatically and are released at natural workflow completion.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import datetime as dt
 import json
 import math
 import os
+from collections import Counter
 from pathlib import Path
 import tempfile
 import urllib.parse
@@ -31,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API = "https://api.github.com"
 STATE_TAG = "global-fleet-broker"
 STATE_ASSET = "global-capacity.json"
+TENDER_REPO = "walidgdg1-ai/tender-engine"
 
 
 def now_utc():
@@ -55,6 +57,7 @@ def token():
 def req(url, method="GET", accept="application/vnd.github+json"):
     r = urllib.request.Request(url, method=method)
     r.add_header("Accept", accept)
+    r.add_header("User-Agent", "ai-prod-global-broker/2.0")
     r.add_header("X-GitHub-Api-Version", "2022-11-28")
     if token():
         r.add_header("Authorization", f"Bearer {token()}")
@@ -66,20 +69,24 @@ def api_json(url):
         return json.loads(x.read())
 
 
-def load_remote_state(repo: str):
-    default = {"schema_version": 1, "leases": [], "updated_at": None}
+def load_release_asset_json(repo: str, tag: str, asset_name: str, default=None):
     try:
-        rel = api_json(f"{API}/repos/{repo}/releases/tags/{urllib.parse.quote(STATE_TAG, safe='')}")
-    except Exception:
-        return default
-    asset = next((a for a in rel.get("assets") or [] if a.get("name") == STATE_ASSET), None)
-    if not asset:
-        return default
-    try:
-        with urllib.request.urlopen(req(f"{API}/repos/{repo}/releases/assets/{asset['id']}", accept="application/octet-stream"), timeout=30) as x:
+        rel = api_json(f"{API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag, safe='')}")
+        asset = next((a for a in rel.get("assets") or [] if a.get("name") == asset_name), None)
+        if not asset:
+            return default
+        with urllib.request.urlopen(
+            req(f"{API}/repos/{repo}/releases/assets/{asset['id']}", accept="application/octet-stream"),
+            timeout=30,
+        ) as x:
             return json.loads(x.read())
     except Exception:
         return default
+
+
+def load_remote_state(repo: str):
+    default = {"schema_version": 2, "leases": [], "updated_at": None}
+    return load_release_asset_json(repo, STATE_TAG, STATE_ASSET, default) or default
 
 
 def save_remote_state(repo: str, state: dict):
@@ -119,8 +126,34 @@ def useful_gws_count():
         return 1
 
 
+def useful_tender_count():
+    """Read durable Tender controller state without requiring a cross-repo token.
+
+    A pinned usable discovery harvest represents at least one full DCE batch of
+    useful work. Pending DCE candidates are counted directly. Telemetry failure is
+    fail-safe: protect one minimum-sized tender batch rather than silently starving
+    the workload because a public Release read had a transient failure.
+    """
+    status = load_release_asset_json(TENDER_REPO, "fleet-state", "fleet-status-latest.json", None)
+    if not isinstance(status, dict):
+        return 6
+    if status.get("enabled") is False:
+        return 0
+    backlog = status.get("backlog") or {}
+    pending = int(backlog.get("pending_dce_candidates") or 0)
+    if pending > 0:
+        return pending
+    if backlog.get("active_discovery_run_id"):
+        return 320
+    return 0
+
+
 def local_demand():
-    return {"hospitality": useful_hospitality_count(), "gws": useful_gws_count()}
+    return {
+        "hospitality": useful_hospitality_count(),
+        "tenders": useful_tender_count(),
+        "gws": useful_gws_count(),
+    }
 
 
 def owner_repos(owner: str):
@@ -143,12 +176,7 @@ def owner_repos(owner: str):
 
 
 def live_jobs(owner: str):
-    """Return observed active occupancy and queued demand by workflow run.
-
-    A queued matrix job is demand, not an occupied hosted runner. Keeping those
-    separate prevents the broker from reporting zero capacity merely because a
-    large external workflow has a long queue.
-    """
+    """Return observed active occupancy and queued demand by workflow run."""
     result = []
     for repo in owner_repos(owner):
         full = repo.get("full_name")
@@ -164,7 +192,10 @@ def live_jobs(owner: str):
                     if auth:
                         data = api_json(url)
                     else:
-                        r = urllib.request.Request(url, headers={"Accept":"application/vnd.github+json","User-Agent":"ai-prod-global-broker/1.0"})
+                        r = urllib.request.Request(
+                            url,
+                            headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/2.0"},
+                        )
                         with urllib.request.urlopen(r, timeout=20) as x:
                             data = json.loads(x.read())
                     break
@@ -224,29 +255,46 @@ def reserve(args):
     external_slots = sum(int(j.get("active_jobs") or 0) for j in external_jobs)
     external_queued = sum(int(j.get("queued_jobs") or 0) for j in external_jobs)
     leased_slots = sum(int(l.get("slots") or 0) for l in leases)
+    active_by_repo = Counter()
+    for j in external_jobs:
+        active_by_repo[str(j.get("repo") or "")] += int(j.get("active_jobs") or 0)
+    leased_by_workload = Counter()
+    for l in leases:
+        leased_by_workload[str(l.get("workload") or "")] += int(l.get("slots") or 0)
 
     demand = local_demand()
     current_cfg = wc.get(args.workload) or {}
     max_slots = int(current_cfg.get("max_slots") or total)
     free_before_headroom = max(0, total - external_slots - leased_slots)
 
-    # Protect the larger of a sibling's minimum floor or weighted fair share when
-    # that sibling has useful backlog but has not acquired its lease yet. This
-    # keeps schedule ordering from deciding the whole account allocation.
+    # Reserve only the missing part of each demanding sibling's guaranteed or
+    # weighted target. Existing live jobs / leases already satisfy that target.
     sibling_headroom = 0
-    active_lease_workloads = {l.get("workload") for l in leases}
+    sibling_reservations = {}
     for name, scfg in wc.items():
-        if name == args.workload or scfg.get("mode") == "external-observed" or not scfg.get("enabled", True):
+        if name == args.workload or not scfg.get("enabled", True):
             continue
         sibling_demand = int(demand.get(name, 0) or 0)
-        if sibling_demand <= 0 or name in active_lease_workloads:
+        if sibling_demand <= 0:
             continue
         floor = int(scfg.get("min_slots_when_demanding") or 0)
         weight = float(scfg.get("weight") or 0)
-        weighted = int(math.floor(max(0, total - external_slots) * weight))
         sibling_max = int(scfg.get("max_slots") or total)
-        reserve = min(sibling_demand, sibling_max, max(floor, weighted))
-        sibling_headroom += max(0, reserve)
+        weighted = int(math.floor(total * max(0.0, weight)))
+        target = min(sibling_demand, sibling_max, max(floor, weighted))
+        repo = str(scfg.get("repo") or "")
+        already = int(leased_by_workload.get(name, 0))
+        if scfg.get("mode") == "remote-demand":
+            already += int(active_by_repo.get(repo, 0))
+        missing = max(0, target - already)
+        if missing:
+            sibling_reservations[name] = {
+                "demand": sibling_demand,
+                "target": target,
+                "already_active_or_leased": already,
+                "missing_headroom": missing,
+            }
+            sibling_headroom += missing
     sibling_headroom = min(sibling_headroom, free_before_headroom)
 
     allocatable = max(0, free_before_headroom - sibling_headroom)
@@ -268,6 +316,7 @@ def reserve(args):
             "expires_at": iso(now_utc() + dt.timedelta(minutes=ttl)),
         }
         leases.append(lease)
+    state["schema_version"] = 2
     state["leases"] = leases
     state["last_decision"] = {
         "at": iso(now_utc()),
@@ -279,6 +328,7 @@ def reserve(args):
         "external_queued": external_queued,
         "leased_other_slots": leased_slots,
         "sibling_headroom": sibling_headroom,
+        "sibling_reservations": sibling_reservations,
         "demand": demand,
         "external_jobs": external_jobs,
     }
@@ -292,6 +342,7 @@ def reserve(args):
         "external_queued": external_queued,
         "leased_other_slots": leased_slots,
         "sibling_headroom": sibling_headroom,
+        "sibling_reservations": sibling_reservations,
         "demand": demand,
         "lease": lease,
         "external_jobs": external_jobs,
@@ -337,9 +388,12 @@ def main():
     p.add_argument("--owner", default="walidgdg1-ai")
     p.add_argument("--repo", default="walidgdg1-ai/evergreenleadminer")
     a = ap.parse_args()
-    if a.cmd == "reserve": reserve(a)
-    elif a.cmd == "release": release(a)
-    else: status(a)
+    if a.cmd == "reserve":
+        reserve(a)
+    elif a.cmd == "release":
+        release(a)
+    else:
+        status(a)
 
 
 if __name__ == "__main__":
