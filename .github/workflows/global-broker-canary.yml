@@ -40,19 +40,29 @@ jobs:
           b=json.load(open('canary/broker.json'))
           tender=int((b.get('demand') or {}).get('tenders') or 0)
           reserve=((b.get('sibling_reservations') or {}).get('tenders') or {})
-          print(json.dumps({
+          tender_active=sum(int(x.get('active_jobs') or 0) for x in b.get('external_jobs') or [] if x.get('repo')=='walidgdg1-ai/tender-engine')
+          tender_missing=int(reserve.get('missing_headroom') or 0)
+          tender_protected=tender_active+tender_missing
+          planned=int(b.get('allocated') or 0)+int(b.get('external_slots') or 0)+int(b.get('leased_other_slots') or 0)+int(b.get('sibling_headroom') or 0)
+          report={
             'requested':b.get('requested'),
             'allocated':b.get('allocated'),
             'external_slots':b.get('external_slots'),
             'leased_other_slots':b.get('leased_other_slots'),
+            'lease_accounting':b.get('lease_accounting'),
             'tender_demand':tender,
-            'tender_reservation':reserve,
+            'tender_active':tender_active,
+            'tender_missing_headroom':tender_missing,
+            'tender_protected':tender_protected,
             'sibling_headroom':b.get('sibling_headroom'),
-          },indent=2))
+            'planned_capacity':planned,
+            'capacity':b.get('capacity'),
+          }
+          print(json.dumps(report,indent=2))
           if tender <= 0:
               raise SystemExit('Canary invalid: durable Tender backlog was not detected')
-          if int(reserve.get('target') or 0) < 6:
-              raise SystemExit('Broker regression: Tender guaranteed target below 6')
-          if int(b.get('allocated') or 0) + int(b.get('external_slots') or 0) + int(b.get('leased_other_slots') or 0) + int(b.get('sibling_headroom') or 0) > int(b.get('capacity') or 20):
+          if tender_protected < 6:
+              raise SystemExit(f'Broker regression: only {tender_protected} Tender slots protected')
+          if planned > int(b.get('capacity') or 20):
               raise SystemExit('Broker regression: planned occupancy exceeds account capacity')
           PY
