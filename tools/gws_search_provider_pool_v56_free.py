@@ -1,23 +1,48 @@
 #!/usr/bin/env python3
 """Zero-paid GWS web evidence pool.
 
-Strict candidates use Bing + Yep as two independent search-index families.
-Yep is reached through a private localhost 4get container on the worker. Ghostery
-is used as extra owned-site discovery but is deliberately NOT counted as an
-independent certificate family. No paid API path exists in this module.
+Strict candidates use Bing + Yep as independent search-index families. Ghostery
+adds discovery only. Empty/parsing-ambiguous SERPs are never silently promoted
+into strict negative evidence, and strict candidates receive multiple diverse
+query formulations before certification.
 """
 from __future__ import annotations
 
-import asyncio, json, os, random, urllib.parse
+import asyncio, html, json, os, random, re, urllib.parse
 import gws_legacy_deep_v2 as v2
 import gws_legacy_deep_v4 as v4
+
+_NEGATIVE=("did not match any documents","no results","we did not find results","there are no results for","aucun résultat","geen resultaten")
+
+
+def _explicit_negative(body):
+    low=(body or "").lower(); return any(x in low for x in _NEGATIVE)
 
 
 def _parsed_bing(body):
     low=(body or "").lower()
     if len(low)<800: return False
-    if any(x in low for x in ("did not match any documents","no results","we did not find results","there are no results for")): return True
-    return "b_results" in low or "b_algo" in low
+    return _explicit_negative(body) or "b_results" in low or "b_algo" in low
+
+
+def _raw_external_hosts(body,base):
+    """Count result-like external hosts without treating directories as owned.
+
+    This is only a SERP-health signal. Candidate-owned links still pass through
+    v2.platform() filtering and later HTTP identity validation.
+    """
+    out=set(); base_host=v2.host(base)
+    for href in re.findall(r'''href\s*=\s*["']([^"'#]+)''',body or "",re.I):
+        u=html.unescape(urllib.parse.urljoin(base,href.strip()))
+        if "bing.com/ck/a" in u or "bing.com/aclick" in u:
+            # Bing redirect targets are not trivially reversible here; do not
+            # invent a host. Other direct hrefs still provide health evidence.
+            continue
+        h=v2.host(u)
+        if not h or h==base_host or any(x in h for x in ("bing.com","microsoft.com","msn.com")):
+            continue
+        out.add(h)
+    return out
 
 
 def _blocked(status,body):
@@ -70,9 +95,14 @@ async def webcheck(rows,conc,search_conc):
 
         async def bing_search(q):
             url="https://www.bing.com/search?count=10&q="+urllib.parse.quote_plus(q)
-            r=await get(url,True,"bing",2); parsed=bool(r.get("ok") and 200<=int(r.get("status") or 999)<300 and _parsed_bing(r.get("body","")))
-            links=v4.hrefs(r.get("body",""),r.get("url",url),24) if parsed else []
-            return parsed,links,{"provider":"bing","provider_family":"bing","http_ok":bool(r.get("ok")),"parsed":parsed,"status":r.get("status"),"blocked":bool(r.get("blocked")),"error":r.get("error"),"external_domains":len({v2.host(x) for x in links if v2.host(x)})}
+            r=await get(url,True,"bing",2); body=r.get("body",""); prelim=bool(r.get("ok") and 200<=int(r.get("status") or 999)<300 and _parsed_bing(body))
+            links=v4.hrefs(body,r.get("url",url),24) if prelim else []
+            raw_hosts=_raw_external_hosts(body,r.get("url",url)) if prelim else set()
+            explicit_zero=bool(prelim and _explicit_negative(body))
+            # If the parser says "results page" but exposes neither an external
+            # target nor an explicit no-results marker, treat it as ambiguous.
+            parsed=bool(prelim and (raw_hosts or links or explicit_zero))
+            return parsed,links,{"provider":"bing","provider_family":"bing","http_ok":bool(r.get("ok")),"parsed":parsed,"status":r.get("status"),"blocked":bool(r.get("blocked")),"error":r.get("error") if parsed else (r.get("error") or "AMBIGUOUS_ZERO_DOMAIN_SERP"),"external_domains":len({v2.host(x) for x in links if v2.host(x)}),"raw_result_domains":len(raw_hosts),"explicit_negative":explicit_zero}
 
         async def fourget_search(scraper,q):
             url=fourget+"/api/v1/web?"+urllib.parse.urlencode({"s":q,"scraper":scraper})
@@ -80,16 +110,17 @@ async def webcheck(rows,conc,search_conc):
                 async with gates[scraper]:
                     async with sess.get(url,ssl=False) as r:
                         raw=await r.content.read(v2.MAXBODY); status=int(r.status)
-                data=json.loads(raw.decode(errors="ignore")) if raw else {}
-                web=data.get("web"); parsed=bool(status==200 and data.get("status")=="ok" and isinstance(web,list))
-                links=[]; seen=set()
+                data=json.loads(raw.decode(errors="ignore")) if raw else {}; web=data.get("web"); parsed=bool(status==200 and data.get("status")=="ok" and isinstance(web,list))
+                links=[]; seen=set(); raw_hosts=set()
                 if parsed:
                     for item in web:
                         u=str((item or {}).get("url") or "").strip(); h=v2.host(u)
-                        if u.startswith("http") and h and h not in seen and not v2.platform(u): seen.add(h); links.append(u)
-                return parsed,links,{"provider":scraper,"provider_family":provider_family(scraper),"http_ok":status==200,"parsed":parsed,"status":status,"blocked":False,"error":"" if parsed else str(data.get("status") or "FOURGET_SCHEMA"),"external_domains":len({v2.host(x) for x in links if v2.host(x)})}
+                        if u.startswith("http") and h:
+                            raw_hosts.add(h)
+                            if h not in seen and not v2.platform(u): seen.add(h); links.append(u)
+                return parsed,links,{"provider":scraper,"provider_family":provider_family(scraper),"http_ok":status==200,"parsed":parsed,"status":status,"blocked":False,"error":"" if parsed else str(data.get("status") or "FOURGET_SCHEMA"),"external_domains":len({v2.host(x) for x in links if v2.host(x)}),"raw_result_domains":len(raw_hosts),"explicit_negative":bool(parsed and not web)}
             except Exception as exc:
-                return False,[],{"provider":scraper,"provider_family":provider_family(scraper),"http_ok":False,"parsed":False,"status":0,"blocked":False,"error":type(exc).__name__,"external_domains":0}
+                return False,[],{"provider":scraper,"provider_family":provider_family(scraper),"http_ok":False,"parsed":False,"status":0,"blocked":False,"error":type(exc).__name__,"external_domains":0,"raw_result_domains":0,"explicit_negative":False}
 
         async def search_one(q,strict):
             if strict:
@@ -103,20 +134,25 @@ async def webcheck(rows,conc,search_conc):
             return fam,list(bl)+list(gl),[bh,gh]
 
         async def one(c):
-            strict=bool(c.get("_strict_high_candidate")); ev={"search_queries":0,"search_usable_queries":0,"search_health":[],"search_candidates":[],"healthy_providers":[],"direct_checked":0,"direct_health":[],"owned":"","owned_identity":{},"owned_via":"","candidate_seeds":[],"strict_high_path":strict,"zero_paid_api":True}
+            strict=bool(c.get("_strict_high_candidate")); ev={"search_queries":0,"search_usable_queries":0,"search_resultful_queries":0,"search_health":[],"search_candidates":[],"healthy_providers":[],"direct_checked":0,"direct_health":[],"owned":"","owned_identity":{},"owned_via":"","candidate_seeds":[],"strict_high_path":strict,"zero_paid_api":True}
             seeds=v4.guesses(c); ev["candidate_seeds"]=seeds[:]; seed_hosts={v2.host(x) for x in seeds if v2.host(x) and not v2.platform(x)}
-            queries=list(v4.search_queries(c))[:2 if strict else 3]
+            # Strict path deliberately reaches phone / website formulations rather
+            # than stopping after two brittle exact-name queries.
+            queries=list(v4.search_queries(c))[:5 if strict else 3]
             for q in queries:
                 ev["search_queries"]+=1; fam,links,health=await search_one(q,strict)
                 for f in sorted(fam):
                     if f not in ev["healthy_providers"]: ev["healthy_providers"].append(f)
-                if (len(fam)>=2 if strict else bool(fam)): ev["search_usable_queries"]+=1
-                ev["search_health"].append({"query":q,"providers":health,"parsed_families":sorted(fam),"external_domains":len({v2.host(x) for x in links if v2.host(x)})})
+                usable=(len(fam)>=2 if strict else bool(fam))
+                if usable: ev["search_usable_queries"]+=1
+                raw_resultful=any(int(h.get("raw_result_domains") or 0)>0 for h in health)
+                if usable and raw_resultful: ev["search_resultful_queries"]+=1
+                ev["search_health"].append({"query":q,"providers":health,"parsed_families":sorted(fam),"external_domains":len({v2.host(x) for x in links if v2.host(x)}),"raw_resultful":raw_resultful})
                 have={v2.host(x) for x in ev["search_candidates"] if v2.host(x)}
                 for u in links:
                     h=v2.host(u)
                     if h and h not in have: ev["search_candidates"].append(u); have.add(h)
-                if strict and ev["search_usable_queries"]>=2 and len(seed_hosts|have)>=5: break
+                if strict and ev["search_usable_queries"]>=3 and ev["search_resultful_queries"]>=1 and len(seed_hosts|have)>=5: break
                 if not strict and ev["search_queries"]>=2 and len(seed_hosts|have)>=5: break
             seen=set(); cap=20 if strict else 12
             for u in seeds+ev["search_candidates"]:
