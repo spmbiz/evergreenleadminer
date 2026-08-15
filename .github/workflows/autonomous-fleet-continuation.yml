@@ -34,37 +34,28 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY' > /tmp/decision.json
-          import json, os, sys
-          from pathlib import Path
-          sys.path.insert(0, str(Path('tools').resolve()))
-
+          import json, os, subprocess
           desired=json.load(open('control/desired_state.json'))
           enabled=bool(desired.get('enabled')) and bool(desired.get('continuous', True))
           workflow=os.environ['COMPLETED_WORKFLOW']
-          out={'enabled':enabled,'workflow':workflow,'backlog':0,'dispatch':''}
+          out={'enabled':enabled,'workflow':workflow,'backlog':0,'dispatch':'','lane_backlog':{}}
 
           if enabled and workflow == 'Hospitality Autonomous Fleet 24/7':
-              import hospitality_grid_plan as hp
-              import fleet_runtime as fr
-              import datetime as dt
-              coverage=(fr.load_json(Path('state/coverage.json'),{}).get('shards') or {})
-              now=dt.datetime.now(dt.timezone.utc)
-              n=0
-              for s in hp.expanded_catalog():
-                  c=coverage.get(s['key']) or {}
-                  try:
-                      last=dt.datetime.fromisoformat(str(c.get('last_success')).replace('Z','+00:00')) if c.get('last_success') else None
-                  except Exception:
-                      last=None
-                  changed=c.get('release') != s.get('release')
-                  age=1e9 if changed or not last else max(0,(now-last).total_seconds()/3600)
-                  if changed or not last or age >= 168 or c.get('status') in ('partial','failed_retryable'):
-                      n += 1
+              subprocess.run([
+                  'python','tools/hospitality_multilane_plan.py','--provider','github',
+                  '--capacity','1','--out','/tmp/hospitality-plan.json'
+              ],check=True,stdout=subprocess.DEVNULL)
+              plan=json.load(open('/tmp/hospitality-plan.json'))
+              n=int(plan.get('useful_backlog') or 0)
               out['backlog']=n
+              out['lane_backlog']=plan.get('lane_backlog') or {}
               if n:
                   out['dispatch']='hospitality-autonomous-fleet.yml'
 
           elif enabled and workflow == 'GWS Autonomous Harvest Fleet':
+              import sys
+              from pathlib import Path
+              sys.path.insert(0, str(Path('tools').resolve()))
               import global_capacity_broker as broker
               n=int((broker.local_demand() or {}).get('gws') or 0)
               out['backlog']=n
@@ -80,6 +71,7 @@ jobs:
           print('enabled='+str(bool(d['enabled'])).lower())
           print('backlog='+str(int(d['backlog'])))
           print('dispatch='+str(d['dispatch']))
+          print('lane_backlog='+json.dumps(d.get('lane_backlog') or {},separators=(',',':')))
           PY
       - name: Redispatch useful workload immediately
         if: steps.decide.outputs.enabled == 'true' && steps.decide.outputs.backlog != '0' && steps.decide.outputs.dispatch != ''
@@ -99,7 +91,7 @@ jobs:
                 "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/dispatches" \
                 --input -
           fi
-          echo "Redispatched $WORKFLOW_FILE for remaining backlog=${{ steps.decide.outputs.backlog }}"
+          echo "Redispatched $WORKFLOW_FILE for remaining backlog=${{ steps.decide.outputs.backlog }} lanes=${{ steps.decide.outputs.lane_backlog }}"
       - name: Report idle
         if: steps.decide.outputs.enabled != 'true' || steps.decide.outputs.backlog == '0' || steps.decide.outputs.dispatch == ''
         run: echo "No immediate continuation required. Cron remains the safety heartbeat."
