@@ -36,6 +36,7 @@ jobs:
           {"r":9001,"n":"KANOFF LEGAL","p":"1050","a":"Rue Jean-Baptiste Meunier 9","ph":"+32 2 648 04 06","em":"","alias":"Kanoff Legal"}
           {"r":9002,"n":"ID.CITE ARCHITECTS","p":"1150","a":"Avenue de Tervueren 246","ph":"02 325 65 10","em":"","alias":"ID.CITE ARCHITECTS"}
           {"r":9003,"n":"Imagin'Hair","p":"1160","a":"Boulevard des Invalides 69","ph":"02 675 95 38","em":"imagin-hair@skynet.be","alias":"Imagin'Hair Coiffure"}
+          {"r":9004,"n":"Galerie Frédéric Schots","p":"1160","a":"Chaussée de Wavre 1737","ph":"+32 2 662 12 44","em":"","alias":"Galerie Frédéric Schots"}
           '@ | Set-Content -Encoding UTF8 home_canary.jsonl
       - name: Residential canary Google plus Bing
         shell: powershell
@@ -47,10 +48,10 @@ jobs:
             --engines google,bing `
             --sleep-min 0.4 `
             --sleep-max 0.9
-      - name: Assert canary catches known owned sites and residential families work
+      - name: Assert all known owned regressions and residential families work
         shell: powershell
         run: |
-          python -c "import json; s=json.load(open('home_canary_out/summary.json',encoding='utf-8')); assert s['owned_sites_found']>=2,s; assert s['family_pass_observations'].get('google',0)>=2,s; assert s['family_pass_observations'].get('bing',0)>=2,s; print('GWS_HOME_CANARY_OK',json.dumps(s))"
+          python -c "import json; s=json.load(open('home_canary_out/summary.json',encoding='utf-8')); rows=[json.loads(x) for x in open('home_canary_out/results.jsonl',encoding='utf-8') if x.strip()]; assert len(rows)==4,(s,rows); assert all(x.get('status')=='REJECT' for x in rows),(s,[(x.get('r'),x.get('status'),x.get('owned_site')) for x in rows]); assert s['family_pass_observations'].get('google',0)>=2,s; assert s['family_pass_observations'].get('bing',0)>=2,s; print('GWS_HOME_CANARY_OK',json.dumps(s))"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
