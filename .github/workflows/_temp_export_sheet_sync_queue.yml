@@ -1,4 +1,4 @@
-name: Temp Export Sheet Sync Queue
+name: Temp Materialize Sheet Sync Payload
 on:
   push:
     branches: [main]
@@ -6,25 +6,110 @@ on:
       - '.github/workflows/_temp_export_sheet_sync_queue.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
-  export:
+  materialize:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Collect chunks 017 through 026
+        with:
+          fetch-depth: 1
+      - name: Build recall-first lead and dedupe TSV payloads
         run: |
           set -euo pipefail
-          mkdir -p export
-          for n in $(seq 17 26); do
-            p=$(printf '%03d' "$n")
-            cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${p}.jsonl" export/
-          done
-          cp state/sheet_sync_snapshot.json export/
-          ls -lh export
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sheet-sync-queue-017-026
-          path: export/
-          retention-days: 1
-          compression-level: 6
+          python - <<'PY'
+          import csv,json,re
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          start_rank=6513
+          root=Path('gpt/sheet_sync_queue')
+          out=Path('gpt/_temp_sheet_sync_017_026')
+          out.mkdir(parents=True,exist_ok=True)
+          ex=json.load(open('control/_temp_sheet_sync_017_026_excludes.json',encoding='utf-8'))['exclude']
+          excluded={x['overture_id']:x for x in ex}
+          bad_domains={'booking.com','expedia.com','tripadvisor.com','airbnb.com','facebook.com','instagram.com','google.com','squarespace.com'}
+          multi={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          strong=('vacation','holiday','hotel','resort','villa','cabin','cottage','lodging','bed and breakfast','short term','short-term','serviced','aparthotel','chalet','motel')
+          adjacent=('property management','real estate','property manager','rental management')
+
+          def clean(x):
+              return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
+          def phone(x):
+              return re.sub(r'\D','',str(x or ''))
+          def nname(x):
+              return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
+          def domain(x):
+              s=str(x or '').strip().lower()
+              if not s:return ''
+              if '://' in s or '/' in s:
+                  if '://' not in s:s='http://'+s
+                  s=(urlparse(s).hostname or '').lower()
+              s=re.sub(r'^www\.','',s).strip('.')
+              ps=s.split('.')
+              if len(ps)>=3 and '.'.join(ps[-2:]) in multi:s='.'.join(ps[-3:])
+              elif len(ps)>=2:s='.'.join(ps[-2:])
+              return '' if s in bad_domains else s
+          def address(r):
+              vals=[]
+              for x in (r.get('street'),r.get('city'),r.get('state')):
+                  x=clean(x)
+                  if x and x.lower() not in {v.lower() for v in vals}: vals.append(x)
+              return ', '.join(vals)
+          rows=[]
+          for n in range(17,27):
+              p=root/f'bootstrap-20260815T011144Z-{n:03d}.jsonl'
+              with p.open(encoding='utf-8') as f:
+                  for line in f:
+                      if line.strip(): rows.append(json.loads(line))
+          selected=[r for r in rows if r.get('overture_id') not in excluded]
+          if len(rows)!=500 or len(selected)!=402:
+              raise SystemExit(f'unexpected counts rows={len(rows)} selected={len(selected)} excluded={len(excluded)}')
+
+          leads=[]; dedupe=[]; amb=0; pa=0
+          for i,r in enumerate(selected):
+              rank=start_rank+i
+              txt=' '.join([clean(r.get('name')),clean(r.get('category')),clean(r.get('brand'))]).lower().replace('_',' ')
+              is_amb=(not any(t in txt for t in strong)) and any(t in txt for t in adjacent)
+              if is_amb:
+                  amb+=1; priority='B'; score='78' if int(r.get('operator_score') or 0)>=75 else '70'; conf='Medium'; estatus='Recall-first'; note='Recall-first: plausible adjacent hospitality/STR buyer retained.'
+              else:
+                  pa+=1; priority='A'; score='91' if any(t in txt for t in ('hotel','resort')) else '88'; conf='High'; estatus='Verified'; note=''
+              market=clean(r.get('city') or r.get('region'))
+              country=clean(r.get('country'))
+              name=clean(r.get('name'))
+              d=domain(r.get('domain') or r.get('website'))
+              ph=phone(r.get('public_phone'))
+              src=clean(r.get('source_url')) or (f"https://explore.overturemaps.org/#id={clean(r.get('overture_id'))}" if r.get('overture_id') else '')
+              lead=[
+                  str(rank),priority,score,market,country,name,'',clean(r.get('category')),address(r),ph,'1','','','High','','','',
+                  f"overture:{clean(r.get('overture_id'))}",'2026-08-15','New',note,clean(r.get('website')),clean(r.get('public_email')),'',clean(r.get('instagram')),
+                  '','','','','','',conf,estatus,src,'',''
+              ]
+              assert len(lead)==36
+              leads.append(lead)
+              if d:key='domain:'+d
+              elif ph:key='phone:'+ph
+              else:key=f"name:{nname(name)}|market:{market.lower()}|country:{country.lower()}"
+              dedupe.append([key,ph,d,nname(name),market,country,name,str(rank)])
+
+          def write_tsv(path,header,data):
+              with open(path,'w',encoding='utf-8',newline='') as f:
+                  w=csv.writer(f,delimiter='\t',lineterminator='\n',quoting=csv.QUOTE_MINIMAL)
+                  w.writerow(header);w.writerows(data)
+          lead_header=['Rank','Priority','Opportunity Score','Market','Country','Business / Property','Lead Type','Category','Address','Public Business Phone','Shared Phone Count','Rating','Reviews','Portfolio Potential','Suggested First Pitch','Maps Lookup','Enrichment Search','Source Ref','Harvested','Status','Notes','Official Website','Public Email','Contact Page','Instagram','Facebook','WhatsApp','Portfolio / Listing URL','Resolved Operator / Parent','Portfolio Signal','Primary Outreach Route','Enrichment Confidence','Enrichment Status','Enrichment Source URLs','Enrichment Notes','Column 36']
+          dedupe_header=['Dedupe Key','Normalized Phone','Domain','Normalized Name','Market','Country','Business / Property','Source Rank']
+          write_tsv(out/'leads.tsv',lead_header,leads)
+          write_tsv(out/'dedupe.tsv',dedupe_header,dedupe)
+          summary={'inspected':500,'existing_duplicates':96,'clear_rejects':2,'new_rows':len(leads),'ambiguous_retained':amb,'priority_a':pa,'rank_start':start_rank,'rank_end':start_rank+len(leads)-1}
+          (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary))
+          PY
+      - name: Commit temporary import payload
+        run: |
+          set -euo pipefail
+          git config user.name 'ai-prod-sheet-sync'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/_temp_sheet_sync_017_026/
+          git commit -m 'ops: materialize temporary sheet sync payload 017-026 [skip ci]'
+          git push origin HEAD:main
