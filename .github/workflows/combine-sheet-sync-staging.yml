@@ -1,0 +1,37 @@
+name: Combine Sheet Sync Staging
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/combine_staging_trigger.json'
+permissions:
+  contents: write
+jobs:
+  combine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Combine lead and dedupe rows
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          root=Path('gpt/sheet_sync_staging')
+          with (root/'leads.tsv').open(encoding='utf-8',newline='') as f: leads=list(csv.reader(f,delimiter='\t'))
+          with (root/'dedupe.tsv').open(encoding='utf-8',newline='') as f: dedupe=list(csv.reader(f,delimiter='\t'))
+          assert len(leads)==len(dedupe)
+          with (root/'combined.tsv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f,delimiter='\t',lineterminator='\n')
+              for a,b in zip(leads,dedupe): w.writerow(a+b)
+          print({'rows':len(leads),'cols':44})
+          PY
+      - name: Commit combined staging
+        run: |
+          git config user.name 'sheet-sync-staging-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/sheet_sync_staging/combined.tsv
+          git commit -m 'sync: combine sheet staging [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
