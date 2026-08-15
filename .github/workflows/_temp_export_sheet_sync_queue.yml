@@ -1,4 +1,4 @@
-name: Temp Reconcile Oldest Sheet Sync Queue
+name: Temp Export Oldest Sheet Sync Queue
 on:
   push:
     branches: [main]
@@ -6,124 +6,25 @@ on:
       - '.github/workflows/_temp_export_sheet_sync_queue.yml'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
-  reconcile:
+  export:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Collect oldest 10 queue files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/queue10
+          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort | head -n 10 > /tmp/files.txt
+          if [ ! -s /tmp/files.txt ]; then echo QUEUE_EMPTY; fi
+          while IFS= read -r f; do cp "gpt/sheet_sync_queue/$f" /tmp/queue10/; done < /tmp/files.txt
+          cp /tmp/files.txt /tmp/queue10/_files.txt
+      - uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 1
-      - name: Reconcile oldest 10 queue files against live MASTER
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import csv, io, json, re, urllib.parse, urllib.request
-          from pathlib import Path
-          from urllib.parse import urlparse
-
-          SID='18yRdeJOfgYc-gnQTFTzZCbsZZ9mYUY_CxHPKijLswRQ'
-          qroot=Path('gpt/sheet_sync_queue')
-          files=sorted(p.name for p in qroot.glob('*.jsonl'))[:10]
-          if not files:
-              print('QUEUE_EMPTY')
-              Path('gpt/_temp_sheet_sync_current').mkdir(parents=True,exist_ok=True)
-              Path('gpt/_temp_sheet_sync_current/plan.json').write_text(json.dumps({'files':[],'counts':{'inspected':0}},indent=2)+'\n')
-              raise SystemExit(0)
-          out=Path('gpt/_temp_sheet_sync_current'); out.mkdir(parents=True,exist_ok=True)
-          multi={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
-          generic={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','linktr.ee','wixsite.com','wordpress.com','priceline.com','novasol.com','guestlybookings.com','guestybookings.com','reserve-online.net','hostaid.hu'}
-          def clean(x): return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
-          def norm_phone(x): return re.sub(r'\D','',str(x or ''))
-          def norm_name(x): return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
-          def root_domain(x):
-              s=clean(x).lower()
-              if not s:return ''
-              if '://' not in s:s='http://'+s
-              h=(urlparse(s).hostname or '').lower().removeprefix('www.').strip('.')
-              if not h:return ''
-              p=h.split('.')
-              if len(p)>=3 and '.'.join(p[-2:]) in multi:h='.'.join(p[-3:])
-              elif len(p)>=2:h='.'.join(p[-2:])
-              return '' if h in generic else h
-          def market(r): return clean(r.get('city') or str(r.get('region') or '').split('::',1)[0].replace('-',' '))
-          def nmkey(name,market,country): return f'{norm_name(name)}|{norm_name(market)}|{norm_name(country)}'
-          def fetch_sheet(name):
-              u=f'https://docs.google.com/spreadsheets/d/{SID}/gviz/tq?tqx=out:csv&sheet='+urllib.parse.quote(name)
-              req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'})
-              with urllib.request.urlopen(req,timeout=30) as r: data=r.read().decode('utf-8-sig')
-              return list(csv.reader(io.StringIO(data)))
-
-          master=fetch_sheet('Enriched Leads')
-          if len(master)<8000: raise SystemExit(f'live master export suspiciously short: {len(master)} rows')
-          hdr=master[0]; pos={h:i for i,h in enumerate(hdr)}
-          required=['Rank','Market','Country','Business / Property','Public Business Phone','Official Website','Public Email','Contact Page','Instagram','Facebook','WhatsApp','Portfolio / Listing URL']
-          for h in required:
-              if h not in pos: raise SystemExit('missing header '+h)
-          by_domain={}; by_phone={}; by_nm={}; maxrank=0
-          for rownum,row in enumerate(master[1:],start=2):
-              row=row+['']*(len(hdr)-len(row))
-              try:maxrank=max(maxrank,int(float(row[pos['Rank']] or 0)))
-              except:pass
-              d=root_domain(row[pos['Official Website']]); ph=norm_phone(row[pos['Public Business Phone']]); nk=nmkey(row[pos['Business / Property']],row[pos['Market']],row[pos['Country']])
-              rec={'sheet_row':rownum,'rank':row[pos['Rank']],'row':row}
-              if d and d not in by_domain:by_domain[d]=rec
-              if ph and ph not in by_phone:by_phone[ph]=rec
-              if nk.strip('|') and nk not in by_nm:by_nm[nk]=rec
-
-          queued=[]
-          for fn in files:
-              p=qroot/fn
-              lines=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
-              queued.extend((fn,r) for r in lines)
-
-          within=set(); new=[]; updates=[]; nochange=[]; rejects=[]; per_file={fn:{'inspected':0,'new':0,'updates':0,'nochange':0,'rejects':0} for fn in files}
-          fields=[('public_phone','Public Business Phone'),('website','Official Website'),('public_email','Public Email'),('contact_page','Contact Page'),('instagram','Instagram'),('facebook','Facebook'),('whatsapp','WhatsApp'),('portfolio_url','Portfolio / Listing URL')]
-          for fn,r in queued:
-              per_file[fn]['inspected']+=1
-              d=root_domain(r.get('domain') or r.get('website')); ph=norm_phone(r.get('public_phone')); m=market(r); c=clean(r.get('country')); n=clean(r.get('name')); nk=nmkey(n,m,c)
-              key=('d:'+d) if d else (('p:'+ph) if ph else 'n:'+nk)
-              if key in within:
-                  nochange.append({'file':fn,'id':r.get('overture_id'),'reason':'duplicate_within_batch'});per_file[fn]['nochange']+=1;continue
-              within.add(key)
-              match=(by_domain.get(d) if d else None) or (by_phone.get(ph) if ph else None) or by_nm.get(nk)
-              if match:
-                  row=match['row']; delta={}
-                  for qf,sh in fields:
-                      v=clean(r.get(qf))
-                      if not v: continue
-                      if not clean(row[pos[sh]]): delta[sh]=v
-                  if delta:
-                      updates.append({'file':fn,'id':r.get('overture_id'),'sheet_row':match['sheet_row'],'rank':match['rank'],'name':n,'delta':delta});per_file[fn]['updates']+=1
-                  else:
-                      nochange.append({'file':fn,'id':r.get('overture_id'),'rank':match['rank'],'reason':'existing_no_new_data'});per_file[fn]['nochange']+=1
-                  continue
-              txt=' '.join(clean(r.get(k)) for k in ('name','category','brand','notes')).lower().replace('_',' ')
-              clear_nonfit=any(x in txt for x in ('student housing','senior living','senior housing','hoa management','homeowners association','municipal library','public library'))
-              residential_sales=('residential sales' in txt or ('savills' in txt and 'residential' in txt and not any(x in txt for x in ('hotel','holiday','vacation','villa','resort','lodging'))))
-              invalid_identity=(clean(r.get('live_status')).upper() in {'DEAD','CLOSED'} or str(r.get('http_status') or '') in {'404','410'})
-              if clear_nonfit or residential_sales or invalid_identity:
-                  rejects.append({'file':fn,'id':r.get('overture_id'),'name':n,'reason':'clear_nonfit_or_invalid'});per_file[fn]['rejects']+=1;continue
-              new.append({'file':fn,'record':r});per_file[fn]['new']+=1
-              if d:by_domain[d]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
-              if ph:by_phone[ph]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
-              by_nm[nk]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
-
-          counts={'inspected':len(queued),'new':len(new),'updates':len(updates),'existing_no_new_data':len(nochange),'rejects':len(rejects),'max_rank':maxrank}
-          for f in ['Instagram','Facebook','Contact Page','WhatsApp','Portfolio / Listing URL','Public Email','Official Website','Public Business Phone']:
-              counts['update_'+f.lower().replace(' ','_').replace('/','_')]=sum(1 for x in updates if f in x['delta'])
-          counts['ambiguous_plausible_new']=sum(1 for x in new if clean(x['record'].get('live_status')).upper()=='MEDIUM' or clean(x['record'].get('fit_tier')).upper() not in {'A'})
-          plan={'files':files,'counts':counts,'per_file':per_file,'new':new,'updates':updates,'nochange':nochange,'rejects':rejects}
-          (out/'plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-          print(json.dumps(counts))
-          PY
-      - name: Commit reconciliation plan
-        run: |
-          set -euo pipefail
-          git config user.name 'ai-prod-sheet-sync'
-          git config user.email 'actions@users.noreply.github.com'
-          git add gpt/_temp_sheet_sync_current/plan.json
-          git commit -m 'ops: reconcile current oldest sheet sync queue [skip ci]' || exit 0
-          for i in 1 2 3; do git pull --rebase origin main && git push origin HEAD:main && exit 0; git rebase --abort || true; sleep $((i*2)); done
-          exit 1
+          name: sheet-sync-queue10
+          path: /tmp/queue10
+          if-no-files-found: error
+          retention-days: 1
