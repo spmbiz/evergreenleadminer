@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-08-15T16:38:31Z",
+  "source_workflow_run": 31896056519,
+  "source_artifact_id": 9249819357,
+  "queue_chunks": 761,
+  "queue_rows": 37327,
+  "unique_source_identities": 25965,
+  "repeated_source_rows_collapsed": 11362,
+  "existing_master_account_matches": 5652,
+  "within_queue_account_duplicates": 242,
+  "existing_master_rows_with_enrichment_updates": 5278,
+  "new_high_medium_candidates": 13087,
+  "new_permissive_candidates": 6979,
+  "clear_nonfit_rejects": 5,
+  "new_rows_appended_and_verified_now": 8,
+  "master_rank_tail_after_write": 9569,
+  "staging_spreadsheet_id": "1fTusWla4eh52NPe0RgFtN0nWhbZkSlWluInyS6lcQQI",
+  "status": "PARTIAL_CANONICAL_MERGE",
+  "queue_cleanup_allowed": false,
+  "note": "Do not delete remaining queue chunks until canonical append/update transfer is verified in the MASTER. Full queue snapshot export is supported by mode=drain_queue."
+}
