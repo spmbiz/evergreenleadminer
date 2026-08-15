@@ -12,7 +12,7 @@ import os
 import sys
 
 import gws_no_website_certifier_v53_core as _core
-import gws_search_provider_pool_v54 as _providers
+import gws_search_provider_pool_v56_free as _providers
 import gws_identity_resolver_v54 as _identity
 import gws_worker_v55 as _worker_policy
 
@@ -96,9 +96,6 @@ def web_identity_hardened(c, body, url=""):
     name_on_page = _core.v2.ov(c.get("n"), tx)
     brussels_geo = any(x in tx for x in ("brussels", "bruxelles", "brussel"))
 
-    # This catches a current owned brand site even when the legacy source phone or
-    # address is stale after a move. Brand-domain + page-name + Brussels are all
-    # required; a directory/generic domain cannot satisfy this route.
     if domain_brand and name_on_page >= 0.60 and brussels_geo and not _core.v2.platform(url):
         ev["matched"] = True
         ev["match_mode"] = "brand_domain_page_name_brussels"
@@ -154,15 +151,19 @@ _core.v5.canonical_key = canonical_key_hardened
 
 async def provider_webcheck(rows, conc, search_conc):
     ans = await _providers.webcheck(rows, conc, search_conc)
-    family = {"bing": "bing", "yahoo": "bing", "exa": "exa"}
+    family = {"bing": "bing", "yahoo": "bing", "yep": "yep", "ghostery": "discovery_only"}
     for ev in ans.values():
         normalized = []
-        for p in ev.get("healthy_providers") or []:
+        raw = list(ev.get("healthy_providers") or [])
+        for p in raw:
             f = family.get(str(p), str(p))
+            if f == "discovery_only":
+                continue
             if f not in normalized:
                 normalized.append(f)
-        ev["healthy_provider_transports"] = list(ev.get("healthy_providers") or [])
+        ev["healthy_provider_transports"] = raw
         ev["healthy_providers"] = normalized
+        ev["zero_paid_api"] = True
     return ans
 
 
