@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T14:03:00Z",
+  "requested_at": "2026-08-15T14:05:05Z",
   "requested_by": "GPT-5.6 Sol",
   "mode": "five-minute-live-max-throughput",
   "force_workers": 20,
-  "note": "Five-minute live throughput benchmark. Request the full 20-slot account ceiling; broker still observes actual in-progress jobs and leases, never kills productive jobs, and only allocates genuinely free slots. Measure canonical net-new and contact/social yield from baseline canonical_total=19926."
+  "note": "Refill pass inside the same five-minute live benchmark. Baseline canonical_total=19926 at 14:02:13Z; first saturated pass persisted 20520 at 14:05:02Z (+594). Request full 20-slot ceiling again so freed runner capacity is immediately reused."
 }
