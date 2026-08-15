@@ -1,4 +1,4 @@
-name: GWS Legacy 5047 Deep Verification Challenge v3
+name: GWS Legacy 5047 Deep Verification Challenge v4
 
 on:
   workflow_dispatch:
@@ -13,13 +13,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: gws-legacy-deep-verification
+  group: gws-legacy-5047-adversarial-v4
   cancel-in-progress: false
 
 env:
-  LEGACY_SHEET_ID: 1L4CB030tcA8PiJhStPgqQ1Be7n4mCL3V0kpxK07JeSo
-  LEGACY_ACTIONABLE_GID: '816629564'
   LEGACY_EXPECTED: '5047'
+  SNAPSHOT_DIR: data/gws/legacy_deep/source_snapshot_5047_v4
+  WORKER_COUNT: '20'
 
 jobs:
   preflight:
@@ -30,28 +30,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Snapshot canonical Google legacy source
+
+      - name: Materialize immutable 5047 snapshot from repository
         run: |
           set -euo pipefail
-          python tools/gws_legacy_source_queue.py \
-            --sheet-id "$LEGACY_SHEET_ID" \
-            --gid "$LEGACY_ACTIONABLE_GID" \
+          python tools/gws_legacy_snapshot_materialize.py \
+            --input-dir "$SNAPSHOT_DIR" \
+            --outdir source_queue \
             --expected "$LEGACY_EXPECTED" \
-            --outdir source_queue
+            --shards 12
           cat source_queue/manifest.json
-      - name: Strictly decode all 5047 source rows
+
+      - name: Independent verifier-native preflight must read exactly 5047
         run: |
           set -euo pipefail
-          python tools/gws_legacy_deep_v2.py preflight \
-            --queue "source_queue/queue_${LEGACY_EXPECTED}.jsonl.gz.b64" \
+          python tools/gws_legacy_deep_v4.py preflight \
+            --queue source_queue \
             --expected "$LEGACY_EXPECTED"
-      - name: Upload immutable source snapshot
+
+      - name: Upload immutable normalized source queue
         uses: actions/upload-artifact@v4
         with:
           name: legacy-source-queue-${{ github.run_id }}
           path: source_queue/
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 3
           compression-level: 6
 
   verify:
@@ -62,40 +65,60 @@ jobs:
       matrix:
         worker_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Download immutable source snapshot
+
+      - name: Download immutable source queue
         uses: actions/download-artifact@v4
         with:
           name: legacy-source-queue-${{ github.run_id }}
           path: source_queue
+
       - name: Install verifier dependencies
         run: python -m pip install --disable-pip-version-check duckdb aiohttp
-      - name: Adversarially verify legacy shard with v3
+
+      - name: Verify shard with adversarial v4
         run: |
           set -euo pipefail
           mkdir -p "results/worker-${{ matrix.worker_index }}"
-          python tools/gws_legacy_deep_v3.py worker \
-            --queue "source_queue/queue_${LEGACY_EXPECTED}.jsonl.gz.b64" \
+          python tools/gws_legacy_deep_v4.py worker \
+            --queue source_queue \
             --expected "$LEGACY_EXPECTED" \
             --worker-index "${{ matrix.worker_index }}" \
-            --worker-count 20 \
-            --threads 16 \
+            --worker-count "$WORKER_COUNT" \
+            --threads 12 \
             --http-concurrency 32 \
-            --search-concurrency 1 \
+            --search-concurrency 2 \
             --outdir "results/worker-${{ matrix.worker_index }}"
+          cat "results/worker-${{ matrix.worker_index }}/summary.json"
+
+      - name: Assert worker produced its complete partition
+        run: |
+          python - <<'PY'
+          import json, os
+          i=int('${{ matrix.worker_index }}')
+          n=int(os.environ['LEGACY_EXPECTED'])
+          wc=int(os.environ['WORKER_COUNT'])
+          expected=(n + wc - 1 - i)//wc
+          p=f'results/worker-{i}/summary.json'
+          s=json.load(open(p, encoding='utf-8'))
+          got=int(s.get('attempted',-1))
+          assert got==expected, (i, expected, got)
+          print(f'WORKER_PARTITION_OK worker={i} expected={expected} got={got}')
+          PY
+
       - name: Upload shard evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: legacy-deep-v3-worker-${{ github.run_id }}-${{ matrix.worker_index }}
+          name: legacy-deep-v4-worker-${{ github.run_id }}-${{ matrix.worker_index }}
           path: results/worker-${{ matrix.worker_index }}/
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 3
           compression-level: 6
 
   aggregate:
@@ -110,46 +133,143 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Download all shard evidence
+
+      - name: Download all 20 shard evidence artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: legacy-deep-v3-worker-${{ github.run_id }}-*
+          pattern: legacy-deep-v4-worker-${{ github.run_id }}-*
           path: incoming
-      - name: Download immutable source snapshot
+
+      - name: Download immutable source queue
         uses: actions/download-artifact@v4
         with:
           name: legacy-source-queue-${{ github.run_id }}
           path: source_queue
-      - name: Aggregate exactly 5047 outcomes or fail closed
+
+      - name: Aggregate exactly 5047 unique outcomes or fail closed
         run: |
           set -euo pipefail
-          python tools/gws_legacy_deep_v2.py aggregate \
+          python tools/gws_legacy_deep_v4.py aggregate \
             --input-root incoming \
             --outdir aggregate_out \
             --expected "$LEGACY_EXPECTED"
+          python - <<'PY'
+          import json, os
+          s=json.load(open('aggregate_out/summary.json', encoding='utf-8'))
+          assert int(s.get('attempted_unique',-1)) == int(os.environ['LEGACY_EXPECTED']), s
+          assert int(s.get('worker_summaries',-1)) == int(os.environ['WORKER_COUNT']), s
+          assert int(s.get('duplicate_results',-1)) == 0, s
+          print('AGGREGATE_INTEGRITY_OK', json.dumps(s, separators=(',',':')))
+          PY
           cat aggregate_out/summary.json
-      - name: Persist durable verification evidence and source snapshot
+
+      - name: Build durable owned-site reconciliation ledger
+        run: |
+          python - <<'PY'
+          import csv, json, os
+          from pathlib import Path
+          run=os.environ['GITHUB_RUN_ID']
+          rows=[]
+          p=Path('aggregate_out/owned_site_hits.jsonl')
+          for line in p.read_text(encoding='utf-8').splitlines():
+              if not line.strip(): continue
+              x=json.loads(line); c=x.get('candidate') or {}; w=x.get('web') or {}
+              rows.append({
+                  'source_row':x.get('r',''), 'business_name':c.get('n',''), 'postal_code':c.get('p',''),
+                  'street_address':c.get('a',''), 'phone':c.get('ph',''), 'verdict':x.get('status',''),
+                  'found_site':x.get('owned_site') or w.get('owned',''), 'reason':x.get('reason',''),
+                  'owned_via':x.get('owned_via') or w.get('owned_via',''), 'run_id':run,
+              })
+          out=Path('reconciliation'); out.mkdir(exist_ok=True)
+          fields=['source_row','business_name','postal_code','street_address','phone','verdict','found_site','reason','owned_via','run_id']
+          with (out/'latest.csv').open('w', newline='', encoding='utf-8') as f:
+              z=csv.DictWriter(f, fieldnames=fields); z.writeheader(); z.writerows(rows)
+          (out/'latest_summary.json').write_text(json.dumps({'run_id':run,'owned_site_hits':len(rows)}, indent=2), encoding='utf-8')
+          print(f'RECONCILIATION_ROWS={len(rows)}')
+          PY
+
+      - name: Persist canonical run evidence and metrics
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           RUN_DIR="data/gws/legacy_deep/runs/${GITHUB_RUN_ID}"
-          mkdir -p "$RUN_DIR" metrics gpt/gws_legacy_deep_review
+          mkdir -p "$RUN_DIR" metrics gpt/gws_legacy_deep_review gpt/gws_legacy_deep_google_reconciliation
           cp aggregate_out/results.jsonl.gz.b64 "$RUN_DIR/results.jsonl.gz.b64"
           cp aggregate_out/summary.json "$RUN_DIR/summary.json"
           cp aggregate_out/exceptions.jsonl "$RUN_DIR/exceptions.jsonl"
           cp aggregate_out/owned_site_hits.jsonl "$RUN_DIR/owned_site_hits.jsonl"
           cp source_queue/manifest.json "$RUN_DIR/source_manifest.json"
-          cp source_queue/source.csv.gz "$RUN_DIR/source.csv.gz"
-          cp source_queue/queue_${LEGACY_EXPECTED}.jsonl.gz.b64 "$RUN_DIR/source_queue.jsonl.gz.b64"
           cp aggregate_out/summary.json metrics/gws_legacy_deep_latest.json
           cp aggregate_out/strict_review_ready.jsonl "gpt/gws_legacy_deep_review/${GITHUB_RUN_ID}.jsonl"
+          cp reconciliation/latest.csv "gpt/gws_legacy_deep_google_reconciliation/${GITHUB_RUN_ID}.csv"
+          cp reconciliation/latest.csv gpt/gws_legacy_deep_google_reconciliation/latest.csv
+          cp reconciliation/latest_summary.json "gpt/gws_legacy_deep_google_reconciliation/${GITHUB_RUN_ID}_summary.json"
+          cp reconciliation/latest_summary.json gpt/gws_legacy_deep_google_reconciliation/latest_summary.json
+
           git config user.name "evergreen-gws-legacy-verifier"
           git config user.email "actions@users.noreply.github.com"
-          git add "$RUN_DIR" metrics/gws_legacy_deep_latest.json gpt/gws_legacy_deep_review/
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "[legacy-deep-v3] challenge 5047 candidates ${GITHUB_RUN_ID} [skip ci]"
-          for attempt in 1 2 3; do
+          git add "$RUN_DIR" metrics/gws_legacy_deep_latest.json gpt/gws_legacy_deep_review/ gpt/gws_legacy_deep_google_reconciliation/
+          git commit -m "[legacy-deep-v4] challenge 5047 candidates ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            if git push origin "HEAD:$BRANCH"; then exit 0; fi
+            git rebase --abort >/dev/null 2>&1 || true
+            git fetch origin "$BRANCH"
+            git rebase "origin/$BRANCH" || { git rebase --abort || true; exit 1; }
+            sleep $((attempt * 3))
+          done
+          exit 1
+
+  finalize-health:
+    needs: [preflight, verify, aggregate]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Persist truthful run health
+        env:
+          BRANCH: ${{ github.ref_name }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          AGGREGATE_RESULT: ${{ needs.aggregate.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p metrics
+          if [ "$PREFLIGHT_RESULT" = success ] && [ "$VERIFY_RESULT" = success ] && [ "$AGGREGATE_RESULT" = success ]; then STATE=SUCCESS; else STATE=FAILED; fi
+          python - <<'PY'
+          import json, os, time
+          x={
+            'run_id':os.environ['GITHUB_RUN_ID'],
+            'workflow':'gws-legacy-deep-verify-v4',
+            'expected':5047,
+            'state':os.environ['STATE'],
+            'preflight':os.environ['PREFLIGHT_RESULT'],
+            'verify':os.environ['VERIFY_RESULT'],
+            'aggregate':os.environ['AGGREGATE_RESULT'],
+            'updated_at':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+          }
+          open('metrics/gws_legacy_deep_health.json','w',encoding='utf-8').write(json.dumps(x,indent=2)+'\n')
+          print(json.dumps(x,separators=(',',':')))
+          PY
+        env:
+          BRANCH: ${{ github.ref_name }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          AGGREGATE_RESULT: ${{ needs.aggregate.result }}
+          STATE: ${{ (needs.preflight.result == 'success' && needs.verify.result == 'success' && needs.aggregate.result == 'success') && 'SUCCESS' || 'FAILED' }}
+      - name: Commit health with push retry
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "evergreen-gws-health"
+          git config user.email "actions@users.noreply.github.com"
+          git add metrics/gws_legacy_deep_health.json
+          git commit -m "[legacy-deep-health] ${GITHUB_RUN_ID} [skip ci]" || exit 0
+          for attempt in 1 2 3 4; do
             if git push origin "HEAD:$BRANCH"; then exit 0; fi
             git rebase --abort >/dev/null 2>&1 || true
             git fetch origin "$BRANCH"
