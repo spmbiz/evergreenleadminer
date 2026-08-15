@@ -1,48 +1,48 @@
 {
-  "cycle_id": "20260815T233354Z-github-multilane",
+  "cycle_id": "20260815T233613Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T23:35:09.844374Z",
+  "finished_at": "2026-08-15T23:37:29.348859Z",
   "workers_completed": 4,
   "workers_failed": 1,
-  "raw_discovered": 2173,
-  "live_ready_before_canonical_dedupe": 0,
-  "new_unique": 0,
+  "raw_discovered": 2975,
+  "live_ready_before_canonical_dedupe": 10,
+  "new_unique": 10,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 0,
-  "gpt_review_pending": 0,
+  "instagram_found": 5,
+  "gpt_review_pending": 1,
   "errors": 1,
-  "peak_wall_seconds": 32.31,
-  "new_unique_per_worker_minute": 0.0,
-  "canonical_total": 29402,
+  "peak_wall_seconds": 30.44,
+  "new_unique_per_worker_minute": 7.198,
+  "canonical_total": 29412,
   "health": {
-    "429_rate": 0.0,
+    "429_rate": 0.04762,
     "timeout_rate": 0.0,
-    "error_rate": 0.0
+    "error_rate": 0.04762
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
       "workers_completed": 3,
       "workers_failed": 1,
-      "raw_discovered": 2173,
-      "fast_ready": 0,
-      "live_ready": 0,
-      "recovery_candidates": 88,
-      "recovered_public_emails": 0,
-      "contact_ready": 0,
-      "social_or_contact_without_email": 0,
-      "instagram_found": 0,
-      "facebook_found": 0,
+      "raw_discovered": 2975,
+      "fast_ready": 21,
+      "live_ready": 10,
+      "recovery_candidates": 110,
+      "recovered_public_emails": 5,
+      "contact_ready": 21,
+      "social_or_contact_without_email": 16,
+      "instagram_found": 5,
+      "facebook_found": 5,
       "live_health": {
-        "429_rate": 0.0,
+        "429_rate": 0.04762,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.04762
       },
       "contact_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.00909
       }
     },
     "fast_email": {
