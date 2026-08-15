@@ -71,7 +71,9 @@ def query_set(c, pass_no=1):
         if name: add(f'{name} Brussels contact website')
         if name: add(f'{name} instagram facebook website')
         if street and pc: add(f'"{street}" {pc} "{name}"')
-        if ph: add(f'{re.sub(r"\D", "", ph)} {name}')
+        if ph:
+            digits = re.sub(r"\D", "", ph)
+            if digits: add(f'{digits} {name}')
     return out[:7]
 
 
