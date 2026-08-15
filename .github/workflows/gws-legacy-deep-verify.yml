@@ -16,15 +16,35 @@ concurrency:
   group: gws-legacy-deep-verification
   cancel-in-progress: false
 
+env:
+  LEGACY_QUEUE_DIR: data/gws/legacy_deep/queues
+  LEGACY_EXPECTED: '5003'
+
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate durable queue before spending worker minutes
+        run: |
+          set -euo pipefail
+          python tools/gws_legacy_deep_v2.py preflight \
+            --queue "$LEGACY_QUEUE_DIR" \
+            --expected "$LEGACY_EXPECTED"
+
   verify:
+    needs: preflight
     strategy:
       fail-fast: false
       max-parallel: 20
       matrix:
         worker_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,29 +52,32 @@ jobs:
           python-version: '3.11'
       - name: Install verifier dependencies
         run: python -m pip install --disable-pip-version-check duckdb aiohttp
-      - name: Deep verify legacy shard
+      - name: Adversarially verify legacy shard
         run: |
           set -euo pipefail
           mkdir -p "results/worker-${{ matrix.worker_index }}"
-          python tools/gws_legacy_mega.py worker \
-            --queue data/gws/legacy_deep/queue_5003.jsonl.gz.b64 \
+          python tools/gws_legacy_deep_v2.py worker \
+            --queue "$LEGACY_QUEUE_DIR" \
+            --expected "$LEGACY_EXPECTED" \
             --worker-index "${{ matrix.worker_index }}" \
             --worker-count 20 \
-            --threads 16 \
-            --http-concurrency 64 \
+            --threads 12 \
+            --http-concurrency 16 \
+            --search-concurrency 1 \
             --outdir "results/worker-${{ matrix.worker_index }}"
       - name: Upload shard evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: legacy-deep-worker-${{ github.run_id }}-${{ matrix.worker_index }}
+          name: legacy-deep-v2-worker-${{ github.run_id }}-${{ matrix.worker_index }}
           path: results/worker-${{ matrix.worker_index }}/
+          if-no-files-found: error
           retention-days: 2
           compression-level: 6
 
   aggregate:
     needs: verify
-    if: always()
+    if: ${{ needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -67,15 +90,15 @@ jobs:
       - name: Download all shard evidence
         uses: actions/download-artifact@v4
         with:
-          pattern: legacy-deep-worker-${{ github.run_id }}-*
+          pattern: legacy-deep-v2-worker-${{ github.run_id }}-*
           path: incoming
-      - name: Aggregate all 5K outcomes
+      - name: Aggregate exactly 5003 outcomes or fail closed
         run: |
           set -euo pipefail
-          python tools/gws_legacy_mega.py aggregate \
+          python tools/gws_legacy_deep_v2.py aggregate \
             --input-root incoming \
             --outdir aggregate_out \
-            --expected 5003
+            --expected "$LEGACY_EXPECTED"
           cat aggregate_out/summary.json
       - name: Persist durable verification evidence
         env:
@@ -86,13 +109,15 @@ jobs:
           mkdir -p "$RUN_DIR" metrics gpt/gws_legacy_deep_review
           cp aggregate_out/results.jsonl.gz.b64 "$RUN_DIR/results.jsonl.gz.b64"
           cp aggregate_out/summary.json "$RUN_DIR/summary.json"
+          cp aggregate_out/exceptions.jsonl "$RUN_DIR/exceptions.jsonl"
+          cp aggregate_out/owned_site_hits.jsonl "$RUN_DIR/owned_site_hits.jsonl"
           cp aggregate_out/summary.json metrics/gws_legacy_deep_latest.json
           cp aggregate_out/strict_review_ready.jsonl "gpt/gws_legacy_deep_review/${GITHUB_RUN_ID}.jsonl"
           git config user.name "evergreen-gws-legacy-verifier"
           git config user.email "actions@users.noreply.github.com"
           git add "$RUN_DIR" metrics/gws_legacy_deep_latest.json gpt/gws_legacy_deep_review/
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "[legacy-deep] verify 5003 candidates ${GITHUB_RUN_ID} [skip ci]"
+          git commit -m "[legacy-deep-v2] challenge 5003 candidates ${GITHUB_RUN_ID} [skip ci]"
           for attempt in 1 2 3; do
             if git push origin "HEAD:$BRANCH"; then exit 0; fi
             git rebase --abort >/dev/null 2>&1 || true
