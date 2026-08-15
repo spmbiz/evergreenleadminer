@@ -1,62 +1,41 @@
 {
-  "cycle_id": "20260815T021441Z-github-multilane",
+  "cycle_id": "20260815T024351Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T02:15:31.805673Z",
-  "workers_completed": 10,
+  "finished_at": "2026-08-15T02:46:34.982307Z",
+  "workers_completed": 20,
   "workers_failed": 0,
-  "raw_discovered": 4122,
-  "live_ready_before_canonical_dedupe": 70,
-  "new_unique": 70,
-  "changed_existing": 0,
-  "duplicates": 0,
-  "instagram_found": 42,
-  "gpt_review_pending": 28,
+  "raw_discovered": 27260,
+  "live_ready_before_canonical_dedupe": 332,
+  "new_unique": 329,
+  "changed_existing": 2,
+  "duplicates": 3,
+  "instagram_found": 202,
+  "gpt_review_pending": 144,
   "errors": 0,
-  "peak_wall_seconds": 24.81,
-  "new_unique_per_worker_minute": 40.392,
-  "canonical_total": 7530,
+  "peak_wall_seconds": 133.73,
+  "new_unique_per_worker_minute": 36.89,
+  "canonical_total": 7859,
   "health": {
-    "429_rate": 0.02543,
-    "timeout_rate": 0.0339,
-    "error_rate": 0.19492
+    "429_rate": 0.01049,
+    "timeout_rate": 0.05112,
+    "error_rate": 0.19528
   },
   "next_local_http_workers": 48,
   "lane_metrics": {
     "fast_email": {
-      "workers_completed": 9,
+      "workers_completed": 20,
       "workers_failed": 0,
-      "raw_discovered": 4107,
-      "fast_ready": 118,
-      "live_ready": 70,
+      "raw_discovered": 27260,
+      "fast_ready": 763,
+      "live_ready": 332,
       "recovery_candidates": 0,
       "recovered_public_emails": 0,
-      "instagram_found": 42,
+      "instagram_found": 202,
       "facebook_found": 0,
       "live_health": {
-        "429_rate": 0.02543,
-        "timeout_rate": 0.0339,
-        "error_rate": 0.19492
-      },
-      "contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
-      }
-    },
-    "osm_geofabrik": {
-      "workers_completed": 1,
-      "workers_failed": 0,
-      "raw_discovered": 15,
-      "fast_ready": 0,
-      "live_ready": 0,
-      "recovery_candidates": 0,
-      "recovered_public_emails": 0,
-      "instagram_found": 0,
-      "facebook_found": 0,
-      "live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "429_rate": 0.01049,
+        "timeout_rate": 0.05112,
+        "error_rate": 0.19528
       },
       "contact_health": {
         "429_rate": 0.0,
