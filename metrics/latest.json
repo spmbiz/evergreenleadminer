@@ -1,27 +1,50 @@
 {
-  "cycle_id": "20260815T231550Z-github-multilane",
+  "cycle_id": "20260815T231801Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T23:17:06.555572Z",
+  "finished_at": "2026-08-15T23:19:39.605809Z",
   "workers_completed": 4,
   "workers_failed": 1,
-  "raw_discovered": 2336,
-  "live_ready_before_canonical_dedupe": 5,
-  "new_unique": 5,
+  "raw_discovered": 2225,
+  "live_ready_before_canonical_dedupe": 0,
+  "new_unique": 0,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 3,
+  "instagram_found": 0,
   "gpt_review_pending": 0,
   "errors": 1,
-  "peak_wall_seconds": 29.4,
-  "new_unique_per_worker_minute": 4.69,
+  "peak_wall_seconds": 60.22,
+  "new_unique_per_worker_minute": 0.0,
   "canonical_total": 29401,
   "health": {
     "429_rate": 0.0,
     "timeout_rate": 0.0,
-    "error_rate": 0.44444
+    "error_rate": 0.33333
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
+    "site_recovery": {
+      "workers_completed": 3,
+      "workers_failed": 1,
+      "raw_discovered": 2225,
+      "fast_ready": 3,
+      "live_ready": 0,
+      "recovery_candidates": 92,
+      "recovered_public_emails": 0,
+      "contact_ready": 3,
+      "social_or_contact_without_email": 3,
+      "instagram_found": 0,
+      "facebook_found": 0,
+      "live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.33333
+      },
+      "contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      }
+    },
     "fast_email": {
       "workers_completed": 1,
       "workers_failed": 0,
@@ -38,29 +61,6 @@
         "429_rate": 0.0,
         "timeout_rate": 0.0,
         "error_rate": 0.0
-      },
-      "contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
-      }
-    },
-    "site_recovery": {
-      "workers_completed": 3,
-      "workers_failed": 1,
-      "raw_discovered": 2336,
-      "fast_ready": 9,
-      "live_ready": 5,
-      "recovery_candidates": 97,
-      "recovered_public_emails": 3,
-      "contact_ready": 9,
-      "social_or_contact_without_email": 6,
-      "instagram_found": 3,
-      "facebook_found": 1,
-      "live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.44444
       },
       "contact_health": {
         "429_rate": 0.0,
