@@ -1,70 +1,287 @@
 version: 2.1
-setup: true
 
 parameters:
   fleet:
     type: boolean
     default: false
   workload:
-    type: string
-    default: "hospitality"
-
-orbs:
-  continuation: circleci/continuation@1.1.0
+    type: enum
+    enum: [hospitality, gws]
+    default: hospitality
+  workers_a:
+    type: integer
+    default: 4
+  workers_b:
+    type: integer
+    default: 15
+  dual_pool:
+    type: boolean
+    default: false
 
 jobs:
-  setup_fleet:
+  config_ok:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - run:
+          name: Static CircleCI fleet config is healthy
+          command: |
+            echo "fleet=false; no harvesting requested"
+            echo "Use Trigger Pipeline parameters to request hospitality or GWS workers."
+
+  preflight:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Refuse ephemeral-only fleet work
+          command: |
+            set -euo pipefail
+            test -n "${FLEET_GH_TOKEN:-}" || {
+              echo "FLEET_GH_TOKEN missing. Add it in CircleCI Project Settings > Environment Variables (or an approved context) before fleet=true." >&2
+              exit 42
+            }
+            echo "persistence_token=present"
+
+  plan_hospitality:
+    parameters:
+      workers_a:
+        type: integer
+      workers_b:
+        type: integer
+      dual_pool:
+        type: boolean
     docker:
       - image: cimg/python:3.11
     resource_class: small
     steps:
       - checkout
       - run:
-          name: Verify setup runtime
+          name: Build durable grid-sharded hospitality plan
           command: |
             set -euo pipefail
-            python --version
-            curl --version | head -1
-            if ! command -v jq >/dev/null 2>&1; then
-              sudo apt-get update -qq
-              sudo apt-get install -y -qq jq
+            WA=<< parameters.workers_a >>
+            WB=<< parameters.workers_b >>
+            TOTAL="$WA"
+            if [ "<< parameters.dual_pool >>" = "true" ]; then TOTAL=$((WA + WB)); fi
+            if [ "$TOTAL" -lt 1 ] || [ "$TOTAL" -gt 30 ]; then
+              echo "Hospitality CircleCI worker total must be 1..30, got $TOTAL" >&2
+              exit 2
             fi
-            jq --version
+            mkdir -p results/fleet_plan
+            python tools/hospitality_grid_plan.py --provider circleci --capacity "$TOTAL" --out results/fleet_plan/plan.json
+            python - <<'PY'
+            import json
+            p=json.load(open('results/fleet_plan/plan.json'))
+            if not p.get('enabled'):
+                raise SystemExit('CircleCI provider not enabled in config/providers.json')
+            print(json.dumps({'catalog_size':p.get('catalog_size'),'useful_backlog':p.get('useful_backlog'),'selected':len(p.get('include') or [])}))
+            PY
+      - persist_to_workspace:
+          root: results
+          paths:
+            - fleet_plan
+
+  hospitality_a:
+    parallelism: << pipeline.parameters.workers_a >>
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/fleet
       - run:
-          name: Build an exact-size provider plan
+          name: Install hospitality worker dependencies
+          command: python -m pip install --disable-pip-version-check duckdb requests
+      - run:
+          name: Run hospitality pool A shard
+          command: |
+            set -euo pipefail
+            INDEX="$CIRCLE_NODE_INDEX"
+            mkdir -p "results/shards/hospitality-${CIRCLE_WORKFLOW_ID}-${INDEX}"
+            python tools/circleci_hospitality_worker.py \
+              --plan-json /tmp/fleet/fleet_plan/plan.json \
+              --task-index "$INDEX" \
+              --verify-engine thread \
+              --local-workers 64 \
+              --outdir "results/shards/hospitality-${CIRCLE_WORKFLOW_ID}-${INDEX}"
+      - persist_to_workspace:
+          root: results
+          paths:
+            - shards
+
+  hospitality_b:
+    parallelism: << pipeline.parameters.workers_b >>
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/fleet
+      - run:
+          name: Install hospitality worker dependencies
+          command: python -m pip install --disable-pip-version-check duckdb requests
+      - run:
+          name: Run hospitality pool B shard
+          command: |
+            set -euo pipefail
+            INDEX=$((CIRCLE_NODE_INDEX + << pipeline.parameters.workers_a >>))
+            mkdir -p "results/shards/hospitality-${CIRCLE_WORKFLOW_ID}-${INDEX}"
+            python tools/circleci_hospitality_worker.py \
+              --plan-json /tmp/fleet/fleet_plan/plan.json \
+              --task-index "$INDEX" \
+              --verify-engine thread \
+              --local-workers 64 \
+              --outdir "results/shards/hospitality-${CIRCLE_WORKFLOW_ID}-${INDEX}"
+      - persist_to_workspace:
+          root: results
+          paths:
+            - shards
+
+  hospitality_inbox:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/fleet
+      - run:
+          name: Build and persist immutable hospitality inbox
+          command: |
+            set -euo pipefail
+            test -n "${FLEET_GH_TOKEN:-}" || exit 42
+            test -d /tmp/fleet/shards || { echo "No hospitality shards in workspace" >&2; exit 43; }
+            mkdir -p results
+            cp -R /tmp/fleet/fleet_plan results/fleet_plan
+            cp -R /tmp/fleet/shards results/shards
+            BUNDLE="circleci-hospitality-inbox-${CIRCLE_WORKFLOW_ID}.tar.gz"
+            tar -czf "$BUNDLE" results
+            python tools/fleet_runtime.py upload \
+              --repo walidgdg1-ai/evergreenleadminer \
+              --tag harvest-inbox \
+              --file "$BUNDLE"
+
+  plan_gws:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Build GWS CircleCI plan and one shared Hub snapshot
           command: |
             set -euo pipefail
             mkdir -p results/fleet_plan
-            requested_fleet="<< pipeline.parameters.fleet >>"
-            workload="<< pipeline.parameters.workload >>"
-            capacity=30
-            if [ "${CIRCLE_BRANCH:-}" = "perf/gws-max-async-circleci" ]; then
-              requested_fleet=true
-              workload=gws
-              capacity=2
-            fi
-            if [ "$requested_fleet" != "true" ]; then
-              selected=0
-            elif [ "$workload" = "gws" ]; then
-              python tools/gws_fleet_plan.py --provider circleci --fixed-capacity "$capacity" --outdir results/fleet_plan
-              selected="$(python -c 'import json; print(json.load(open("results/fleet_plan/plan.json"))["selected_count"])')"
-            elif [ "$workload" = "hospitality" ]; then
-              python tools/fleet_runtime.py plan --provider circleci --capacity "$capacity" --out results/fleet_plan/plan.json
-              selected="$(python -c 'import json; print(len(json.load(open("results/fleet_plan/plan.json")).get("include") or []))')"
-            else
-              echo "Unsupported workload: $workload" >&2
-              exit 2
-            fi
-            echo "CircleCI branch=${CIRCLE_BRANCH:-unknown} workload=$workload requested=$requested_fleet capacity=$capacity selected=$selected"
-            python tools/circleci_fleet_continue.py --workload "$workload" --selected-count "$selected" --out /tmp/continue.yml
-      - save_cache:
-          key: fleet-plan-v2-<< pipeline.id >>
+            python tools/gws_fleet_plan.py \
+              --provider circleci \
+              --fixed-capacity << pipeline.parameters.workers_a >> \
+              --outdir results/fleet_plan
+      - persist_to_workspace:
+          root: results
           paths:
-            - results/fleet_plan
-      - continuation/continue:
-          configuration_path: /tmp/continue.yml
+            - fleet_plan
+
+  gws_worker:
+    parallelism: << pipeline.parameters.workers_a >>
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/fleet
+      - run:
+          name: Install GWS worker dependencies
+          command: python -m pip install --disable-pip-version-check duckdb
+      - run:
+          name: Run provider-neutral GWS shard
+          command: |
+            set -euo pipefail
+            mkdir -p "results/shards/gws-${CIRCLE_WORKFLOW_ID}-${CIRCLE_NODE_INDEX}"
+            python tools/gws_fleet_worker.py \
+              --plan-json /tmp/fleet/fleet_plan/plan.json \
+              --task-index "$CIRCLE_NODE_INDEX" \
+              --hub-snapshot /tmp/fleet/fleet_plan/hub_brussels_current.jsonl \
+              --outdir "results/shards/gws-${CIRCLE_WORKFLOW_ID}-${CIRCLE_NODE_INDEX}" \
+              --threads 2
+      - persist_to_workspace:
+          root: results
+          paths:
+            - shards
+
+  gws_inbox:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/fleet
+      - run:
+          name: Build and persist immutable GWS inbox
+          command: |
+            set -euo pipefail
+            test -n "${FLEET_GH_TOKEN:-}" || exit 42
+            test -d /tmp/fleet/shards || { echo "No GWS shards in workspace" >&2; exit 43; }
+            mkdir -p results
+            cp -R /tmp/fleet/fleet_plan results/fleet_plan
+            cp -R /tmp/fleet/shards results/shards
+            BUNDLE="circleci-gws-inbox-${CIRCLE_WORKFLOW_ID}.tar.gz"
+            tar -czf "$BUNDLE" results
+            python tools/fleet_runtime.py upload \
+              --repo walidgdg1-ai/evergreenleadminer \
+              --tag harvest-inbox \
+              --file "$BUNDLE"
 
 workflows:
-  setup_fleet_workflow:
+  config_smoke:
+    unless: pipeline.parameters.fleet
     jobs:
-      - setup_fleet
+      - config_ok
+
+  hospitality_single:
+    when: pipeline.parameters.fleet and pipeline.parameters.workload == "hospitality" and pipeline.parameters.dual_pool == false
+    jobs:
+      - preflight
+      - plan_hospitality:
+          workers_a: << pipeline.parameters.workers_a >>
+          workers_b: << pipeline.parameters.workers_b >>
+          dual_pool: false
+          requires: [preflight]
+      - hospitality_a:
+          requires: [plan_hospitality]
+      - hospitality_inbox:
+          requires: [hospitality_a]
+
+  hospitality_dual:
+    when: pipeline.parameters.fleet and pipeline.parameters.workload == "hospitality" and pipeline.parameters.dual_pool
+    jobs:
+      - preflight
+      - plan_hospitality:
+          workers_a: << pipeline.parameters.workers_a >>
+          workers_b: << pipeline.parameters.workers_b >>
+          dual_pool: true
+          requires: [preflight]
+      - hospitality_a:
+          requires: [plan_hospitality]
+      - hospitality_b:
+          requires: [plan_hospitality]
+      - hospitality_inbox:
+          requires: [hospitality_a, hospitality_b]
+
+  gws_single:
+    when: pipeline.parameters.fleet and pipeline.parameters.workload == "gws"
+    jobs:
+      - preflight
+      - plan_gws:
+          requires: [preflight]
+      - gws_worker:
+          requires: [plan_gws]
+      - gws_inbox:
+          requires: [gws_worker]
