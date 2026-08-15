@@ -2,6 +2,11 @@ name: GWS Legacy 5K Deep Verification
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-legacy-deep-verify.yml'
+      - 'control/gws_legacy_deep_trigger.json'
 
 permissions:
   contents: write
