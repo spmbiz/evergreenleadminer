@@ -1,7 +1,9 @@
 {
-  "requested_at": "2026-08-15T12:46:30Z",
   "expected": 5047,
   "verifier": "gws_legacy_deep_v4.py",
-  "snapshot": "data/gws/legacy_deep/source_snapshot_5047_v4",
-  "reason": "rerun after immutable snapshot decoder hardening"
+  "snapshot": "data/gws/legacy_deep/source_snapshot_5047_v5",
+  "manifest": "data/gws/legacy_deep/source_snapshot_5047_v5/manifest_shards.json",
+  "guard": "tools/gws_legacy_shard_guard.py",
+  "reason": "benchmark exact 12-shard immutable snapshot after repairing missing shard 10",
+  "trigger_nonce": "gws-legacy-v5-sharded-5047-02"
 }
