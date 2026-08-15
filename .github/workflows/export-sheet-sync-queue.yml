@@ -1,0 +1,45 @@
+name: Export Sheet Sync Queue
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_queue_export_trigger.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Package oldest ten queue chunks
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          mapfile -t files < <(find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%p\n' | sort | head -10)
+          printf '%s\n' "${files[@]}" > bundle/manifest.txt
+          for f in "${files[@]}"; do cp "$f" bundle/; done
+          python - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('bundle/manifest.txt')
+          files=[x.strip() for x in p.read_text().splitlines() if x.strip()]
+          out={'chunks':files,'chunk_count':len(files)}
+          pathlib.Path('bundle/manifest.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(out)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-oldest-10
+          path: bundle/
+          retention-days: 1
+          compression-level: 6
