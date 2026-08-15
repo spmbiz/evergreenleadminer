@@ -47,6 +47,8 @@ jobs:
             --threads 12 \
             --out gate/census.json
       - name: Known false-negative direct-domain live probe
+        env:
+          PYTHONPATH: tools
         run: |
           python - <<'PY'
           import json, urllib.request
@@ -73,8 +75,6 @@ jobs:
             out.append(row)
           open('gate/known_false_negative_probe.json','w').write(json.dumps(out,indent=2)+'\n')
           print('GWS_V55_KNOWN_FALSE_NEGATIVE_PROBE='+json.dumps(out,separators=(',',':')))
-          # Network availability may fluctuate, but if the site is reachable our
-          # production identity matcher must recognize it.
           for x in out:
             if x.get('live_ok'):
               assert x.get('identity_matched'), x
