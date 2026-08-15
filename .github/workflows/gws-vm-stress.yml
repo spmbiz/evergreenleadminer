@@ -24,10 +24,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install --disable-pip-version-check duckdb
-      - name: Benchmark real Overture scan with oversubscription
+      - name: Benchmark real Overture scan with aggressive oversubscription
         run: |
           set -euo pipefail
-          python tools/gws_vm_benchmark.py --threads 4,8,12,16 --out results/gws_vm_benchmark.json
+          python tools/gws_vm_benchmark.py --threads 16,24,32,48,64 --out results/gws_vm_benchmark.json
       - uses: actions/upload-artifact@v4
         with:
           name: gws-vm-thread-benchmark-${{ github.run_id }}
@@ -43,10 +43,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install --disable-pip-version-check aiohttp
-      - name: Benchmark bounded async website screening
+      - name: Benchmark aggressive bounded async website screening
         run: |
           set -euo pipefail
-          python tools/gws_async_benchmark.py --concurrency 16,32,64 --sample 24 --out results/gws_async_benchmark.json
+          python tools/gws_async_benchmark.py --concurrency 32,64,96,128 --sample 48 --out results/gws_async_benchmark.json
       - uses: actions/upload-artifact@v4
         with:
           name: gws-async-benchmark-${{ github.run_id }}
