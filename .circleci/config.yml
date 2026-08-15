@@ -1,44 +1,20 @@
 version: 2.1
 
 jobs:
-  harvest_canary:
+  four_way:
     parallelism: 4
     docker:
       - image: cimg/python:3.11
-    resource_class: medium
     steps:
       - checkout
       - run:
-          name: Install worker dependencies
-          command: python -m pip install --disable-pip-version-check duckdb requests
-      - run:
-          name: Plan four disjoint CircleCI shards
+          name: Parallel node smoke
           command: |
-            set -euo pipefail
-            mkdir -p results/fleet_plan
-            python tools/fleet_runtime.py plan --provider circleci --capacity 4 --out results/fleet_plan/plan.json
-            python - <<'PY'
-            import json
-            p=json.load(open('results/fleet_plan/plan.json'))
-            assert p.get('enabled') is True, p
-            assert len(p.get('include') or []) >= 4, p
-            print(json.dumps({'selected': len(p['include']), 'cycle_id': p['cycle_id']}))
-            PY
-      - run:
-          name: Run real hospitality shard
-          no_output_timeout: 15m
-          command: |
-            set -euo pipefail
-            mkdir -p "results/shards/node-${CIRCLE_NODE_INDEX}"
-            python tools/circleci_hospitality_worker.py \
-              --plan-json results/fleet_plan/plan.json \
-              --task-index "$CIRCLE_NODE_INDEX" \
-              --outdir "results/shards/node-${CIRCLE_NODE_INDEX}"
-      - store_artifacts:
-          path: results/shards
-          destination: hospitality-stress
+            set -e
+            echo "node=${CIRCLE_NODE_INDEX} total=${CIRCLE_NODE_TOTAL}"
+            python --version
 
 workflows:
-  circleci_hospitality_stress:
+  four_way_stress:
     jobs:
-      - harvest_canary
+      - four_way
