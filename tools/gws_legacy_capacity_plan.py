@@ -47,10 +47,14 @@ def main() -> None:
     a = ap.parse_args()
 
     normal_local_demand = broker.local_demand
+    remaining = legacy_remaining()
 
     def challenge_demand():
         d = normal_local_demand()
-        d["gws"] = max(int(d.get("gws") or 0), legacy_remaining())
+        # This workflow represents only the legacy challenge. Once it reaches an
+        # exact durable 5,047 SUCCESS, it must not steal slots merely because the
+        # normal GWS discovery planner has unrelated backlog.
+        d["gws"] = remaining if remaining > 0 else 0
         return d
 
     broker.local_demand = challenge_demand
@@ -67,7 +71,7 @@ def main() -> None:
 
     payload = json.loads(Path(a.out).read_text(encoding="utf-8"))
     payload["legacy_expected"] = EXPECTED
-    payload["legacy_remaining"] = legacy_remaining()
+    payload["legacy_remaining"] = remaining
     Path(a.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
