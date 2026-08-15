@@ -203,13 +203,14 @@ jobs:
           name: Run provider-neutral GWS shard
           command: |
             set -euo pipefail
+            python -c 'import os; print("circleci_cpu_count=", os.cpu_count(), "duckdb_threads=8")'
             mkdir -p "results/shards/gws-${CIRCLE_WORKFLOW_ID}-${CIRCLE_NODE_INDEX}"
             python tools/gws_fleet_worker.py \
               --plan-json /tmp/fleet/fleet_plan/plan.json \
               --task-index "$CIRCLE_NODE_INDEX" \
               --hub-snapshot /tmp/fleet/fleet_plan/hub_brussels_current.jsonl \
               --outdir "results/shards/gws-${CIRCLE_WORKFLOW_ID}-${CIRCLE_NODE_INDEX}" \
-              --threads 2
+              --threads 8
       - persist_to_workspace:
           root: results
           paths:
