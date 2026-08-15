@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Search-provider pool for autonomous GWS verification.
 
-Designed from live GitHub-runner smoke tests. It avoids making certification
-depend on Google's JS/throttle surface, serializes search traffic per worker,
-backs off on 202/429 responses, and uses multiple parseable public search
-transports while preserving fail-closed coverage semantics.
+Designed from live GitHub-runner calibration. Certification does not depend on
+Google's JS/throttle surface. Search concurrency is isolated per transport:
+DDG stays serialized per worker, while Bing and Yahoo may use the configured
+bounded concurrency. Evidence families remain conservative (Yahoo == Bing,
+DDG HTML/Lite == DDG), and blocked/failed providers still fail closed.
 """
 from __future__ import annotations
 
@@ -65,26 +66,39 @@ def provider_family(provider: str) -> str:
     return p
 
 
+def provider_concurrency_plan(search_conc: int) -> dict[str, int]:
+    """Transport limits. Evidence-family normalization is intentionally separate."""
+    c = max(1, int(search_conc))
+    return {"bing": c, "yahoo": c, "ddg": 1}
+
+
+def _transport_gate(provider: str) -> str:
+    return "ddg" if str(provider).startswith("ddg") else str(provider)
+
+
 async def webcheck(rows, conc: int, search_conc: int):
     import aiohttp
 
     sem = asyncio.Semaphore(max(1, int(conc)))
-    # Live calibration: DDG was healthy alone but returned 202 under multi-worker
-    # burst. Serialize search requests inside each worker and add jitter/backoff.
-    ssem = asyncio.Semaphore(1)
+    limits = provider_concurrency_plan(search_conc)
+    search_sems = {name: asyncio.Semaphore(limit) for name, limit in limits.items()}
     timeout = aiohttp.ClientTimeout(total=18, connect=5, sock_read=11)
     headers = {"User-Agent": v2.UA, "Accept-Language": "fr-BE,fr;q=0.9,nl;q=0.8,en;q=0.7"}
     ans = {}
 
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as sess:
-        async def get(url: str, is_search: bool = False):
+        async def get(url: str, is_search: bool = False, provider: str = ""):
             attempts = 4 if is_search else 2
             last = {}
             for attempt in range(attempts):
                 try:
-                    async with (ssem if is_search else sem):
+                    gate = search_sems[_transport_gate(provider)] if is_search else sem
+                    async with gate:
                         if is_search:
-                            await asyncio.sleep(random.uniform(.45, 1.15) + attempt * .35)
+                            if _transport_gate(provider) == "ddg":
+                                await asyncio.sleep(random.uniform(.50, 1.10) + attempt * .30)
+                            else:
+                                await asyncio.sleep(random.uniform(.20, .55) + attempt * .20)
                         async with sess.get(url, allow_redirects=True, ssl=True) as r:
                             body = (await r.content.read(v2.MAXBODY)).decode(errors="ignore")
                             if _blocked(int(r.status), body):
@@ -126,7 +140,7 @@ async def webcheck(rows, conc: int, search_conc: int):
                 qlinks, qseen, qhealth = [], set(), []
                 parsed_names = set(); ddg_ok = False
                 for provider, url in primary_providers(sq):
-                    resp = await get(url, is_search=True)
+                    resp = await get(url, is_search=True, provider=provider)
                     http_ok = bool(resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300 and not resp.get("blocked"))
                     parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
                     if parsed:
@@ -151,7 +165,7 @@ async def webcheck(rows, conc: int, search_conc: int):
                 # DDG Lite is a transport fallback, not a second independent DDG vote.
                 if not ddg_ok:
                     provider, url = ddg_lite(sq)
-                    resp = await get(url, is_search=True)
+                    resp = await get(url, is_search=True, provider=provider)
                     http_ok = bool(resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300 and not resp.get("blocked"))
                     parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
                     if parsed:
