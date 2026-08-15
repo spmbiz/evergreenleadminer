@@ -1,4 +1,4 @@
-name: Temp Materialize Sheet Sync Payload
+name: Temp Reconcile Sheet Sync Queue 073-082
 on:
   push:
     branches: [main]
@@ -8,108 +8,118 @@ on:
 permissions:
   contents: write
 jobs:
-  materialize:
+  reconcile:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Build recall-first lead and dedupe TSV payloads
+      - name: Reconcile queue against live MASTER CSV
         run: |
           set -euo pipefail
           python - <<'PY'
-          import csv,json,re
+          import csv, io, json, re, urllib.parse, urllib.request
           from pathlib import Path
           from urllib.parse import urlparse
 
-          start_rank=6513
-          root=Path('gpt/sheet_sync_queue')
-          out=Path('gpt/_temp_sheet_sync_017_026')
-          out.mkdir(parents=True,exist_ok=True)
-          ex=json.load(open('control/_temp_sheet_sync_017_026_excludes.json',encoding='utf-8'))['exclude']
-          excluded={x['overture_id']:x for x in ex}
-          bad_domains={'booking.com','expedia.com','tripadvisor.com','airbnb.com','facebook.com','instagram.com','google.com','squarespace.com'}
+          SID='18yRdeJOfgYc-gnQTFTzZCbsZZ9mYUY_CxHPKijLswRQ'
+          files=[f'bootstrap-20260815T011144Z-{n:03d}.jsonl' for n in range(73,83)]
+          qroot=Path('gpt/sheet_sync_queue')
+          out=Path('gpt/_temp_sheet_sync_073_082'); out.mkdir(parents=True,exist_ok=True)
           multi={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
-          strong=('vacation','holiday','hotel','resort','villa','cabin','cottage','lodging','bed and breakfast','short term','short-term','serviced','aparthotel','chalet','motel')
-          adjacent=('property management','real estate','property manager','rental management')
-
-          def clean(x):
-              return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
-          def phone(x):
-              return re.sub(r'\D','',str(x or ''))
-          def nname(x):
-              return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
-          def domain(x):
-              s=str(x or '').strip().lower()
+          generic={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','linktr.ee'}
+          def clean(x): return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
+          def norm_phone(x): return re.sub(r'\D','',str(x or ''))
+          def norm_name(x): return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
+          def root_domain(x):
+              s=clean(x).lower()
               if not s:return ''
-              if '://' in s or '/' in s:
-                  if '://' not in s:s='http://'+s
-                  s=(urlparse(s).hostname or '').lower()
-              s=re.sub(r'^www\.','',s).strip('.')
-              ps=s.split('.')
-              if len(ps)>=3 and '.'.join(ps[-2:]) in multi:s='.'.join(ps[-3:])
-              elif len(ps)>=2:s='.'.join(ps[-2:])
-              return '' if s in bad_domains else s
-          def address(r):
-              vals=[]
-              for x in (r.get('street'),r.get('city'),r.get('state')):
-                  x=clean(x)
-                  if x and x.lower() not in {v.lower() for v in vals}: vals.append(x)
-              return ', '.join(vals)
-          rows=[]
-          for n in range(17,27):
-              p=root/f'bootstrap-20260815T011144Z-{n:03d}.jsonl'
-              with p.open(encoding='utf-8') as f:
-                  for line in f:
-                      if line.strip(): rows.append(json.loads(line))
-          selected=[r for r in rows if r.get('overture_id') not in excluded]
-          if len(rows)!=500 or len(selected)!=402:
-              raise SystemExit(f'unexpected counts rows={len(rows)} selected={len(selected)} excluded={len(excluded)}')
+              if '://' not in s:s='http://'+s
+              h=(urlparse(s).hostname or '').lower().removeprefix('www.').strip('.')
+              if not h:return ''
+              p=h.split('.')
+              if len(p)>=3 and '.'.join(p[-2:]) in multi:h='.'.join(p[-3:])
+              elif len(p)>=2:h='.'.join(p[-2:])
+              return '' if h in generic else h
+          def market(r): return clean(r.get('city') or str(r.get('region') or '').split('::',1)[0].replace('-',' '))
+          def nmkey(name,market,country): return f'{norm_name(name)}|{norm_name(market)}|{norm_name(country)}'
+          def fetch_sheet(name):
+              u=f'https://docs.google.com/spreadsheets/d/{SID}/gviz/tq?tqx=out:csv&sheet='+urllib.parse.quote(name)
+              req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'})
+              with urllib.request.urlopen(req,timeout=30) as r: data=r.read().decode('utf-8-sig')
+              return list(csv.reader(io.StringIO(data)))
 
-          leads=[]; dedupe=[]; amb=0; pa=0
-          for i,r in enumerate(selected):
-              rank=start_rank+i
-              txt=' '.join([clean(r.get('name')),clean(r.get('category')),clean(r.get('brand'))]).lower().replace('_',' ')
-              is_amb=(not any(t in txt for t in strong)) and any(t in txt for t in adjacent)
-              if is_amb:
-                  amb+=1; priority='B'; score='78' if int(r.get('operator_score') or 0)>=75 else '70'; conf='Medium'; estatus='Recall-first'; note='Recall-first: plausible adjacent hospitality/STR buyer retained.'
-              else:
-                  pa+=1; priority='A'; score='91' if any(t in txt for t in ('hotel','resort')) else '88'; conf='High'; estatus='Verified'; note=''
-              market=clean(r.get('city') or r.get('region'))
-              country=clean(r.get('country'))
-              name=clean(r.get('name'))
-              d=domain(r.get('domain') or r.get('website'))
-              ph=phone(r.get('public_phone'))
-              src=clean(r.get('source_url')) or (f"https://explore.overturemaps.org/#id={clean(r.get('overture_id'))}" if r.get('overture_id') else '')
-              lead=[
-                  str(rank),priority,score,market,country,name,'',clean(r.get('category')),address(r),ph,'1','','','High','','','',
-                  f"overture:{clean(r.get('overture_id'))}",'2026-08-15','New',note,clean(r.get('website')),clean(r.get('public_email')),'',clean(r.get('instagram')),
-                  '','','','','','',conf,estatus,src,'',''
-              ]
-              assert len(lead)==36
-              leads.append(lead)
-              if d:key='domain:'+d
-              elif ph:key='phone:'+ph
-              else:key=f"name:{nname(name)}|market:{market.lower()}|country:{country.lower()}"
-              dedupe.append([key,ph,d,nname(name),market,country,name,str(rank)])
+          master=fetch_sheet('Enriched Leads')
+          if len(master)<8000: raise SystemExit(f'live master export suspiciously short: {len(master)} rows')
+          hdr=master[0]; pos={h:i for i,h in enumerate(hdr)}
+          required=['Rank','Market','Country','Business / Property','Public Business Phone','Official Website','Public Email','Contact Page','Instagram','Facebook','WhatsApp','Portfolio / Listing URL']
+          for h in required:
+              if h not in pos: raise SystemExit('missing header '+h)
+          by_domain={}; by_phone={}; by_nm={}; maxrank=0
+          for rownum,row in enumerate(master[1:],start=2):
+              row=row+['']*(len(hdr)-len(row))
+              try:maxrank=max(maxrank,int(float(row[pos['Rank']] or 0)))
+              except:pass
+              d=root_domain(row[pos['Official Website']]); ph=norm_phone(row[pos['Public Business Phone']]); nk=nmkey(row[pos['Business / Property']],row[pos['Market']],row[pos['Country']])
+              rec={'sheet_row':rownum,'rank':row[pos['Rank']],'row':row}
+              if d and d not in by_domain:by_domain[d]=rec
+              if ph and ph not in by_phone:by_phone[ph]=rec
+              if nk.strip('|') and nk not in by_nm:by_nm[nk]=rec
 
-          def write_tsv(path,header,data):
-              with open(path,'w',encoding='utf-8',newline='') as f:
-                  w=csv.writer(f,delimiter='\t',lineterminator='\n',quoting=csv.QUOTE_MINIMAL)
-                  w.writerow(header);w.writerows(data)
-          lead_header=['Rank','Priority','Opportunity Score','Market','Country','Business / Property','Lead Type','Category','Address','Public Business Phone','Shared Phone Count','Rating','Reviews','Portfolio Potential','Suggested First Pitch','Maps Lookup','Enrichment Search','Source Ref','Harvested','Status','Notes','Official Website','Public Email','Contact Page','Instagram','Facebook','WhatsApp','Portfolio / Listing URL','Resolved Operator / Parent','Portfolio Signal','Primary Outreach Route','Enrichment Confidence','Enrichment Status','Enrichment Source URLs','Enrichment Notes','Column 36']
-          dedupe_header=['Dedupe Key','Normalized Phone','Domain','Normalized Name','Market','Country','Business / Property','Source Rank']
-          write_tsv(out/'leads.tsv',lead_header,leads)
-          write_tsv(out/'dedupe.tsv',dedupe_header,dedupe)
-          summary={'inspected':500,'existing_duplicates':96,'clear_rejects':2,'new_rows':len(leads),'ambiguous_retained':amb,'priority_a':pa,'rank_start':start_rank,'rank_end':start_rank+len(leads)-1}
-          (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
-          print(json.dumps(summary))
+          queued=[]
+          for fn in files:
+              p=qroot/fn
+              if not p.exists(): raise SystemExit(f'missing {fn}')
+              lines=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+              if len(lines)!=50: raise SystemExit(f'{fn} expected 50 rows got {len(lines)}')
+              queued.extend((fn,r) for r in lines)
+
+          within=set(); new=[]; updates=[]; nochange=[]; rejects=[]; per_file={fn:{'inspected':0,'new':0,'updates':0,'nochange':0,'rejects':0} for fn in files}
+          fields=[('public_phone','Public Business Phone'),('website','Official Website'),('public_email','Public Email'),('contact_page','Contact Page'),('instagram','Instagram'),('facebook','Facebook'),('whatsapp','WhatsApp'),('portfolio_url','Portfolio / Listing URL')]
+          for fn,r in queued:
+              per_file[fn]['inspected']+=1
+              d=root_domain(r.get('domain') or r.get('website')); ph=norm_phone(r.get('public_phone')); m=market(r); c=clean(r.get('country')); n=clean(r.get('name')); nk=nmkey(n,m,c)
+              key=('d:'+d) if d else (('p:'+ph) if ph else 'n:'+nk)
+              if key in within:
+                  nochange.append({'file':fn,'id':r.get('overture_id'),'reason':'duplicate_within_batch'});per_file[fn]['nochange']+=1;continue
+              within.add(key)
+              match=(by_domain.get(d) if d else None) or (by_phone.get(ph) if ph else None) or by_nm.get(nk)
+              if match:
+                  row=match['row']; delta={}
+                  for qf,sh in fields:
+                      v=clean(r.get(qf))
+                      if not v: continue
+                      if sh=='Public Business Phone': v=clean(r.get(qf))
+                      if not clean(row[pos[sh]]): delta[sh]=v
+                  if delta:
+                      updates.append({'file':fn,'id':r.get('overture_id'),'sheet_row':match['sheet_row'],'rank':match['rank'],'name':n,'delta':delta});per_file[fn]['updates']+=1
+                  else:
+                      nochange.append({'file':fn,'id':r.get('overture_id'),'rank':match['rank'],'reason':'existing_no_new_data'});per_file[fn]['nochange']+=1
+                  continue
+              txt=' '.join(clean(r.get(k)) for k in ('name','category','brand','notes')).lower().replace('_',' ')
+              clear_nonfit=any(x in txt for x in ('student housing','senior living','senior housing','hoa management','homeowners association'))
+              residential_sales=('residential sales' in txt or ('savills' in txt and 'residential' in txt and not any(x in txt for x in ('hotel','holiday','vacation','villa','resort','lodging'))))
+              if clear_nonfit or residential_sales:
+                  rejects.append({'file':fn,'id':r.get('overture_id'),'name':n,'reason':'clear_nonfit'});per_file[fn]['rejects']+=1;continue
+              new.append({'file':fn,'record':r});per_file[fn]['new']+=1
+              if d:by_domain[d]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
+              if ph:by_phone[ph]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
+              by_nm[nk]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
+
+          counts={'inspected':len(queued),'new':len(new),'updates':len(updates),'existing_no_new_data':len(nochange),'rejects':len(rejects),'max_rank':maxrank}
+          for f in ['Instagram','Facebook','Contact Page','WhatsApp','Portfolio / Listing URL','Public Email','Official Website','Public Business Phone']:
+              counts['update_'+f.lower().replace(' ','_').replace('/','_')]=sum(1 for x in updates if f in x['delta'])
+          plan={'files':files,'counts':counts,'per_file':per_file,'new':new,'updates':updates,'nochange':nochange,'rejects':rejects}
+          (out/'plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(counts))
           PY
-      - name: Commit temporary import payload
+      - name: Commit reconciliation plan
         run: |
           set -euo pipefail
           git config user.name 'ai-prod-sheet-sync'
           git config user.email 'actions@users.noreply.github.com'
-          git add gpt/_temp_sheet_sync_017_026/
-          git commit -m 'ops: materialize temporary sheet sync payload 017-026 [skip ci]'
-          git push origin HEAD:main
+          git add gpt/_temp_sheet_sync_073_082/plan.json
+          git commit -m 'ops: reconcile sheet sync 073-082 [skip ci]' || exit 0
+          for i in 1 2 3; do git pull --rebase origin main && git push origin HEAD:main && exit 0; git rebase --abort || true; sleep $((i*2)); done
+          exit 1
