@@ -1,0 +1,147 @@
+name: GWS Home Residential Certification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_home_residential_trigger.json'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  canary:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: tools
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ensure residential OpenSERP
+        shell: powershell
+        run: .\tools\windows\start_openserp_home.ps1 -Port 7000
+      - name: Show residential egress
+        shell: powershell
+        run: |
+          try { Write-Host "GWS_HOME_EGRESS_IP=$((Invoke-RestMethod -TimeoutSec 10 'https://api.ipify.org?format=json').ip)" }
+          catch { Write-Host 'GWS_HOME_EGRESS_IP=UNAVAILABLE' }
+      - name: Build known-owned canary
+        shell: powershell
+        run: |
+          @'
+          {"r":9001,"n":"KANOFF LEGAL","p":"1050","a":"Rue Jean-Baptiste Meunier 9","ph":"+32 2 648 04 06","em":"","alias":"Kanoff Legal"}
+          {"r":9002,"n":"ID.CITE ARCHITECTS","p":"1150","a":"Avenue de Tervueren 246","ph":"02 325 65 10","em":"","alias":"ID.CITE ARCHITECTS"}
+          {"r":9003,"n":"Imagin'Hair","p":"1160","a":"Boulevard des Invalides 69","ph":"02 675 95 38","em":"imagin-hair@skynet.be","alias":"Imagin'Hair Coiffure"}
+          '@ | Set-Content -Encoding UTF8 home_canary.jsonl
+      - name: Residential canary Google plus Bing
+        shell: powershell
+        run: |
+          python tools\gws_home_openserp_worker_v55.py `
+            --input home_canary.jsonl `
+            --outdir home_canary_out `
+            --endpoint http://127.0.0.1:7000 `
+            --engines google,bing `
+            --sleep-min 0.4 `
+            --sleep-max 0.9
+      - name: Assert canary catches known owned sites and residential families work
+        shell: powershell
+        run: |
+          python -c "import json; s=json.load(open('home_canary_out/summary.json',encoding='utf-8')); assert s['owned_sites_found']>=2,s; assert s['family_pass_observations'].get('google',0)>=2,s; assert s['family_pass_observations'].get('bing',0)>=2,s; print('GWS_HOME_CANARY_OK',json.dumps(s))"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-canary-${{ github.run_id }}
+          path: home_canary_out/
+          if-no-files-found: warn
+          retention-days: 3
+
+  residential_full:
+    needs: canary
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 240
+    env:
+      PYTHONPATH: tools
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download current strict survivor queue
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-v55-shortlist-screen-31909704545
+          path: shortlist
+          github-token: ${{ github.token }}
+          repository: walidgdg1-ai/evergreenleadminer
+          run-id: 31909704545
+      - name: Ensure residential OpenSERP
+        shell: powershell
+        run: .\tools\windows\start_openserp_home.ps1 -Port 7000
+      - name: Two-pass residential strict evidence for all 86 survivors
+        shell: powershell
+        run: |
+          python tools\gws_home_openserp_worker_v55.py `
+            --input shortlist\strict_survivors.jsonl `
+            --outdir home_out `
+            --endpoint http://127.0.0.1:7000 `
+            --engines google,bing `
+            --sleep-min 0.5 `
+            --sleep-max 1.1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-residential-results-${{ github.run_id }}
+          path: home_out/
+          if-no-files-found: warn
+          retention-days: 4
+
+  single_writer_ingest:
+    needs: residential_full
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: tools
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download residential evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-home-residential-results-${{ github.run_id }}
+          path: /tmp/home_out
+      - name: Independently re-evaluate strict certificate
+        run: |
+          mkdir -p /tmp/merged
+          python tools/gws_home_evidence_merge_v55.py --input /tmp/home_out/results.jsonl --outdir /tmp/merged
+      - name: Persist immutable observations and latest summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name 'gws-home-single-writer'
+          git config user.email 'actions@users.noreply.github.com'
+          git pull --rebase origin main
+          dest="data/gws/observations/home_openserp/${GITHUB_RUN_ID}"
+          mkdir -p "$dest" gpt
+          cp /tmp/home_out/results.jsonl "$dest/residential_observations.jsonl"
+          cp /tmp/home_out/summary.json "$dest/worker_summary.json"
+          cp /tmp/merged/certified_results.jsonl "$dest/certified_results.jsonl"
+          cp /tmp/merged/high_candidates.jsonl "$dest/high_candidates.jsonl"
+          cp /tmp/merged/summary.json "$dest/merge_summary.json"
+          cp /tmp/merged/summary.json gpt/gws_home_latest_summary.json
+          git add "$dest" gpt/gws_home_latest_summary.json
+          git commit -m "[gws-home] persist residential evidence run ${GITHUB_RUN_ID}" || exit 0
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+            sleep $((i*2))
+          done
+          exit 1
