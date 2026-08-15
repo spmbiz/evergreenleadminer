@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-14T23:58:00Z",
+  "requested_at": "2026-08-15T00:31:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "24/7-canary-retry",
-  "force_workers": 4,
-  "note": "Retry after negative-bbox CLI fix. Scheduled cycles ignore this force and use durable autoscaling."
+  "mode": "account-wide-capacity-stress",
+  "force_workers": 20,
+  "note": "Request full GitHub capacity; fleet probe must subtract live GWS/tender jobs and choose only genuinely free slots. Production verifier remains thread/64 for this cloud-scale stress before async promotion."
 }
