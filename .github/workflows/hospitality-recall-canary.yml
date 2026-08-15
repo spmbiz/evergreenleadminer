@@ -1,0 +1,68 @@
+name: Hospitality Site Recovery Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_recall_test.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hospitality-site-recovery-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests
+      - name: Run one real site-recovery cell
+        run: |
+          mkdir -p canary
+          python tools/hospitality_worker.py \
+            --provider github \
+            --cycle-id "recall-canary-${GITHUB_RUN_ID}" \
+            --name "florida-panhandle-recall-canary" \
+            --country "USA" \
+            --region "Florida Panhandle::site-recovery-canary" \
+            --bbox="-86.800000,30.000000,-85.200000,30.800000" \
+            --release "2026-06-17.0" \
+            --max-rows 10000 \
+            --lane site_recovery \
+            --contact-workers 32 \
+            --local-workers 64 \
+            --verify-engine thread \
+            --outdir canary
+      - name: Assert canary integrity
+        run: |
+          python - <<'PY'
+          import csv,json,sys
+          s=json.load(open('canary/worker_summary.json'))
+          assert s['status']=='success', s
+          assert s['lane']=='site_recovery', s
+          assert s['recovery_candidates']>=0
+          assert s['recovered_public_emails']>=0
+          with open('canary/v6_live_ready.csv',encoding='utf-8',newline='') as f:
+              rows=list(csv.DictReader(f))
+          for r in rows:
+              assert r.get('public_email'), r
+              assert r.get('website'), r
+              assert r.get('email_source_url'), r
+              assert r.get('contact_recovery_status')=='RECOVERED', r
+          print(json.dumps({'rows':len(rows),'summary':s},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hospitality-site-recovery-canary-${{ github.run_id }}
+          path: canary/
+          retention-days: 2
