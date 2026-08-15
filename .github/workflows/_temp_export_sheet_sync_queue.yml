@@ -1,0 +1,29 @@
+name: Temp Export Sheet Sync Queue
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/_temp_export_sheet_sync_queue.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect chunks 017 through 026
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          for n in $(seq -w 17 26); do
+            cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${n}.jsonl" export/
+          done
+          cp state/sheet_sync_snapshot.json export/
+          ls -lh export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-queue-017-026
+          path: export/
+          retention-days: 1
+          compression-level: 6
