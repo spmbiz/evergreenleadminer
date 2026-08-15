@@ -4,11 +4,13 @@
 Production hardening is deliberately fail-closed. Broad/high-ineligible rows get
 bounded discovery; only strongly corroborated current identities can enter the
 strict two-pass path. Deterministic brand-domain probes are first-class evidence,
-while social networks and business directories never count as owned websites.
+while social networks, directories, and obvious public institutions never become
+independent local-business HIGHs.
 """
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 import gws_no_website_certifier_v53_core as _core
@@ -21,9 +23,23 @@ _original_resolve = _core.resolve_overture_release
 _original_guesses = _core.v4.guesses
 _original_web_identity = _core.v4.identity
 
-# Known directory/aggregation surfaces must never be promoted to owned websites.
 _extra_platforms = ("creditsafe.", "numero-pro.", "busibee.")
 _core.v2.PLAT = tuple(dict.fromkeys(tuple(_core.v2.PLAT) + _extra_platforms))
+
+# Conservative lexical blocker for entities that are clearly public/educational
+# institutions rather than independent local businesses. Ambiguous words like
+# "academy", "institute", "centre" alone are intentionally NOT blocked.
+_PUBLIC_ENTITY_PATTERNS = tuple(re.compile(p, re.I) for p in (
+    r"\bcentre\s+scolaire\b", r"\becole\b", r"\bécole\b", r"\bschool\b",
+    r"\bathenee\b", r"\bathénée\b", r"\badministration\s+communale\b",
+    r"\bcommune\s+d['’ ]", r"\bgemeente\b", r"\bcpas\b", r"\bocmw\b",
+    r"\bservice\s+public\b", r"\bpolice\s+zone\b", r"\bambassade\b", r"\bconsulat\b",
+))
+
+
+def obvious_non_independent_entity(c) -> bool:
+    name = _core.v2.t(c.get("n"))
+    return any(rx.search(name) for rx in _PUBLIC_ENTITY_PATTERNS)
 
 
 def resolve_overture_release() -> str:
@@ -44,16 +60,7 @@ _core.v2.resolve = _identity.resolve
 
 
 def guesses_hardened(c):
-    """Put short-token brand domains early enough to survive bounded direct checks.
-
-    Legacy roots dropped <=2-char brand tokens, so `ID.CITE ARCHITECTS` could never
-    generate `idcite.be`. The first two normalized brand tokens are now probed
-    before the broader legacy lattice.
-    """
-    name_tokens = [
-        x for x in _core.v2.n(c.get("n")).split()
-        if len(x) >= 2 and x not in _core.v2.STOP
-    ]
+    name_tokens = [x for x in _core.v2.n(c.get("n")).split() if len(x) >= 2 and x not in _core.v2.STOP]
     extra = []
     if len(name_tokens) >= 2:
         pair = name_tokens[:2]
@@ -61,14 +68,12 @@ def guesses_hardened(c):
             if 5 <= len(root) <= 45:
                 for suffix in (".be", ".com", ".eu"):
                     extra.append("https://" + root + suffix + "/")
-    merged = []
-    seen = set()
+    merged = []; seen = set()
     for u in extra + list(_original_guesses(c)):
         h = _core.v2.host(u)
         if h and h not in seen and not _core.v2.platform(u):
             seen.add(h); merged.append("https://" + h + "/")
-        if len(merged) >= 20:
-            break
+        if len(merged) >= 20: break
     return merged
 
 
@@ -80,32 +85,40 @@ def web_identity_hardened(c, body, url=""):
     if ev.get("matched"):
         ev.setdefault("match_mode", "legacy_identity")
         return ev
-
-    tx = _core.v2.textish(body)
-    h = _core.v2.host(url)
+    tx = _core.v2.textish(body); h = _core.v2.host(url)
     root = (h.split(".", 1)[0] if h else "").replace("-", "")
     toks = [x for x in _core.v2.n(c.get("n")).split() if len(x) >= 2 and x not in _core.v2.STOP]
-    pair = "".join(toks[:2]) if len(toks) >= 2 else ""
-    full = "".join(toks[:4])
-    domain_brand = bool(
-        len(root) >= 6 and (
-            root == pair or root == full or
-            (len(pair) >= 6 and root.startswith(pair) and len(root) <= len(pair) + 12)
-        )
-    )
+    pair = "".join(toks[:2]) if len(toks) >= 2 else ""; full = "".join(toks[:4])
+    domain_brand = bool(len(root) >= 6 and (root == pair or root == full or (len(pair) >= 6 and root.startswith(pair) and len(root) <= len(pair) + 12)))
     name_on_page = _core.v2.ov(c.get("n"), tx)
     brussels_geo = any(x in tx for x in ("brussels", "bruxelles", "brussel"))
-
     if domain_brand and name_on_page >= 0.60 and brussels_geo and not _core.v2.platform(url):
-        ev["matched"] = True
-        ev["match_mode"] = "brand_domain_page_name_brussels"
-        ev["brand_domain"] = True
-        ev["page_name_overlap"] = round(name_on_page, 3)
-        ev["brussels_geo"] = True
+        ev.update(matched=True, match_mode="brand_domain_page_name_brussels", brand_domain=True, page_name_overlap=round(name_on_page, 3), brussels_geo=True)
     return ev
 
 
 _core.v4.identity = web_identity_hardened
+
+
+def coverage_hardened(w):
+    healthy = len(set(w.get("healthy_providers") or []))
+    searched = int(w.get("search_queries") or 0)
+    usable = int(w.get("search_usable_queries") or 0)
+    resultful = int(w.get("search_resultful_queries") or sum(1 for q in (w.get("search_health") or []) if q.get("raw_resultful") or int(q.get("external_domains") or 0) > 0))
+    checked = int(w.get("direct_checked") or 0)
+    return {
+        "healthy_engines": healthy,
+        "searched_queries": searched,
+        "usable_query_families": usable,
+        "resultful_queries": resultful,
+        "direct_domains_checked": checked,
+        # Three distinct formulations per pass materially lowers false-HIGH risk;
+        # at least one resultful SERP proves the parser saw an actual web surface.
+        "ok": healthy >= 2 and searched >= 3 and usable >= 3 and resultful >= 1 and checked >= 5,
+    }
+
+
+_core.v5.coverage = coverage_hardened
 
 
 def preclassify_hardened(c, p, pe, ovok):
@@ -113,6 +126,8 @@ def preclassify_hardened(c, p, pe, ovok):
     complete, _ = _core.v5.complete_identity(c)
     if not _core.v2.in_scope(c):
         return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE"}
+    if obvious_non_independent_entity(c):
+        return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY"}
     if not complete:
         return {**base, "status": "UNCERTAIN", "reason": "SOURCE_IDENTITY_INCOMPLETE"}
     if not ovok:
@@ -130,18 +145,13 @@ _core.v5.preclassify = preclassify_hardened
 
 
 def canonical_key_hardened(x):
-    pe = x.get("place") or {}
-    c = x.get("candidate") or {}
+    pe = x.get("place") or {}; c = x.get("candidate") or {}
     oid = _core.v2.t(pe.get("overture_id"))
-    if oid and pe.get("resolved"):
-        return "o:" + oid
-    pc = _core.v2.t(c.get("p"))[:4]
-    addr = " ".join(_core.v2.n(c.get("a")).split()[:10])
-    phones = _identity.phone_keys(c.get("ph"))
+    if oid and pe.get("resolved"): return "o:" + oid
+    pc = _core.v2.t(c.get("p"))[:4]; addr = " ".join(_core.v2.n(c.get("a")).split()[:10]); phones = _identity.phone_keys(c.get("ph"))
     if phones:
         ph = next((p for p in sorted(phones) if p.startswith("0")), sorted(phones)[0])
-        if addr:
-            return "p:" + ph + "|" + pc + "|" + addr
+        if addr: return "p:" + ph + "|" + pc + "|" + addr
         return "p:" + ph + "|" + pc + "|" + _core.v2.n(c.get("n"))
     return "n:" + _core.v2.n(c.get("n")) + "|" + pc + "|" + addr
 
@@ -153,17 +163,12 @@ async def provider_webcheck(rows, conc, search_conc):
     ans = await _providers.webcheck(rows, conc, search_conc)
     family = {"bing": "bing", "yahoo": "bing", "yep": "yep", "ghostery": "discovery_only"}
     for ev in ans.values():
-        normalized = []
-        raw = list(ev.get("healthy_providers") or [])
+        normalized = []; raw = list(ev.get("healthy_providers") or [])
         for p in raw:
             f = family.get(str(p), str(p))
-            if f == "discovery_only":
-                continue
-            if f not in normalized:
-                normalized.append(f)
-        ev["healthy_provider_transports"] = raw
-        ev["healthy_providers"] = normalized
-        ev["zero_paid_api"] = True
+            if f == "discovery_only": continue
+            if f not in normalized: normalized.append(f)
+        ev["healthy_provider_transports"] = raw; ev["healthy_providers"] = normalized; ev["zero_paid_api"] = True
     return ans
 
 
@@ -172,16 +177,15 @@ _core.v4.webcheck = provider_webcheck
 _core.worker = lambda a: _worker_policy.worker(a, _core)
 
 for _name, _value in vars(_core).items():
-    if not _name.startswith("__"):
-        globals()[_name] = _value
+    if not _name.startswith("__"): globals()[_name] = _value
 globals()["resolve_overture_release"] = resolve_overture_release
 globals()["provider_webcheck"] = provider_webcheck
 globals()["preclassify_hardened"] = preclassify_hardened
 globals()["canonical_key_hardened"] = canonical_key_hardened
 globals()["guesses_hardened"] = guesses_hardened
 globals()["web_identity_hardened"] = web_identity_hardened
+globals()["coverage_hardened"] = coverage_hardened
+globals()["obvious_non_independent_entity"] = obvious_non_independent_entity
 globals()["phone_keys"] = _identity.phone_keys
 
-
-if __name__ == "__main__":
-    _core.main()
+if __name__ == "__main__": _core.main()
