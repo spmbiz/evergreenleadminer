@@ -6,16 +6,23 @@ import base64
 import gzip
 import hashlib
 import json
-import shutil
 from pathlib import Path
 
 
-def decode_file(path: Path):
-    compact = "".join(path.read_text(encoding="utf-8").split())
+def shard_compact(source: Path, name: str):
+    parts = sorted(source.glob(name + ".part[0-9][0-9]"))
+    if parts:
+        compact = "".join("".join(p.read_text(encoding="utf-8").split()) for p in parts)
+        return compact, [p.name for p in parts]
+    path = source / name
+    return "".join(path.read_text(encoding="utf-8").split()), [name]
+
+
+def decode_compact(compact: str, label: str):
     try:
         raw = gzip.decompress(base64.b64decode(compact, validate=True))
     except Exception as exc:
-        raise RuntimeError(f"SHARD_DECODE_FAILED:{path.name}:{type(exc).__name__}:{exc}") from exc
+        raise RuntimeError(f"SHARD_DECODE_FAILED:{label}:{type(exc).__name__}:{exc}") from exc
     rows=[]
     for line_no,line in enumerate(raw.decode("utf-8").splitlines(),1):
         if not line.strip():
@@ -23,9 +30,9 @@ def decode_file(path: Path):
         try:
             row=json.loads(line)
         except Exception as exc:
-            raise RuntimeError(f"SHARD_JSON_FAILED:{path.name}:{line_no}:{exc}") from exc
+            raise RuntimeError(f"SHARD_JSON_FAILED:{label}:{line_no}:{exc}") from exc
         if "r" not in row:
-            raise RuntimeError(f"SHARD_ROW_MISSING_R:{path.name}:{line_no}")
+            raise RuntimeError(f"SHARD_ROW_MISSING_R:{label}:{line_no}")
         rows.append(row)
     return rows, hashlib.sha256(raw).hexdigest()
 
@@ -63,8 +70,8 @@ def main():
     summaries=[]
     blank_names=0
     for name in expected_files:
-        src=source/name
-        rows,decoded_sha=decode_file(src)
+        compact, origins = shard_compact(source, name)
+        rows,decoded_sha=decode_compact(compact, "+".join(origins))
         expected_count=int(shard_spec[name])
         if len(rows) != expected_count:
             raise RuntimeError(f"SHARD_COUNT_MISMATCH:{name}:expected={expected_count}:got={len(rows)}")
@@ -77,8 +84,8 @@ def main():
             by_r[r]=row
             if not str(row.get("n") or "").strip():
                 blank_names += 1
-        shutil.copyfile(src,out/name)
-        summaries.append({"file":name,"records":len(rows),"decoded_sha256":decoded_sha})
+        (out/name).write_text(compact + "\n", encoding="utf-8")
+        summaries.append({"file":name,"records":len(rows),"decoded_sha256":decoded_sha,"source_parts":origins})
 
     if len(by_r) != a.expected:
         raise RuntimeError(f"TOTAL_UNIQUE_MISMATCH:expected={a.expected}:got={len(by_r)}")
@@ -89,7 +96,7 @@ def main():
     for r in sorted(by_r):
         semantic.update((json.dumps(by_r[r],sort_keys=True,ensure_ascii=False,separators=(",",":"))+"\n").encode())
     summary={
-        "schema":"gws-legacy-shard-guard-v1",
+        "schema":"gws-legacy-shard-guard-v2-fragment-aware",
         "expected":a.expected,
         "loaded_unique":len(by_r),
         "blank_business_names":blank_names,
