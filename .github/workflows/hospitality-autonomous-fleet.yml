@@ -24,6 +24,9 @@ concurrency:
 
 jobs:
   plan:
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     outputs:
       enabled: ${{ steps.emit.outputs.enabled }}
@@ -39,30 +42,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Initialize and inspect fleet capacity
-        env:
-          RUN_ID: ${{ github.run_id }}
+      - name: Initialize fleet state
         run: |
           mkdir -p planner
           python tools/fleet_runtime.py init
-          python tools/fleet_runtime.py probe \
-            --owner "$GITHUB_REPOSITORY_OWNER" \
-            --limit 20 \
-            --reserve 0 \
-            --default-workers 20 \
-            --ignore-run-id "$RUN_ID" \
-            --out planner/provider-capacity.json
-      - name: Choose adaptive cloud canary and plan grid cells
+      - name: Reserve account-wide GitHub slots and plan grid cells
         env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
           EVENT_NAME: ${{ github.event_name }}
           DISPATCH_FORCE: ${{ github.event.inputs.force_workers || '0' }}
         run: |
-          AVAILABLE=$(python - <<'PY'
-          import json
-          p=json.load(open('planner/provider-capacity.json'))
-          print(int((p.get('github') or {}).get('available_worker_capacity') or 0))
-          PY
-          )
+          set -euo pipefail
           FORCE=0
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             FORCE="${DISPATCH_FORCE:-0}"
@@ -77,13 +68,34 @@ jobs:
           )
           fi
           if [ "${FORCE:-0}" -gt 0 ]; then
-            CAP_JSON=$(python tools/hospitality_scheduler.py capacity --available "$AVAILABLE" --force "$FORCE")
+            REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 20 --force "$FORCE")
           else
-            CAP_JSON=$(python tools/hospitality_scheduler.py capacity --available "$AVAILABLE")
+            REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 20)
           fi
-          echo "$CAP_JSON" | tee planner/cloud-capacity.json
-          CAP=$(python -c 'import json,sys; print(json.load(sys.stdin)["chosen"])' <<<"$CAP_JSON")
-          python tools/hospitality_grid_plan.py --provider github --capacity "$CAP" --out planner/plan.json
+          REQUESTED=$(python -c 'import json,sys; print(json.load(sys.stdin)["chosen"])' <<<"$REQUEST_JSON")
+          python tools/global_capacity_broker.py reserve \
+            --workload hospitality \
+            --requested "$REQUESTED" \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out planner/broker.json
+          ALLOCATED=$(python -c 'import json; print(int(json.load(open("planner/broker.json")).get("allocated") or 0))')
+          python - <<'PY'
+          import json
+          b=json.load(open('planner/broker.json'))
+          out={
+            'available': int(b.get('capacity') or 20)-int(b.get('external_slots') or 0)-int(b.get('leased_other_slots') or 0),
+            'requested': int(b.get('requested') or 0),
+            'chosen': int(b.get('allocated') or 0),
+            'external_slots': int(b.get('external_slots') or 0),
+            'sibling_headroom': int(b.get('sibling_headroom') or 0),
+            'reason': 'global_broker_lease'
+          }
+          open('planner/cloud-capacity.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out))
+          PY
+          python tools/hospitality_grid_plan.py --provider github --capacity "$ALLOCATED" --out planner/plan.json
       - id: emit
         name: Emit dynamic matrix
         run: |
@@ -247,6 +259,21 @@ jobs:
           done
           echo "Failed to persist Git small state after retries" >&2
           exit 1
+
+  release_capacity_lease:
+    needs: [plan, harvest, aggregate]
+    if: always()
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release account-wide GitHub capacity lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   idle:
     needs: plan
