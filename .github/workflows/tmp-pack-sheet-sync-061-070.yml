@@ -1,26 +1,24 @@
-name: TMP Build Sheet Sync 061-070
+name: TMP Export Sheet Sync 061-070
 on:
   push:
     paths:
       - '.github/workflows/tmp-pack-sheet-sync-061-070.yml'
 permissions:
-  contents: write
+  contents: read
 jobs:
-  build:
+  export:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Build verified 44-column bridge payload
-        run: python tools/tmp_build_sheet_sync_061_070.py
-      - name: Commit bridge payload
+      - name: Verify staged payload
         run: |
-          git config user.name 'ai-prod-sheet-bridge'
-          git config user.email 'actions@users.noreply.github.com'
-          git add gpt/sync_payload_061_070.tsv gpt/sync_summary_061_070.json
-          git commit -m 'sheet-sync: stage payload 061-070 [skip ci]'
-          git push origin HEAD:main
+          test -s gpt/sync_payload_061_070.tsv
+          test -s gpt/sync_summary_061_070.json
+          wc -l gpt/sync_payload_061_070.tsv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-payload-061-070
+          path: |
+            gpt/sync_payload_061_070.tsv
+            gpt/sync_summary_061_070.json
+          retention-days: 1
