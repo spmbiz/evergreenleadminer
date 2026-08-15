@@ -6,6 +6,7 @@ import inspect
 import gws_no_website_certifier_v53 as prod
 import gws_search_provider_pool_v54 as providers
 import gws_worker_v54 as worker_policy
+import gws_worker_v55 as live_worker
 import gws_identity_resolver_v54 as identity
 import gws_legacy_deep_v4 as v4
 
@@ -83,13 +84,18 @@ def main():
     assert '_strict_high_candidate' in psrc
     assert 'duckduckgo' not in psrc.lower()
 
-    # Runtime integrity: checkpoint before web and after every batch; strict-HIGH
-    # marker controls second-pass eligibility.
+    # Runtime integrity: production imports gws_worker_v55, which wraps the base
+    # checkpoint. Inspect the captured underlying checkpoint for durable files and
+    # the live wrapper for GitHub-visible progress rather than inspecting the
+    # monkeypatched base symbol after import.
     src = inspect.getsource(worker_policy.worker)
-    checkpoint_src = inspect.getsource(worker_policy._checkpoint)
-    assert 'partial_results.jsonl' in checkpoint_src
-    assert 'progress.json' in checkpoint_src
-    assert 'GWS_V55_PROGRESS=' in checkpoint_src
+    durable_checkpoint_src = inspect.getsource(live_worker._original_checkpoint)
+    live_checkpoint_src = inspect.getsource(live_worker._checkpoint)
+    assert 'partial_results.jsonl' in durable_checkpoint_src
+    assert 'progress.json' in durable_checkpoint_src
+    assert 'GWS_V55_PROGRESS=' in durable_checkpoint_src
+    assert 'progress.json' in live_checkpoint_src
+    assert '::notice' in live_checkpoint_src
     assert 'GWS_WEB_BATCH_SIZE' in src
     assert 'stage="resolved"' in src
     assert 'stage="web_batch_complete"' in src
