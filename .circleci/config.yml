@@ -2,7 +2,7 @@ version: 2.1
 
 jobs:
   harvest_real:
-    parallelism: 4
+    parallelism: 8
     docker:
       - image: cimg/python:3.11
     steps:
@@ -15,10 +15,34 @@ jobs:
           command: |
             set -euo pipefail
             mkdir -p results/fleet_plan "results/shards/node-${CIRCLE_NODE_INDEX}"
-            python tools/fleet_runtime.py plan --provider circleci --capacity 4 --out results/fleet_plan/plan.json
+            python tools/fleet_runtime.py plan --provider circleci --capacity 8 --out results/fleet_plan/plan.json
+            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); p['cycle_id']='circleci-'+os.environ['CIRCLE_WORKFLOW_ID']; json.dump(p,open('results/fleet_plan/plan.json','w'))"
             python tools/circleci_hospitality_worker.py --plan-json results/fleet_plan/plan.json --task-index "$CIRCLE_NODE_INDEX" --outdir "results/shards/node-${CIRCLE_NODE_INDEX}"
+      - persist_to_workspace:
+          root: results
+          paths:
+            - shards
+
+  inbox:
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/fleet
+      - run:
+          name: Persist CircleCI batch to GitHub Release inbox
+          command: |
+            set -euo pipefail
+            test -n "${FLEET_GH_TOKEN:-}" || { echo "FLEET_GH_TOKEN missing" >&2; exit 42; }
+            test -d /tmp/fleet/shards || { echo "workspace shards missing" >&2; exit 43; }
+            tar -czf "circleci-hospitality-inbox-${CIRCLE_WORKFLOW_ID}.tar.gz" -C /tmp/fleet shards
+            python tools/fleet_runtime.py upload --repo walidgdg1-ai/evergreenleadminer --tag harvest-inbox --file "circleci-hospitality-inbox-${CIRCLE_WORKFLOW_ID}.tar.gz"
 
 workflows:
   circleci_hospitality_real:
     jobs:
       - harvest_real
+      - inbox:
+          requires:
+            - harvest_real
