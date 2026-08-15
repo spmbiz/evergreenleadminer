@@ -1,10 +1,10 @@
 version: 2.1
 
-jobs:
-  harvest_real:
-    parallelism: 20
-    docker:
-      - image: cimg/python:3.11
+commands:
+  run_hospitality_shard:
+    parameters:
+      offset:
+        type: integer
     steps:
       - checkout
       - run:
@@ -14,12 +14,34 @@ jobs:
           name: Plan and harvest guaranteed real shard
           command: |
             set -euo pipefail
-            mkdir -p results/fleet_plan "results/shards/node-${CIRCLE_NODE_INDEX}"
-            python tools/fleet_runtime.py plan --provider github --capacity 20 --out results/fleet_plan/plan.json
-            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); p['cycle_id']='circleci-'+os.environ['CIRCLE_WORKFLOW_ID']; json.dump(p,open('results/fleet_plan/plan.json','w')); assert len(p.get('include') or []) > int(os.environ['CIRCLE_NODE_INDEX']), (len(p.get('include') or []), os.environ['CIRCLE_NODE_INDEX'])"
-            python tools/circleci_hospitality_worker.py --plan-json results/fleet_plan/plan.json --task-index "$CIRCLE_NODE_INDEX" --outdir "results/shards/node-${CIRCLE_NODE_INDEX}"
+            GLOBAL_INDEX=$((CIRCLE_NODE_INDEX + << parameters.offset >>))
+            mkdir -p results/fleet_plan "results/shards/node-${GLOBAL_INDEX}"
+            python tools/fleet_runtime.py plan --provider github --capacity 30 --out results/fleet_plan/plan.json
+            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); p['cycle_id']='circleci-'+os.environ['CIRCLE_WORKFLOW_ID']; json.dump(p,open('results/fleet_plan/plan.json','w'))"
+            python -c "import json,os; p=json.load(open('results/fleet_plan/plan.json')); i=int(os.environ['GLOBAL_INDEX']); assert len(p.get('include') or []) > i, (len(p.get('include') or []), i)" 
+            python tools/circleci_hospitality_worker.py --plan-json results/fleet_plan/plan.json --task-index "$GLOBAL_INDEX" --verify-engine thread --local-workers 64 --outdir "results/shards/node-${GLOBAL_INDEX}"
+          environment:
+            GLOBAL_INDEX: "0"
+
+jobs:
+  harvest_a:
+    parallelism: 15
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - run_hospitality_shard:
+          offset: 0
+
+  harvest_b:
+    parallelism: 15
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - run_hospitality_shard:
+          offset: 15
 
 workflows:
-  circleci_hospitality_real:
+  circleci_hospitality_30:
     jobs:
-      - harvest_real
+      - harvest_a
+      - harvest_b
