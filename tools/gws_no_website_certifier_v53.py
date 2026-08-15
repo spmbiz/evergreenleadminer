@@ -6,7 +6,8 @@ adds runtime-hardening layers discovered by live GitHub calibration:
 1) fail-closed Overture STAC fallback that still must pass S3/schema smoke;
 2) a throttled multi-provider search pool resilient to GitHub-runner rate limits;
 3) conservative provider-family normalization so transport fallbacks cannot
-   masquerade as independent evidence.
+   masquerade as independent evidence;
+4) Belgian national/E.164 phone canonicalization for current-identity resolution.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import sys
 
 import gws_no_website_certifier_v53_core as _core
 import gws_search_provider_pool_v54 as _providers
+import gws_identity_resolver_v54 as _identity
 
 FALLBACK_RELEASE = os.getenv("OVERTURE_FALLBACK_RELEASE", "2026-06-17.0").strip()
 _original_resolve = _core.resolve_overture_release
@@ -37,6 +39,11 @@ def resolve_overture_release() -> str:
 
 
 _core.resolve_overture_release = resolve_overture_release
+
+# Fix equivalent Belgian national/E.164 phones before the Overture resolver
+# decides whether a business has a current strongly-resolved identity.
+_core.v2.indexes = _identity.indexes
+_core.v2.resolve = _identity.resolve
 
 
 async def provider_webcheck(rows, conc, search_conc):
@@ -71,6 +78,7 @@ for _name, _value in vars(_core).items():
         globals()[_name] = _value
 globals()["resolve_overture_release"] = resolve_overture_release
 globals()["provider_webcheck"] = provider_webcheck
+globals()["phone_keys"] = _identity.phone_keys
 
 
 if __name__ == "__main__":
