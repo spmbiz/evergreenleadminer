@@ -2,11 +2,13 @@
 """Provider-neutral hospitality worker.
 
 Supported lanes:
-- fast_email: zero-HTTP Overture website+email discovery, then live verification.
-- site_recovery: Overture website-first discovery, bounded first-party public
-  contact recovery, then the same live verification gate.
+- fast_email: zero-HTTP Overture website+email discovery, canonical-domain
+  prefilter, then live verification.
+- site_recovery: Overture website-first discovery, canonical-domain prefilter,
+  bounded first-party public contact recovery, then the same live gate.
 
-Missing/blocked contacts are withheld rather than inferred.
+The domain snapshot is only an optimization. Final canonicalization remains the
+single writer, so a stale/missing snapshot can never create a false append.
 """
 from __future__ import annotations
 
@@ -18,6 +20,18 @@ import time
 from pathlib import Path
 
 import fleet_runtime as fr
+
+
+def prefilter(path: Path, domains: str, out: Path, label: str):
+    if not domains or not Path(domains).exists():
+        return
+    fr.run([
+        sys.executable,
+        "tools/filter_canonical_domains.py",
+        "--input", str(path),
+        "--domains", domains,
+        "--stats", str(out / f"canonical_prefilter_{label}.json"),
+    ])
 
 
 def worker(a):
@@ -38,6 +52,7 @@ def worker(a):
                 "--release", a.release,
                 "--max-rows", str(a.max_rows),
             ])
+            prefilter(out / "v6_recovery_candidates.csv", a.canonical_domains, out, "recovery")
             fr.run([
                 sys.executable,
                 "tools/v6_public_contact_enrich.py",
@@ -59,6 +74,7 @@ def worker(a):
                 "--release", a.release,
                 "--max-rows", str(a.max_rows),
             ])
+            prefilter(out / "v6_fast_ready.csv", a.canonical_domains, out, "fast")
 
         verifier = "tools/v6_live_verify_async.py" if a.verify_engine == "async" else "tools/v6_live_verify.py"
         cmd = [
@@ -79,6 +95,8 @@ def worker(a):
     fast = fr.load_json(out / "v6_fast_summary.json", {})
     recovery = fr.load_json(out / "v6_contact_recovery_summary.json", {})
     live = fr.load_json(out / "v6_live_summary.json", {})
+    pf_fast = fr.load_json(out / "canonical_prefilter_fast.json", {})
+    pf_recovery = fr.load_json(out / "canonical_prefilter_recovery.json", {})
     reasons = {}
     vp = out / "v6_live_verified.csv"
     if vp.exists():
@@ -98,6 +116,7 @@ def worker(a):
     recovery_errors = int(recovery_reasons.get("NETWORK_ERROR") or 0) + sum(
         int(v or 0) for k, v in recovery_reasons.items() if str(k).startswith("HTTP_5")
     )
+    canonical_rejected = int(pf_fast.get("canonical_domain_rejected") or 0) + int(pf_recovery.get("canonical_domain_rejected") or 0)
 
     summary = {
         "provider": a.provider,
@@ -119,8 +138,9 @@ def worker(a):
         "elapsed_seconds": round(time.time() - t0, 2),
         "raw_site_email_rows": int(fast.get("raw_site_email_rows") or fast.get("raw_site_rows") or 0),
         "recovery_candidates": int(fast.get("recovery_candidates") or 0),
+        "canonical_prefilter_rejected": canonical_rejected,
         "recovered_public_emails": int(recovery.get("recovered_public_emails") or 0),
-        "fast_ready": int(fast.get("fast_ready") or 0),
+        "fast_ready": int(live.get("input_fast_ready") or fast.get("fast_ready") or 0),
         "live_high": int(live.get("live_high") or 0),
         "live_medium": int(live.get("live_medium") or 0),
         "live_ready": int(live.get("live_ready") or 0),
@@ -153,6 +173,7 @@ def main():
     ap.add_argument("--release", default="2026-06-17.0")
     ap.add_argument("--max-rows", type=int, default=250000)
     ap.add_argument("--lane", choices=("fast_email", "site_recovery"), default="fast_email")
+    ap.add_argument("--canonical-domains", default="")
     ap.add_argument("--local-workers", type=int, default=64)
     ap.add_argument("--contact-workers", type=int, default=48)
     ap.add_argument("--contact-timeout", type=float, default=7.0)
