@@ -1,0 +1,74 @@
+name: Hospitality 5-Minute Heartbeat
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: hospitality-5min-heartbeat
+  cancel-in-progress: true
+
+jobs:
+  ensure_fleet_alive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Check desired state and active fleet runs
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ENABLED=$(python - <<'PY'
+          import json
+          d=json.load(open('control/desired_state.json'))
+          print('true' if bool(d.get('enabled')) and bool(d.get('continuous', True)) else 'false')
+          PY
+          )
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          if [ "$ENABLED" != "true" ]; then
+            echo "active=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/hospitality-autonomous-fleet.yml/runs?per_page=20" \
+            > /tmp/runs.json
+
+          ACTIVE=$(python - <<'PY'
+          import json
+          runs=json.load(open('/tmp/runs.json')).get('workflow_runs') or []
+          active=[r for r in runs if r.get('status') in {'queued','in_progress','waiting','pending','requested'}]
+          print('true' if active else 'false')
+          if active:
+              print('Active hospitality runs:', [(r.get('id'),r.get('status'),r.get('event')) for r in active], file=__import__('sys').stderr)
+          PY
+          )
+          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Redispatch hospitality fleet when idle
+        if: steps.guard.outputs.enabled == 'true' && steps.guard.outputs.active != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"ref":"main","inputs":{"force_workers":"0","force_lane":""}}' | \
+            gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/hospitality-autonomous-fleet.yml/dispatches" \
+              --input -
+          echo 'Hospitality fleet was idle; dispatched a new autonomous cycle.'
+
+      - name: Report healthy
+        if: steps.guard.outputs.enabled != 'true' || steps.guard.outputs.active == 'true'
+        run: echo 'Heartbeat healthy; no dispatch needed.'
