@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Fair-share wrapper around the durable account-wide GitHub capacity broker.
+"""Fair-share account-wide GitHub worker broker v3.
 
-Goals:
-- never kill long-running workloads merely because they are old;
-- classify unleased legacy/auxiliary jobs into hospitality/GWS/tenders when possible;
-- protect a weighted fair-share + minimum floor for every workload that has demand;
-- let any workload borrow truly idle capacity immediately;
-- cap new allocations by the workload's max including already-running unleased jobs;
-- keep the original durable lease state and release semantics.
+The broker never kills long-running jobs. It observes real occupancy, classifies
+legacy/unleased jobs into their workload when possible, protects only the missing
+part of each demanding workload's weighted share, and lets any workload borrow
+truly idle capacity immediately. Rebalancing happens at natural job completion.
 """
 from __future__ import annotations
 
@@ -15,10 +12,206 @@ import argparse
 import datetime as dt
 import json
 import math
+import os
 from collections import Counter
 from pathlib import Path
+import tempfile
+import urllib.parse
+import urllib.request
 
-import global_capacity_broker as base
+import fleet_runtime as fr
+
+ROOT = Path(__file__).resolve().parents[1]
+API = "https://api.github.com"
+STATE_TAG = "global-fleet-broker"
+STATE_ASSET = "global-capacity.json"
+TENDER_REPO = "walidgdg1-ai/tender-engine"
+LEASE_LAUNCH_GRACE_SECONDS = 120
+
+
+def now_utc():
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def iso(v: dt.datetime):
+    return v.isoformat().replace("+00:00", "Z")
+
+
+def parse_ts(v):
+    try:
+        return dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def token():
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or os.environ.get("FLEET_GH_TOKEN") or ""
+
+
+def req(url, method="GET", accept="application/vnd.github+json"):
+    r = urllib.request.Request(url, method=method)
+    r.add_header("Accept", accept)
+    r.add_header("User-Agent", "ai-prod-global-broker/3.0")
+    r.add_header("X-GitHub-Api-Version", "2022-11-28")
+    if token():
+        r.add_header("Authorization", f"Bearer {token()}")
+    return r
+
+
+def api_json(url):
+    with urllib.request.urlopen(req(url), timeout=30) as x:
+        return json.loads(x.read())
+
+
+def load_release_asset_json(repo: str, tag: str, asset_name: str, default=None):
+    try:
+        rel = api_json(f"{API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag, safe='')}")
+        asset = next((a for a in rel.get("assets") or [] if a.get("name") == asset_name), None)
+        if not asset:
+            return default
+        with urllib.request.urlopen(
+            req(f"{API}/repos/{repo}/releases/assets/{asset['id']}", accept="application/octet-stream"), timeout=30
+        ) as x:
+            return json.loads(x.read())
+    except Exception:
+        return default
+
+
+def load_remote_state(repo: str):
+    default = {"schema_version": 3, "leases": [], "updated_at": None}
+    return load_release_asset_json(repo, STATE_TAG, STATE_ASSET, default) or default
+
+
+def save_remote_state(repo: str, state: dict):
+    state["updated_at"] = iso(now_utc())
+    with tempfile.TemporaryDirectory(prefix="global-fleet-broker-") as td:
+        p = Path(td) / STATE_ASSET
+        p.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        fr.release_upload(repo, STATE_TAG, str(p))
+
+
+def useful_hospitality_count():
+    try:
+        import hospitality_grid_plan as hp
+        coverage = (fr.load_json(ROOT / "state/coverage.json", {}).get("shards") or {})
+        now = now_utc()
+        n = 0
+        for s in hp.expanded_catalog():
+            c = coverage.get(s["key"]) or {}
+            last = parse_ts(c.get("last_success"))
+            changed = c.get("release") != s.get("release")
+            age = 1e9 if changed or not last else max(0, (now - last).total_seconds() / 3600)
+            if changed or not last or age >= 168 or c.get("status") in ("partial", "failed_retryable"):
+                n += 1
+        return n
+    except Exception:
+        return 1
+
+
+def useful_gws_count():
+    try:
+        import gws_fleet_plan as gp
+        gws = gp.load_json(ROOT / "config/gws_fleet.json", {})
+        coverage = gp.load_json(ROOT / "state/gws_coverage.json", {"tasks": {}})
+        workloads = {"peer_repositories": gws.get("peer_repositories", []), "workloads": [gws]}
+        return len(gp.build_tasks(workloads, coverage))
+    except Exception:
+        return 1
+
+
+def useful_tender_count():
+    status = load_release_asset_json(TENDER_REPO, "fleet-state", "fleet-status-latest.json", None)
+    if not isinstance(status, dict):
+        return 6
+    if status.get("enabled") is False:
+        return 0
+    backlog = status.get("backlog") or {}
+    pending = int(backlog.get("pending_dce_candidates") or 0)
+    if pending > 0:
+        return pending
+    if backlog.get("active_discovery_run_id"):
+        return 320
+    return 0
+
+
+def local_demand():
+    return {
+        "hospitality": useful_hospitality_count(),
+        "tenders": useful_tender_count(),
+        "gws": useful_gws_count(),
+    }
+
+
+def owner_repos(owner: str):
+    urls = []
+    if token():
+        urls.append(f"{API}/user/repos?affiliation=owner&per_page=100")
+    urls.append(f"{API}/users/{urllib.parse.quote(owner)}/repos?type=owner&per_page=100")
+    seen = {}
+    for url in urls:
+        try:
+            for r in api_json(url):
+                full = r.get("full_name")
+                if full:
+                    seen[full] = r
+            if seen:
+                break
+        except Exception:
+            continue
+    return list(seen.values())
+
+
+def live_jobs(owner: str):
+    result = []
+    for repo in owner_repos(owner):
+        full = repo.get("full_name")
+        if not full:
+            continue
+        runs = []
+        seen_run_ids = set()
+        for status_name in ("in_progress", "queued"):
+            data = None
+            try:
+                data = api_json(f"{API}/repos/{full}/actions/runs?status={status_name}&per_page=30")
+            except Exception:
+                try:
+                    r = urllib.request.Request(
+                        f"{API}/repos/{full}/actions/runs?status={status_name}&per_page=30",
+                        headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/3.0"},
+                    )
+                    with urllib.request.urlopen(r, timeout=20) as x:
+                        data = json.loads(x.read())
+                except Exception:
+                    data = None
+            for run in (data or {}).get("workflow_runs") or []:
+                rid = str(run.get("id") or "")
+                if rid and rid not in seen_run_ids:
+                    runs.append(run)
+                    seen_run_ids.add(rid)
+        for run in runs:
+            rid = str(run.get("id") or "")
+            active = queued = 0
+            try:
+                jobs = api_json(run["jobs_url"]).get("jobs") or []
+                active = sum(j.get("status") == "in_progress" for j in jobs)
+                queued = sum(j.get("status") == "queued" for j in jobs)
+            except Exception:
+                if run.get("status") == "in_progress":
+                    active = 1
+                elif run.get("status") == "queued":
+                    queued = 1
+            if active or queued:
+                result.append({
+                    "repo": full,
+                    "run_id": rid,
+                    "active_jobs": active,
+                    "queued_jobs": queued,
+                    "jobs": active + queued,
+                    "status": run.get("status"),
+                    "workflow_name": run.get("name") or run.get("display_title") or "",
+                    "workflow_path": run.get("path") or "",
+                })
+    return result
 
 
 def classify_job(job: dict, workloads: dict) -> str:
@@ -26,7 +219,6 @@ def classify_job(job: dict, workloads: dict) -> str:
     name = str(job.get("workflow_name") or "").lower()
     path = str(job.get("workflow_path") or "").lower()
     blob = f"{name} {path}"
-
     tender_repo = str((workloads.get("tenders") or {}).get("repo") or "").lower()
     if tender_repo and repo == tender_repo:
         return "tenders"
@@ -39,18 +231,53 @@ def classify_job(job: dict, workloads: dict) -> str:
     return "external"
 
 
-def enrich_live_jobs(owner: str) -> list[dict]:
-    jobs = base.live_jobs(owner)
-    for job in jobs:
-        try:
-            meta = base.api_json(
-                f"{base.API}/repos/{job['repo']}/actions/runs/{job['run_id']}"
-            )
-        except Exception:
-            meta = {}
-        job["workflow_name"] = str(meta.get("name") or meta.get("display_title") or "")
-        job["workflow_path"] = str(meta.get("path") or "")
-    return jobs
+def prune_leases(state: dict, current_run: str | None = None):
+    now = now_utc()
+    keep = []
+    for l in state.get("leases") or []:
+        exp = parse_ts(l.get("expires_at"))
+        if exp and exp > now and (not current_run or str(l.get("run_id")) != str(current_run)):
+            keep.append(l)
+    state["leases"] = keep
+    return keep
+
+
+def effective_lease_accounting(leases: list[dict], jobs: list[dict]):
+    live_by_run = {str(j.get("run_id") or ""): j for j in jobs}
+    now = now_utc()
+    total = 0
+    by_workload = Counter()
+    details = []
+    for lease in leases:
+        rid = str(lease.get("run_id") or "")
+        reserved = max(0, int(lease.get("slots") or 0))
+        created = parse_ts(lease.get("created_at"))
+        age_seconds = max(0.0, (now - created).total_seconds()) if created else 0.0
+        live = live_by_run.get(rid)
+        effective = reserved
+        reason = "full_reservation_launch_grace"
+        if age_seconds >= LEASE_LAUNCH_GRACE_SECONDS:
+            if live is None:
+                effective = 0
+                reason = "reclaimed_no_live_outstanding"
+            else:
+                outstanding = max(0, int(live.get("active_jobs") or 0) + int(live.get("queued_jobs") or 0))
+                effective = min(reserved, outstanding)
+                reason = "shrunk_to_live_outstanding" if effective < reserved else "live_outstanding_matches_reservation"
+        total += effective
+        workload = str(lease.get("workload") or "")
+        by_workload[workload] += effective
+        details.append({
+            "run_id": rid,
+            "workload": workload,
+            "reserved_slots": reserved,
+            "effective_slots": effective,
+            "age_seconds": round(age_seconds, 1),
+            "observed_active": int((live or {}).get("active_jobs") or 0),
+            "observed_queued": int((live or {}).get("queued_jobs") or 0),
+            "reason": reason,
+        })
+    return total, by_workload, details
 
 
 def fair_target(total: int, demand: int, cfg: dict) -> int:
@@ -62,49 +289,42 @@ def fair_target(total: int, demand: int, cfg: dict) -> int:
     return min(demand, max_slots, max(floor, weighted))
 
 
-def reserve(args) -> None:
-    cfg = base.fr.load_json(base.ROOT / "config/global_fleet.json", {})
+def reserve(args):
+    cfg = fr.load_json(ROOT / "config/global_fleet.json", {})
     gh = cfg.get("github") or {}
     workloads = cfg.get("workloads") or {}
     total = int(gh.get("capacity") or 20)
     ttl = int(gh.get("lease_ttl_minutes") or 55)
 
-    state = base.load_remote_state(args.repo)
-    leases = base.prune_leases(state, args.run_id)
+    state = load_remote_state(args.repo)
+    leases = prune_leases(state, args.run_id)
     lease_run_ids = {str(x.get("run_id")) for x in leases}
-
-    jobs = enrich_live_jobs(args.owner)
-    external_jobs = [
-        j for j in jobs
-        if str(j.get("run_id")) != str(args.run_id)
-        and str(j.get("run_id")) not in lease_run_ids
-    ]
+    jobs = live_jobs(args.owner)
+    external_jobs = [j for j in jobs if j["run_id"] != str(args.run_id) and j["run_id"] not in lease_run_ids]
     for j in external_jobs:
         j["workload"] = classify_job(j, workloads)
 
     external_slots = sum(int(j.get("active_jobs") or 0) for j in external_jobs)
     external_queued = sum(int(j.get("queued_jobs") or 0) for j in external_jobs)
+    leased_slots, leased_by_workload, lease_accounting = effective_lease_accounting(leases, jobs)
 
-    leased_slots, leased_by_workload, lease_accounting = base.effective_lease_accounting(leases, jobs)
     active_by_workload = Counter()
     queued_by_workload = Counter()
     for j in external_jobs:
-        workload = str(j.get("workload") or "external")
-        active_by_workload[workload] += int(j.get("active_jobs") or 0)
-        queued_by_workload[workload] += int(j.get("queued_jobs") or 0)
+        w = str(j.get("workload") or "external")
+        active_by_workload[w] += int(j.get("active_jobs") or 0)
+        queued_by_workload[w] += int(j.get("queued_jobs") or 0)
 
-    demand = base.local_demand()
+    demand = local_demand()
     targets = {
         name: fair_target(total, int(demand.get(name, 0) or 0), wcfg)
-        for name, wcfg in workloads.items()
-        if wcfg.get("enabled", True)
+        for name, wcfg in workloads.items() if wcfg.get("enabled", True)
     }
 
     free_before_headroom = max(0, total - external_slots - leased_slots)
     sibling_headroom = 0
     sibling_reservations = {}
     borrowed_idle_shares = {}
-
     for name, scfg in workloads.items():
         if name == args.workload or not scfg.get("enabled", True):
             continue
@@ -115,7 +335,6 @@ def reserve(args) -> None:
         queued = int(queued_by_workload.get(name, 0))
         committed = active + leased + queued
         missing = max(0, target - committed)
-
         if sibling_demand <= 0 or target <= 0:
             borrowed_idle_shares[name] = {
                 "demand": sibling_demand,
@@ -124,7 +343,6 @@ def reserve(args) -> None:
                 "reason": "no current demand; share is fully borrowable",
             }
             continue
-
         if missing:
             sibling_reservations[name] = {
                 "demand": sibling_demand,
@@ -136,10 +354,9 @@ def reserve(args) -> None:
                 "missing_headroom": missing,
             }
             sibling_headroom += missing
-
     sibling_headroom = min(sibling_headroom, free_before_headroom)
-    allocatable = max(0, free_before_headroom - sibling_headroom)
 
+    allocatable = max(0, free_before_headroom - sibling_headroom)
     requested = max(0, int(args.requested))
     current_cfg = workloads.get(args.workload) or {}
     current_max = int(current_cfg.get("max_slots") or total)
@@ -150,7 +367,6 @@ def reserve(args) -> None:
     current_room = max(0, current_max - current_committed)
     current_demand = int(demand.get(args.workload, requested) or 0)
     unmet_demand = max(0, current_demand - current_committed)
-
     slots = min(requested, allocatable, current_room, unmet_demand)
 
     lease = None
@@ -162,13 +378,13 @@ def reserve(args) -> None:
             "repo": args.repo,
             "run_id": str(args.run_id),
             "slots": slots,
-            "created_at": base.iso(base.now_utc()),
-            "expires_at": base.iso(base.now_utc() + dt.timedelta(minutes=ttl)),
+            "created_at": iso(now_utc()),
+            "expires_at": iso(now_utc() + dt.timedelta(minutes=ttl)),
         }
         leases.append(lease)
 
     decision = {
-        "at": base.iso(base.now_utc()),
+        "at": iso(now_utc()),
         "broker_version": 3,
         "workload": args.workload,
         "requested": requested,
@@ -189,13 +405,11 @@ def reserve(args) -> None:
         "demand": demand,
         "external_jobs": external_jobs,
     }
-
     state["schema_version"] = 3
     state["leases"] = leases
     state["last_decision"] = decision
     if not args.dry_run:
-        base.save_remote_state(args.repo, state)
-
+        save_remote_state(args.repo, state)
     payload = dict(decision)
     payload.update({"lease": lease, "dry_run": bool(args.dry_run)})
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -203,7 +417,30 @@ def reserve(args) -> None:
     print(json.dumps(payload, indent=2))
 
 
-def main() -> None:
+def release(args):
+    state = load_remote_state(args.repo)
+    before = len(state.get("leases") or [])
+    state["leases"] = [l for l in state.get("leases") or [] if str(l.get("run_id")) != str(args.run_id)]
+    after = len(state["leases"])
+    save_remote_state(args.repo, state)
+    print(json.dumps({"released": before - after, "run_id": str(args.run_id)}))
+
+
+def status(args):
+    state = load_remote_state(args.repo)
+    prune_leases(state)
+    jobs = live_jobs(args.owner)
+    cfg = fr.load_json(ROOT / "config/global_fleet.json", {})
+    workloads = cfg.get("workloads") or {}
+    for j in jobs:
+        j["workload"] = classify_job(j, workloads)
+    state["live_jobs"] = jobs
+    state["demand"] = local_demand()
+    state["effective_lease_accounting"] = effective_lease_accounting(state.get("leases") or [], jobs)[2]
+    print(json.dumps(state, indent=2))
+
+
+def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
     p = sp.add_parser("reserve")
@@ -224,9 +461,9 @@ def main() -> None:
     if a.cmd == "reserve":
         reserve(a)
     elif a.cmd == "release":
-        base.release(a)
+        release(a)
     else:
-        base.status(a)
+        status(a)
 
 
 if __name__ == "__main__":
