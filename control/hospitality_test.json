@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T02:14:00Z",
+  "requested_at": "2026-08-15T02:12:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "unified-source-production-smoke",
-  "force_workers": 4,
-  "note": "Expect one due ATP source worker plus three Overture geographic workers. Validate shared canonical writer, ATP release checkpoint, quality gate, and Sheet bridge compatibility."
+  "mode": "full-unified-source-smoke",
+  "force_workers": 5,
+  "note": "Validate current unified workflow after YAML fix. Expect due ATP and OSM source tasks when their releases are not yet checkpointed, with remaining slots filled by Overture geography. Must pass single canonical writer, checkpoint, continuation, and Sheet bridge."
 }
