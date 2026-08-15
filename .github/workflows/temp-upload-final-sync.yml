@@ -1,0 +1,21 @@
+name: Temp Upload Final Sync
+on:
+  push:
+    paths:
+      - '.github/workflows/temp-upload-final-sync.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-sheet-sync-051-060
+          path: |
+            gpt/temp_sync_051_060_leads.csv
+            gpt/temp_sync_051_060_dedupe.csv
+            gpt/temp_sync_051_060_summary.json
+          retention-days: 1
