@@ -288,10 +288,18 @@ def aggregate(a):
     rows=sorted(reconciled,key=lambda x:int(x["r"]))
 
     high=[x for x in rows if x.get("status")=="HIGH"]
+    known_owned={"kanoff legal","kanoff co","id cite architects"}
+    breached=[x for x in high if v2.n((x.get("candidate") or {}).get("n")) in known_owned]
+    if breached:
+        raise SystemExit("KNOWN_OWNED_REGRESSION_BREACH:" + ",".join(str(x.get("r")) for x in breached))
     exceptions=[x for x in rows if x.get("status")!="HIGH"]
     sites=[x for x in rows if str(x.get("reason","")).startswith("OWNED_SITE") or x.get("group_disqualifier"," ").startswith("OWNED_SITE")]
     d=Path(a.outdir); d.mkdir(parents=True,exist_ok=True)
-    v2.dump(d/"verified_no_website.jsonl",high); v2.dump(d/"exceptions.jsonl",exceptions); v2.dump(d/"owned_site_hits.jsonl",sites)
+    blind=[]
+    for x in high:
+        c=x.get("candidate") or {}
+        blind.append({"r":x.get("r"),"business_name":c.get("n"),"postal_code":c.get("p"),"street_address":c.get("a"),"phone":c.get("ph"),"email":c.get("em")})
+    v2.dump(d/"verified_no_website.jsonl",high); v2.dump(d/"gpt_redteam_blind.jsonl",blind); v2.dump(d/"exceptions.jsonl",exceptions); v2.dump(d/"owned_site_hits.jsonl",sites)
     import base64,gzip
     raw=("\n".join(json.dumps(x,ensure_ascii=False,separators=(",",":")) for x in rows)+"\n").encode()
     (d/"results.jsonl.gz.b64").write_text(base64.b64encode(gzip.compress(raw,9)).decode()+"\n",encoding="utf-8")
