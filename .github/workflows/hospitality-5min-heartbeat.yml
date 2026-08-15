@@ -1,5 +1,6 @@
 name: Hospitality 5-Minute Heartbeat
 
+# Productive harvest activity, not aggregate tail activity, controls redispatch.
 on:
   schedule:
     - cron: '*/5 * * * *'
