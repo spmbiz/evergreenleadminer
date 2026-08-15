@@ -14,6 +14,7 @@ on:
       - 'tools/gws_fleet_*.py'
       - 'tools/gws_source_*.py'
       - 'tools/gws_worker_postprocess.py'
+      - 'tools/gws_async_probe.py'
       - '.github/workflows/gws-autonomous-fleet.yml'
 
 permissions:
@@ -26,7 +27,7 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     outputs:
       enabled: ${{ steps.plan.outputs.enabled }}
       selected_count: ${{ steps.plan.outputs.selected_count }}
@@ -61,7 +62,7 @@ jobs:
             --input-candidates results/fleet_plan/gws_candidates_hub_osm.jsonl \
             --out-candidates results/fleet_plan/gws_candidates_current.jsonl \
             --plan-dir results/fleet_plan \
-            --threads 4
+            --threads 8
       - name: Upload one-day plan transport
         if: steps.plan.outputs.selected_count != '0'
         uses: actions/upload-artifact@v4
@@ -85,8 +86,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install worker dependency only
-        run: python -m pip install --disable-pip-version-check duckdb
+      - name: Install worker dependencies
+        run: python -m pip install --disable-pip-version-check duckdb aiohttp
       - name: Download shared discovery reservoir and plan
         uses: actions/download-artifact@v4
         with:
@@ -106,6 +107,7 @@ jobs:
         run: |
           set -o pipefail
           out="results/shards/${LEASE_ID}"
+          python -c 'import os; print("github_cpu_count=", os.cpu_count())'
           python tools/gws_fleet_worker.py \
             --task-id "$TASK_ID" \
             --workload-id "$WORKLOAD_ID" \
@@ -118,8 +120,14 @@ jobs:
             --lease-expires-at "$LEASE_EXPIRES_AT" \
             --hub-snapshot results/fleet_plan/gws_candidates_current.jsonl \
             --outdir "$out" \
-            --threads 4
+            --threads 8
           python tools/gws_worker_postprocess.py --shard-dir "$out"
+          python tools/gws_async_probe.py \
+            --shard-dir "$out" \
+            --concurrency 64 \
+            --per-host 2 \
+            --max-domains 6 \
+            --timeout 4.5
       - name: Upload one-day shard transport
         if: always()
         uses: actions/upload-artifact@v4

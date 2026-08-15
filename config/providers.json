@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-08-14T21:45:00Z",
+  "verified_at": "2026-08-15T00:25:00Z",
   "providers": {
     "github": {
       "enabled": true,
@@ -14,8 +14,10 @@
       "source": "https://docs.github.com/en/actions/reference/limits"
     },
     "circleci": {
-      "enabled": false,
+      "enabled": true,
       "configured": true,
+      "connection_verified": true,
+      "status_check_observed": true,
       "verified_eligible": false,
       "plan": "Free",
       "concurrency_limit": 30,
@@ -27,14 +29,14 @@
       "credit_guard_ratio": 0.95,
       "auto_purchase": false,
       "worker_resource_class": "medium",
+      "worker_vcpus": 2,
       "worker_credits_per_minute": 10,
       "setup_resource_class": "small",
       "setup_credits_per_minute": 5,
       "activation_requirements": [
-        "Connect walidgdg1-ai/evergreenleadminer to a CircleCI Free organization",
-        "Confirm the project is recognized as public/open-source",
-        "Enable dynamic configuration/setup workflows for the CircleCI project",
-        "Set FLEET_GH_TOKEN in CircleCI with write access to this repository for durable inbox upload",
+        "Verify dynamic configuration/setup workflow can continue successfully",
+        "Confirm public/open-source credit eligibility in the CircleCI organization",
+        "Verify FLEET_GH_TOKEN is present for durable inbox upload",
         "Create a scheduled CircleCI pipeline with parameter fleet=true and an explicit workload"
       ],
       "source": "https://circleci.com/pricing/",
