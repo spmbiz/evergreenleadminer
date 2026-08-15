@@ -2,13 +2,15 @@
 """Hospitality aggregate wrapper.
 
 Keeps fleet_runtime as the single canonical implementation, fixes registrable-
-domain handling for common multi-label public suffixes, then persists lane-
-specific health so expensive contact-recovery traffic can autoscale independently
-from the normal live verifier.
+domain handling for common multi-label public suffixes, persists lane-specific
+health, and runs a bounded second-pass multichannel enrichment against the same
+single-writer canonical SQLite.
 """
 from __future__ import annotations
 
 import argparse
+import subprocess
+import sys
 from pathlib import Path
 
 import fleet_runtime as fr
@@ -45,6 +47,49 @@ def weighted(summaries, key: str, weight_key: str) -> float:
     if not denom:
         return 0.0
     return sum(float(s.get(key) or 0) * max(0, int(s.get(weight_key) or 0)) for s in summaries) / denom
+
+
+def ensure_requests() -> None:
+    try:
+        import requests  # noqa: F401
+        return
+    except Exception:
+        pass
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "requests"],
+        cwd=ROOT,
+        check=True,
+    )
+
+
+def run_multichannel_enrichment(canonical_db: str, outdir: str) -> None:
+    """Use spare aggregate-job CPU/network, not discovery runner slots.
+
+    Fail-open by design: harvesting/canonicalization must survive a temporary
+    second-pass enrichment issue. The next cycle will retry eligible domains.
+    """
+    try:
+        ensure_requests()
+        subprocess.run(
+            [
+                sys.executable,
+                "tools/canonical_multichannel_enrich.py",
+                "--canonical-db", canonical_db,
+                "--outdir", outdir,
+                "--batch-size", "700",
+                "--workers", "64",
+                "--timeout", "6",
+                "--max-pages", "3",
+                "--max-bytes", "750000",
+                "--retry-hours", "72",
+                "--metrics", "metrics/latest.json",
+            ],
+            cwd=ROOT,
+            check=True,
+        )
+    except Exception as exc:
+        # Discovery volume is more important than this optional enrichment pass.
+        print(f"multichannel enrichment degraded but harvest remains valid: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def persist_lane_health(results_root: str) -> None:
@@ -125,6 +170,7 @@ def main():
     a = ap.parse_args()
     fr.root_host = registrable_domain
     fr.aggregate(a)
+    run_multichannel_enrichment(a.canonical_db, a.outdir)
     persist_lane_health(a.results_root)
 
 
