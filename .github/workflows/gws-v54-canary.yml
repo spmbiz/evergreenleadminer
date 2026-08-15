@@ -1,0 +1,64 @@
+name: GWS v5.4 Canary 25
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_v54_canary_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      LEGACY_EXPECTED: '5047'
+      SNAPSHOT_DIR: data/gws/legacy_deep/source_snapshot_5047_v5
+      SNAPSHOT_MANIFEST: data/gws/legacy_deep/source_snapshot_5047_v5/manifest_shards.json
+      CERTIFIER: tools/gws_no_website_certifier_v53.py
+      GWS_WEB_BATCH_SIZE: '24'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Stage exact snapshot
+        run: |
+          set -euo pipefail
+          python tools/gws_legacy_shard_guard.py \
+            --source-dir "$SNAPSHOT_DIR" \
+            --manifest "$SNAPSHOT_MANIFEST" \
+            --outdir source_queue \
+            --expected "$LEGACY_EXPECTED"
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check duckdb aiohttp
+      - name: Verify 25-row canary with production certifier
+        run: |
+          set -euo pipefail
+          mkdir -p canary
+          python "$CERTIFIER" worker \
+            --queue source_queue \
+            --expected "$LEGACY_EXPECTED" \
+            --worker-index 0 \
+            --worker-count 210 \
+            --threads 12 \
+            --http-concurrency 32 \
+            --search-concurrency 2 \
+            --outdir canary
+          python - <<'PY'
+          import json
+          s=json.load(open('canary/summary.json'))
+          assert int(s.get('attempted',-1)) == 25, s
+          print('GWS_V54_CANARY_SUMMARY='+json.dumps(s,separators=(',',':')))
+          PY
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gws-v54-canary-${{ github.run_id }}
+          path: canary/
+          if-no-files-found: warn
+          retention-days: 2
