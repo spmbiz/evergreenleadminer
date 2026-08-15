@@ -1,0 +1,33 @@
+name: Temp Sync Export 051-060
+on:
+  push:
+    paths:
+      - '.github/workflows/temp-sync-export-051-060.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bundle queue window
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          cp gpt/sheet_sync_queue/bootstrap-20260815T011144Z-{051..060}.jsonl bundle/
+          python - <<'PY'
+          import json,glob
+          files=sorted(glob.glob('bundle/*.jsonl'))
+          counts={}
+          for p in files:
+              with open(p,encoding='utf-8') as f:
+                  counts[p]=sum(1 for line in f if line.strip())
+          open('bundle/manifest.json','w').write(json.dumps({'files':files,'counts':counts,'total':sum(counts.values())},indent=2))
+          print(json.dumps(counts,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-051-060
+          path: bundle/
+          retention-days: 1
