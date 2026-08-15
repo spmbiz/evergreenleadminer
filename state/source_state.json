@@ -1,26 +1,26 @@
 {
   "schema_version": 1,
   "overture_hospitality_v6": {
-    "recommended_local_http_workers": 48,
-    "recent_error_rate": 0.07317,
-    "recent_429_rate": 0.0,
-    "recent_timeout_rate": 0.01219,
+    "recommended_local_http_workers": 32,
+    "recent_error_rate": 0.20806,
+    "recent_429_rate": 0.00336,
+    "recent_timeout_rate": 0.02349,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-15T19:13:26.294070Z"
+    "last_updated": "2026-08-15T19:22:45.537577Z"
   },
   "hospitality_lanes": {
     "fast_email": {
-      "last_workers_completed": 1,
+      "last_workers_completed": 2,
       "last_workers_failed": 0,
-      "last_raw_discovered": 90,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
+      "last_raw_discovered": 1068,
+      "last_fast_ready": 24,
+      "last_live_ready": 12,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.04167,
+        "error_rate": 0.33333
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -50,17 +50,17 @@
       }
     },
     "osm_geofabrik": {
-      "last_workers_completed": 4,
+      "last_workers_completed": 1,
       "last_workers_failed": 0,
-      "last_raw_discovered": 366,
-      "last_fast_ready": 164,
-      "last_live_ready": 144,
+      "last_raw_discovered": 276,
+      "last_fast_ready": 182,
+      "last_live_ready": 152,
       "last_recovery_candidates": 0,
-      "last_recovered_public_emails": 78,
+      "last_recovered_public_emails": 68,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.01219,
-        "error_rate": 0.07317
+        "timeout_rate": 0.01648,
+        "error_rate": 0.12088
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -71,26 +71,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 8,
+      "last_workers_completed": 3,
       "last_workers_failed": 0,
-      "last_raw_discovered": 341,
-      "last_fast_ready": 15,
-      "last_live_ready": 7,
-      "last_recovery_candidates": 15,
-      "last_recovered_public_emails": 2,
+      "last_raw_discovered": 4303,
+      "last_fast_ready": 92,
+      "last_live_ready": 46,
+      "last_recovery_candidates": 92,
+      "last_recovered_public_emails": 18,
       "last_live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.13333
+        "429_rate": 0.01087,
+        "timeout_rate": 0.03261,
+        "error_rate": 0.34783
       },
       "last_contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "429_rate": 0.01087,
+        "timeout_rate": 0.04348,
+        "error_rate": 0.02174
       },
       "recommended_contact_workers": 48,
-      "last_contact_ready": 15,
-      "last_social_or_contact_without_email": 13
+      "last_contact_ready": 92,
+      "last_social_or_contact_without_email": 74
     }
   }
 }
