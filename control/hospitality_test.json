@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T12:43:00Z",
+  "requested_at": "2026-08-15T13:05:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "multichannel-enrichment-canary",
+  "mode": "multichannel-enrichment-batch-benchmark",
   "force_workers": 1,
-  "note": "Canary the bounded canonical second-pass enrichment. Discovery remains active with one worker; aggregate must preserve canonical, enrich up to 700 incomplete first-party domains with public Instagram/Facebook/contact-page/WhatsApp/portfolio links, persist fields in SQLite, emit metrics, and allow Sheet signature deltas."
+  "note": "Benchmark multichannel batch size 2800 at unchanged 64 HTTP workers versus prior 700-domain canary. Keep only if useful enriched domains per runner-minute improves without material failure/timeout/rate-limit regression."
 }
