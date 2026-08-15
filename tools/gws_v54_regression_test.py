@@ -34,6 +34,14 @@ def main():
     assert cert['gates']['current_identity_strong'] is False
     assert cert['verified'] is False
 
+    # The same weak/unresolved Overture best guess must NOT merge distinct rows.
+    a = {'r': 10, 'candidate': {'n': 'Alpha Architect', 'p': '1070', 'a': 'Rue A 1', 'ph': ''}, 'place': {'resolved': False, 'overture_id': 'weak-shared'}}
+    b = {'r': 11, 'candidate': {'n': 'Beta Studio', 'p': '1070', 'a': 'Rue B 9', 'ph': ''}, 'place': {'resolved': False, 'overture_id': 'weak-shared'}}
+    assert prod.canonical_key_hardened(a) != prod.canonical_key_hardened(b)
+    # Once both rows are strongly resolved to the same Overture entity, they must merge.
+    a['place']['resolved'] = True; b['place']['resolved'] = True
+    assert prod.canonical_key_hardened(a) == prod.canonical_key_hardened(b) == 'o:weak-shared'
+
     print('GWS_V54_REGRESSION_OK')
 
 
