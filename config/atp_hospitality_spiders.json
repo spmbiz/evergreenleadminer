@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "source": "AllThePlaces",
+  "api_root": "https://data.alltheplaces.xyz",
+  "latest_metadata": "/runs/latest.json",
+  "spider_output": "/runs/latest/output/{spider}.geojson",
+  "policy": {
+    "production_enabled": false,
+    "public_data_only": true,
+    "never_assume_global_run_for_spider": true,
+    "persist_actual_redirected_run": true,
+    "canonical_domain_must_be_first_party_or_verified_contact_domain": true,
+    "directory_root_is_never_canonical_for_member_properties": true,
+    "roster_only_never_appends_directly": true,
+    "pre_http_canonical_dedupe": true
+  },
+  "modes": {
+    "first_party": "Published property/operator website is first-party. Explicit public email may be used when domain-compatible or public webmail; site still passes current live verification.",
+    "trusted_directory_contact": "Directory page publishes a public business email for a member property. Directory domain is provenance only. A non-free email domain becomes a candidate official domain and must pass current live identity verification before canonicalization.",
+    "roster_only": "Useful premium/property roster evidence but no safe direct contact/first-party domain. Persist as resolver evidence only; never append directly to canonical."
+  },
+  "spiders": [
+    {
+      "spider": "wanderhotels",
+      "enabled_for_canary": true,
+      "production_enabled": false,
+      "mode": "trusted_directory_contact",
+      "priority": 100,
+      "reason": "Premium hiking-hotel directory with explicit public member emails and property identity."
+    },
+    {
+      "spider": "lhw",
+      "enabled_for_canary": true,
+      "production_enabled": false,
+      "mode": "roster_only",
+      "priority": 95,
+      "reason": "Leading Hotels of the World premium roster; listing URLs are directory pages and sampled records expose no direct member email."
+    },
+    {
+      "spider": "fairmont",
+      "enabled_for_canary": false,
+      "production_enabled": false,
+      "mode": "first_party",
+      "priority": 30,
+      "account_collapse": "brand_root_domain",
+      "reason": "High-quality first-party hotel data but mostly one large chain account; low marginal account volume."
+    },
+    {
+      "spider": "jumeirah",
+      "enabled_for_canary": false,
+      "production_enabled": false,
+      "mode": "first_party",
+      "priority": 35,
+      "account_collapse": "brand_root_domain",
+      "reason": "High-value first-party group but one large operator account; sampled records can omit property name."
+    },
+    {
+      "spider": "minor_hotels",
+      "enabled_for_canary": false,
+      "production_enabled": false,
+      "mode": "first_party",
+      "priority": 25,
+      "account_collapse": "brand_root_domain",
+      "reason": "Large operator group; per-spider latest successful run may be much older than global latest, so actual redirect run must be checkpointed."
+    }
+  ]
+}
