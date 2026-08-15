@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T13:05:00Z",
+  "requested_at": "2026-08-15T13:15:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "multichannel-enrichment-batch-benchmark",
-  "force_workers": 1,
-  "note": "Benchmark multichannel batch size 2800 at unchanged 64 HTTP workers versus prior 700-domain canary. Keep only if useful enriched domains per runner-minute improves without material failure/timeout/rate-limit regression."
+  "mode": "yield-aware-planner-benchmark",
+  "force_workers": 16,
+  "note": "Compare new 85/15 exploit-explore lane scheduler against run 31886447773 baseline (16 fast-email workers, 13 net-new). Broker may allocate fewer if live account capacity is lower. Keep only if useful output per runner-minute improves without material health regression."
 }
