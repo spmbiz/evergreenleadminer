@@ -208,19 +208,23 @@ def reserve(args):
     max_slots = int(current_cfg.get("max_slots") or total)
     free_before_headroom = max(0, total - external_slots - leased_slots)
 
-    # Protect a small floor for a demanding same-repo sibling that has not yet
-    # acquired a lease. This prevents schedule ordering from deciding all 20 slots.
+    # Protect the larger of a sibling's minimum floor or weighted fair share when
+    # that sibling has useful backlog but has not acquired its lease yet. This
+    # keeps schedule ordering from deciding the whole account allocation.
     sibling_headroom = 0
     active_lease_workloads = {l.get("workload") for l in leases}
     for name, scfg in wc.items():
         if name == args.workload or scfg.get("mode") == "external-observed" or not scfg.get("enabled", True):
             continue
-        if demand.get(name, 0) <= 0 or name in active_lease_workloads:
+        sibling_demand = int(demand.get(name, 0) or 0)
+        if sibling_demand <= 0 or name in active_lease_workloads:
             continue
         floor = int(scfg.get("min_slots_when_demanding") or 0)
         weight = float(scfg.get("weight") or 0)
         weighted = int(math.floor(max(0, total - external_slots) * weight))
-        sibling_headroom += min(floor if floor > 0 else weighted, weighted if weighted > 0 else floor)
+        sibling_max = int(scfg.get("max_slots") or total)
+        reserve = min(sibling_demand, sibling_max, max(floor, weighted))
+        sibling_headroom += max(0, reserve)
     sibling_headroom = min(sibling_headroom, free_before_headroom)
 
     allocatable = max(0, free_before_headroom - sibling_headroom)
