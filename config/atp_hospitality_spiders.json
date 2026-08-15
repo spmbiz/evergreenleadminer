@@ -5,14 +5,15 @@
   "latest_metadata": "/runs/latest.json",
   "spider_output": "/runs/latest/output/{spider}.geojson",
   "policy": {
-    "production_enabled": false,
+    "production_enabled": true,
     "public_data_only": true,
     "never_assume_global_run_for_spider": true,
     "persist_actual_redirected_run": true,
     "canonical_domain_must_be_first_party_or_verified_contact_domain": true,
     "directory_root_is_never_canonical_for_member_properties": true,
     "roster_only_never_appends_directly": true,
-    "pre_http_canonical_dedupe": true
+    "pre_http_canonical_dedupe": true,
+    "source_slot_cap_per_cycle": 2
   },
   "modes": {
     "first_party": "Published property/operator website is first-party. Explicit public email may be used when domain-compatible or public webmail; site still passes current live verification.",
@@ -23,10 +24,11 @@
     {
       "spider": "wanderhotels",
       "enabled_for_canary": true,
-      "production_enabled": false,
+      "production_enabled": true,
       "mode": "trusted_directory_contact",
       "priority": 100,
-      "reason": "Premium hiking-hotel directory with explicit public member emails and property identity."
+      "revisit_hours": 168,
+      "reason": "GREEN canary: 56 public members, 55 canonical-unknown before HTTP, 51 current live hospitality sites, 48 Instagram profiles."
     },
     {
       "spider": "lhw",
@@ -34,7 +36,7 @@
       "production_enabled": false,
       "mode": "roster_only",
       "priority": 95,
-      "reason": "Leading Hotels of the World premium roster; listing URLs are directory pages and sampled records expose no direct member email."
+      "reason": "Leading Hotels of the World premium roster; listing URLs are directory pages and sampled records expose no direct member email. Resolver evidence only."
     },
     {
       "spider": "fairmont",
