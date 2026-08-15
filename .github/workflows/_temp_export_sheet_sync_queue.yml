@@ -1,4 +1,4 @@
-name: Temp Reconcile Sheet Sync Queue 073-082
+name: Temp Reconcile Oldest Sheet Sync Queue
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Reconcile queue against live MASTER CSV
+      - name: Reconcile oldest 10 queue files against live MASTER
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -24,11 +24,16 @@ jobs:
           from urllib.parse import urlparse
 
           SID='18yRdeJOfgYc-gnQTFTzZCbsZZ9mYUY_CxHPKijLswRQ'
-          files=[f'bootstrap-20260815T011144Z-{n:03d}.jsonl' for n in range(73,83)]
           qroot=Path('gpt/sheet_sync_queue')
-          out=Path('gpt/_temp_sheet_sync_073_082'); out.mkdir(parents=True,exist_ok=True)
+          files=sorted(p.name for p in qroot.glob('*.jsonl'))[:10]
+          if not files:
+              print('QUEUE_EMPTY')
+              Path('gpt/_temp_sheet_sync_current').mkdir(parents=True,exist_ok=True)
+              Path('gpt/_temp_sheet_sync_current/plan.json').write_text(json.dumps({'files':[],'counts':{'inspected':0}},indent=2)+'\n')
+              raise SystemExit(0)
+          out=Path('gpt/_temp_sheet_sync_current'); out.mkdir(parents=True,exist_ok=True)
           multi={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
-          generic={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','linktr.ee'}
+          generic={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','linktr.ee','wixsite.com','wordpress.com','priceline.com','novasol.com','guestlybookings.com','guestybookings.com','reserve-online.net','hostaid.hu'}
           def clean(x): return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
           def norm_phone(x): return re.sub(r'\D','',str(x or ''))
           def norm_name(x): return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
@@ -70,9 +75,7 @@ jobs:
           queued=[]
           for fn in files:
               p=qroot/fn
-              if not p.exists(): raise SystemExit(f'missing {fn}')
               lines=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
-              if len(lines)!=50: raise SystemExit(f'{fn} expected 50 rows got {len(lines)}')
               queued.extend((fn,r) for r in lines)
 
           within=set(); new=[]; updates=[]; nochange=[]; rejects=[]; per_file={fn:{'inspected':0,'new':0,'updates':0,'nochange':0,'rejects':0} for fn in files}
@@ -90,7 +93,6 @@ jobs:
                   for qf,sh in fields:
                       v=clean(r.get(qf))
                       if not v: continue
-                      if sh=='Public Business Phone': v=clean(r.get(qf))
                       if not clean(row[pos[sh]]): delta[sh]=v
                   if delta:
                       updates.append({'file':fn,'id':r.get('overture_id'),'sheet_row':match['sheet_row'],'rank':match['rank'],'name':n,'delta':delta});per_file[fn]['updates']+=1
@@ -98,10 +100,11 @@ jobs:
                       nochange.append({'file':fn,'id':r.get('overture_id'),'rank':match['rank'],'reason':'existing_no_new_data'});per_file[fn]['nochange']+=1
                   continue
               txt=' '.join(clean(r.get(k)) for k in ('name','category','brand','notes')).lower().replace('_',' ')
-              clear_nonfit=any(x in txt for x in ('student housing','senior living','senior housing','hoa management','homeowners association'))
+              clear_nonfit=any(x in txt for x in ('student housing','senior living','senior housing','hoa management','homeowners association','municipal library','public library'))
               residential_sales=('residential sales' in txt or ('savills' in txt and 'residential' in txt and not any(x in txt for x in ('hotel','holiday','vacation','villa','resort','lodging'))))
-              if clear_nonfit or residential_sales:
-                  rejects.append({'file':fn,'id':r.get('overture_id'),'name':n,'reason':'clear_nonfit'});per_file[fn]['rejects']+=1;continue
+              invalid_identity=(clean(r.get('live_status')).upper() in {'DEAD','CLOSED'} or str(r.get('http_status') or '') in {'404','410'})
+              if clear_nonfit or residential_sales or invalid_identity:
+                  rejects.append({'file':fn,'id':r.get('overture_id'),'name':n,'reason':'clear_nonfit_or_invalid'});per_file[fn]['rejects']+=1;continue
               new.append({'file':fn,'record':r});per_file[fn]['new']+=1
               if d:by_domain[d]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
               if ph:by_phone[ph]={'sheet_row':None,'rank':None,'row':['']*len(hdr)}
@@ -110,6 +113,7 @@ jobs:
           counts={'inspected':len(queued),'new':len(new),'updates':len(updates),'existing_no_new_data':len(nochange),'rejects':len(rejects),'max_rank':maxrank}
           for f in ['Instagram','Facebook','Contact Page','WhatsApp','Portfolio / Listing URL','Public Email','Official Website','Public Business Phone']:
               counts['update_'+f.lower().replace(' ','_').replace('/','_')]=sum(1 for x in updates if f in x['delta'])
+          counts['ambiguous_plausible_new']=sum(1 for x in new if clean(x['record'].get('live_status')).upper()=='MEDIUM' or clean(x['record'].get('fit_tier')).upper() not in {'A'})
           plan={'files':files,'counts':counts,'per_file':per_file,'new':new,'updates':updates,'nochange':nochange,'rejects':rejects}
           (out/'plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(counts))
@@ -119,7 +123,7 @@ jobs:
           set -euo pipefail
           git config user.name 'ai-prod-sheet-sync'
           git config user.email 'actions@users.noreply.github.com'
-          git add gpt/_temp_sheet_sync_073_082/plan.json
-          git commit -m 'ops: reconcile sheet sync 073-082 [skip ci]' || exit 0
+          git add gpt/_temp_sheet_sync_current/plan.json
+          git commit -m 'ops: reconcile current oldest sheet sync queue [skip ci]' || exit 0
           for i in 1 2 3; do git pull --rebase origin main && git push origin HEAD:main && exit 0; git rebase --abort || true; sleep $((i*2)); done
           exit 1
