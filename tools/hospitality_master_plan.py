@@ -65,7 +65,9 @@ def http_version(url: str) -> tuple[str, dict]:
     req = urllib.request.Request(url, headers={"User-Agent":UA}, method="HEAD")
     with urllib.request.urlopen(req, timeout=15) as response:
         headers = {k.lower():v for k,v in response.headers.items()}
-        etag = headers.get("etag", "").strip()
+        # Normalize weak/quoted ETags before embedding them in workflow matrix
+        # values. Shell quoting must never make an unchanged source look new.
+        etag = headers.get("etag", "").strip().removeprefix("W/").strip().strip('"')
         modified = headers.get("last-modified", "").strip()
         length = headers.get("content-length", "").strip()
         version = "|".join(x for x in (etag, modified, length) if x)
