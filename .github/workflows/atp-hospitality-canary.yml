@@ -1,0 +1,101 @@
+name: AllThePlaces Hospitality Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/atp_hospitality_canary.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atp-hospitality-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check requests ijson
+      - name: Restore canonical domain snapshot
+        run: |
+          mkdir -p canary/canonical canary/wanderhotels canary/lhw
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir canary/canonical \
+            --clobber
+          python - <<'PY'
+          import gzip,sqlite3
+          db='canary/canonical/hospitality-canonical.sqlite'
+          con=sqlite3.connect(db)
+          domains=sorted(set(str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''")))
+          con.close()
+          with gzip.open('canary/canonical-domains.txt.gz','wt',encoding='utf-8') as f:
+              for d in domains:f.write(d+'\n')
+          print({'canonical_domains':len(domains)})
+          PY
+          rm -rf canary/canonical
+      - name: Stream trusted directory-contact spider
+        run: |
+          python tools/atp_spider_hospitality.py \
+            --spider wanderhotels \
+            --outdir canary/wanderhotels
+          python tools/filter_canonical_domains.py \
+            --input canary/wanderhotels/v6_fast_ready.csv \
+            --domains canary/canonical-domains.txt.gz \
+            --stats canary/wanderhotels/canonical_prefilter.json
+          python tools/v6_live_verify.py \
+            --input canary/wanderhotels/v6_fast_ready.csv \
+            --outdir canary/wanderhotels \
+            --workers 32 \
+            --timeout 8
+      - name: Stream roster-only premium spider
+        run: |
+          python tools/atp_spider_hospitality.py \
+            --spider lhw \
+            --outdir canary/lhw
+      - name: Assert provenance and summarize
+        run: |
+          python - <<'PY'
+          import csv,json
+          w=json.load(open('canary/wanderhotels/atp_spider_summary.json'))
+          pf=json.load(open('canary/wanderhotels/canonical_prefilter.json'))
+          lv=json.load(open('canary/wanderhotels/v6_live_summary.json'))
+          l=json.load(open('canary/lhw/atp_spider_summary.json'))
+          with open('canary/wanderhotels/v6_live_ready.csv',encoding='utf-8',newline='') as f: rows=list(csv.DictReader(f))
+          for r in rows:
+              assert r.get('public_email'),r
+              assert r.get('source_url'),r
+              assert r.get('atp_mode')=='trusted_directory_contact',r
+              assert r.get('domain'),r
+              assert r.get('email_domain_match')=='YES',r
+              assert r.get('live_status') in ('HIGH','MEDIUM'),r
+          assert l['fast_ready']==0 and l['recovery_candidates']==0,l
+          assert l['roster_only']>=1,l
+          out={
+            'wanderhotels':w,
+            'canonical_prefilter':pf,
+            'live':lv,
+            'live_rows':len(rows),
+            'lhw':l
+          }
+          open('canary/summary.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atp-hospitality-canary-${{ github.run_id }}
+          path: canary/
+          if-no-files-found: warn
+          retention-days: 2
