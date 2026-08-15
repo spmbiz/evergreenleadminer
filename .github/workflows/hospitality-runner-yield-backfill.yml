@@ -1,0 +1,42 @@
+name: Hospitality Runner Yield Backfill
+
+on:
+  push:
+    branches: [main]
+    paths: ['control/hospitality_runner_yield.txt']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Measure exact packed vs single-cell runner yield
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -q requests
+          packed_run="$(sed -nE 's/^packed_run=([0-9]+)$/\1/p' control/hospitality_runner_yield.txt | tail -1)"
+          packed_new="$(sed -nE 's/^packed_new_unique=([0-9]+)$/\1/p' control/hospitality_runner_yield.txt | tail -1)"
+          single_run="$(sed -nE 's/^single_run=([0-9]+)$/\1/p' control/hospitality_runner_yield.txt | tail -1)"
+          single_new="$(sed -nE 's/^single_new_unique=([0-9]+)$/\1/p' control/hospitality_runner_yield.txt | tail -1)"
+          python tools/hospitality_runner_metrics.py --repo "$GITHUB_REPOSITORY" --run-id "$packed_run" --new-unique "$packed_new" --out packed.json
+          python tools/hospitality_runner_metrics.py --repo "$GITHUB_REPOSITORY" --run-id "$single_run" --new-unique "$single_new" --out single.json
+          python - <<'PY'
+          import json
+          p=json.load(open('packed.json')); s=json.load(open('single.json'))
+          pr=float(p['new_unique_per_runner_minute_exact']); sr=float(s['new_unique_per_runner_minute_exact'])
+          out={'packed':{k:v for k,v in p.items() if k!='jobs'},'single':{k:v for k,v in s.items() if k!='jobs'},'packed_vs_single_ratio':round(pr/sr,6) if sr else None,'winner':'packed' if pr>sr else 'single'}
+          print(json.dumps(out,indent=2))
+          open('comparison.json','w').write(json.dumps(out,indent=2))
+          PY
+          cat comparison.json >> "$GITHUB_STEP_SUMMARY"
