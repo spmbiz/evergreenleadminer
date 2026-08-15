@@ -8,7 +8,9 @@ GitHub Release asset and expire automatically if a workflow dies.
 
 Current scope:
 - hospitality and GWS consume explicit broker leases;
-- tender-engine and other owner repos are observed as external account demand;
+- tender-engine and other owner repos are observed account-wide;
+- queued jobs are tracked as demand, while only in-progress jobs consume observed
+  runner occupancy (future tender fanout is separately capped to preserve headroom);
 - CircleCI has its own provider pool and is not counted in GitHub's 20 slots.
 """
 from __future__ import annotations
@@ -20,7 +22,6 @@ import math
 import os
 from pathlib import Path
 import tempfile
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -142,13 +143,19 @@ def owner_repos(owner: str):
 
 
 def live_jobs(owner: str):
-    """Return job demand keyed by workflow run id across visible owner repos."""
+    """Return observed active occupancy and queued demand by workflow run.
+
+    A queued matrix job is demand, not an occupied hosted runner. Keeping those
+    separate prevents the broker from reporting zero capacity merely because a
+    large external workflow has a long queue.
+    """
     result = []
     for repo in owner_repos(owner):
         full = repo.get("full_name")
         if not full:
             continue
         runs = []
+        seen_run_ids = set()
         for status in ("in_progress", "queued"):
             data = None
             for auth in (True, False) if token() else (False,):
@@ -164,17 +171,31 @@ def live_jobs(owner: str):
                 except Exception:
                     pass
             for run in (data or {}).get("workflow_runs") or []:
-                runs.append(run)
+                rid = str(run.get("id") or "")
+                if rid and rid not in seen_run_ids:
+                    runs.append(run)
+                    seen_run_ids.add(rid)
         for run in runs:
             rid = str(run.get("id") or "")
-            count = 0
+            active = queued = 0
             try:
                 jobs = api_json(run["jobs_url"]).get("jobs") or []
-                count = sum(j.get("status") in ("in_progress", "queued") for j in jobs)
+                active = sum(j.get("status") == "in_progress" for j in jobs)
+                queued = sum(j.get("status") == "queued" for j in jobs)
             except Exception:
-                count = 1
-            if count:
-                result.append({"repo": full, "run_id": rid, "jobs": count, "status": run.get("status")})
+                if run.get("status") == "in_progress":
+                    active = 1
+                elif run.get("status") == "queued":
+                    queued = 1
+            if active or queued:
+                result.append({
+                    "repo": full,
+                    "run_id": rid,
+                    "active_jobs": active,
+                    "queued_jobs": queued,
+                    "jobs": active + queued,
+                    "status": run.get("status"),
+                })
     return result
 
 
@@ -200,7 +221,8 @@ def reserve(args):
     lease_run_ids = {str(x.get("run_id")) for x in leases}
     jobs = live_jobs(args.owner)
     external_jobs = [j for j in jobs if j["run_id"] != str(args.run_id) and j["run_id"] not in lease_run_ids]
-    external_slots = sum(int(j.get("jobs") or 0) for j in external_jobs)
+    external_slots = sum(int(j.get("active_jobs") or 0) for j in external_jobs)
+    external_queued = sum(int(j.get("queued_jobs") or 0) for j in external_jobs)
     leased_slots = sum(int(l.get("slots") or 0) for l in leases)
 
     demand = local_demand()
@@ -254,6 +276,7 @@ def reserve(args):
         "allocated": slots,
         "capacity": total,
         "external_slots": external_slots,
+        "external_queued": external_queued,
         "leased_other_slots": leased_slots,
         "sibling_headroom": sibling_headroom,
         "demand": demand,
@@ -266,6 +289,7 @@ def reserve(args):
         "requested": requested,
         "capacity": total,
         "external_slots": external_slots,
+        "external_queued": external_queued,
         "leased_other_slots": leased_slots,
         "sibling_headroom": sibling_headroom,
         "demand": demand,
