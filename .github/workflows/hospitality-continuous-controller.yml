@@ -1,8 +1,10 @@
-name: Hospitality Continuous Controller
+name: Global Fleet Hot-Loop Watchdog
 
 on:
   workflow_run:
-    workflows: ["Hospitality Autonomous Fleet 24/7"]
+    workflows:
+      - "Hospitality Autonomous Fleet 24/7"
+      - "GWS Autonomous Harvest Fleet"
     types: [completed]
   schedule:
     - cron: '*/5 * * * *'
@@ -11,82 +13,85 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/hospitality-continuous-controller.yml'
+      - 'config/global_fleet.json'
+      - 'tools/global_capacity_broker_v3.py'
 
 permissions:
   contents: read
   actions: write
 
 concurrency:
-  group: hospitality-continuous-controller
+  group: global-fleet-hot-loop-watchdog
   cancel-in-progress: true
 
 jobs:
-  keep_fleet_hot:
+  refill_idle_workloads:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Reclaim obviously stale legacy GWS runner slots
+      - name: Probe durable backlog and refill idle workload queues
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          NOW=$(date -u +%s)
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gws-legacy-autonomous-cert-v53.yml/runs?status=in_progress&per_page=20" \
-            --jq '.workflow_runs[] | [.id,.created_at] | @tsv' | \
-          while IFS=$'\t' read -r RUN_ID CREATED; do
-            [ -n "${RUN_ID:-}" ] || continue
-            CREATED_EPOCH=$(date -u -d "$CREATED" +%s || echo "$NOW")
-            AGE=$((NOW-CREATED_EPOCH))
-            if [ "$AGE" -ge 5400 ]; then
-              echo "Cancelling stale legacy GWS run $RUN_ID age=${AGE}s"
-              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/cancel" || true
-            fi
-          done
-
-      - name: Dispatch next hospitality wave when idle and useful backlog remains
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          ACTIVE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hospitality-autonomous-fleet.yml/runs?per_page=30" \
-            --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length')
-          if [ "$ACTIVE" -gt 0 ]; then
-            echo "Hospitality already has $ACTIVE queued/in-progress run(s); no duplicate dispatch."
-            exit 0
-          fi
 
           python tools/hospitality_master_plan.py \
             --provider github \
             --capacity 1 \
-            --out /tmp/hospitality-probe.json >/tmp/hospitality-probe.log
+            --out /tmp/hospitality-probe.json >/dev/null
 
-          ENABLED=$(python - <<'PY'
-          import json
-          p=json.load(open('/tmp/hospitality-probe.json'))
-          print('true' if p.get('enabled') else 'false')
+          python - <<'PY' >/tmp/demand.json
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('tools').resolve()))
+          import global_capacity_broker as broker
+          desired=json.load(open('control/desired_state.json'))
+          hp=json.load(open('/tmp/hospitality-probe.json'))
+          d=broker.local_demand()
+          print(json.dumps({
+              'enabled': bool(desired.get('enabled')) and bool(desired.get('continuous', True)),
+              'hospitality': int(hp.get('useful_backlog') or 0),
+              'gws': int(d.get('gws') or 0),
+              'tenders': int(d.get('tenders') or 0),
+          }))
           PY
-          )
-          BACKLOG=$(python - <<'PY'
-          import json
-          p=json.load(open('/tmp/hospitality-probe.json'))
-          print(int(p.get('useful_backlog') or 0))
-          PY
-          )
+          cat /tmp/demand.json
 
-          echo "enabled=$ENABLED useful_backlog=$BACKLOG"
-          if [ "$ENABLED" != "true" ] || [ "$BACKLOG" -le 0 ]; then
-            echo "No useful hospitality work remains (or fleet disabled); controller goes idle."
-            exit 0
-          fi
+          ENABLED=$(python -c 'import json; print("true" if json.load(open("/tmp/demand.json"))["enabled"] else "false")')
+          [ "$ENABLED" = "true" ] || { echo "Fleet disabled; watchdog idle."; exit 0; }
 
-          gh workflow run hospitality-autonomous-fleet.yml --ref main
-          echo "Dispatched next hospitality wave immediately."
+          maybe_dispatch () {
+            local workflow_file="$1"
+            local backlog="$2"
+            local label="$3"
+            if [ "$backlog" -le 0 ]; then
+              echo "$label backlog=0; idle share is borrowable."
+              return 0
+            fi
+            local active
+            active=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs?per_page=30" \
+              --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length')
+            if [ "$active" -gt 0 ]; then
+              echo "$label already has $active active/queued run(s)."
+              return 0
+            fi
+            gh workflow run "$workflow_file" --ref main
+            echo "Dispatched $label immediately for backlog=$backlog"
+          }
+
+          HOSP=$(python -c 'import json; print(json.load(open("/tmp/demand.json"))["hospitality"])')
+          GWS=$(python -c 'import json; print(json.load(open("/tmp/demand.json"))["gws"])')
+
+          maybe_dispatch hospitality-autonomous-fleet.yml "$HOSP" hospitality
+          maybe_dispatch gws-autonomous-fleet.yml "$GWS" gws
+
+          echo "No age-based cancellation exists here. Long-running GWS/Hospitality jobs are allowed to finish naturally."
