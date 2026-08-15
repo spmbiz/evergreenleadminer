@@ -1,0 +1,86 @@
+name: GWS v5.5 Zero-Spend Gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_v55_gate_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LEGACY_EXPECTED: '5047'
+      SNAPSHOT_DIR: data/gws/legacy_deep/source_snapshot_5047_v5
+      SNAPSHOT_MANIFEST: data/gws/legacy_deep/source_snapshot_5047_v5/manifest_shards.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check duckdb aiohttp
+      - name: Deterministic regression breakers
+        run: |
+          set -euo pipefail
+          python tools/gws_v5_selftest.py
+      - name: Stage exact immutable snapshot
+        run: |
+          set -euo pipefail
+          python tools/gws_legacy_shard_guard.py \
+            --source-dir "$SNAPSHOT_DIR" \
+            --manifest "$SNAPSHOT_MANIFEST" \
+            --outdir source_queue \
+            --expected "$LEGACY_EXPECTED"
+      - name: Recompute strict-HIGH identity census
+        run: |
+          set -euo pipefail
+          mkdir -p gate
+          python tools/gws_resolution_census_v55.py \
+            --queue source_queue \
+            --expected "$LEGACY_EXPECTED" \
+            --threads 12 \
+            --out gate/census.json
+      - name: Known false-negative direct-domain live probe
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          import gws_no_website_certifier_v53 as prod
+
+          cases = [
+            ({'r':9001,'n':'KANOFF LEGAL','p':'1050','a':'Rue Jean-Baptiste Meunier 9','ph':'+32 2 648 04 06','em':'','cow':''}, 'kanofflegal.com'),
+            ({'r':9002,'n':'ID.CITE ARCHITECTS','p':'1150','a':'Avenue de Tervueren 246','ph':'02 325 65 10','em':'','cow':''}, 'idcite.be'),
+          ]
+          out=[]
+          for c, expected in cases:
+            guessed={prod.v2.host(u) for u in prod.guesses_hardened(c)}
+            assert expected in guessed, (c['n'], expected, sorted(guessed))
+            url='https://'+expected+'/'
+            row={'name':c['n'],'expected':expected,'guessed':True,'live_ok':False,'identity_matched':False}
+            try:
+              req=urllib.request.Request(url,headers={'User-Agent':prod.v2.UA,'Accept-Language':'fr-BE,fr;q=0.9,en;q=0.8'})
+              with urllib.request.urlopen(req,timeout=15) as r:
+                body=r.read(prod.v2.MAXBODY).decode(errors='ignore')
+                ev=prod.web_identity_hardened(c,body,str(r.url))
+                row.update(live_ok=200<=int(r.status)<400,final_url=str(r.url),identity_matched=bool(ev.get('matched')),identity=ev)
+            except Exception as exc:
+              row['error']=type(exc).__name__+':'+str(exc)[:160]
+            out.append(row)
+          open('gate/known_false_negative_probe.json','w').write(json.dumps(out,indent=2)+'\n')
+          print('GWS_V55_KNOWN_FALSE_NEGATIVE_PROBE='+json.dumps(out,separators=(',',':')))
+          # Network availability may fluctuate, but if the site is reachable our
+          # production identity matcher must recognize it.
+          for x in out:
+            if x.get('live_ok'):
+              assert x.get('identity_matched'), x
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gws-v55-zero-spend-gate-${{ github.run_id }}
+          path: gate/
+          retention-days: 3
