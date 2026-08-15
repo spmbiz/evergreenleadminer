@@ -4,11 +4,12 @@
 Strict candidates use Bing + Yep as independent search-index families. Ghostery
 adds discovery only. Empty/parsing-ambiguous SERPs are never silently promoted
 into strict negative evidence, and strict candidates receive multiple diverse
-query formulations before certification.
+query formulations before certification. Local 4get is auto-bootstrapped on
+GitHub workers so the production verifier does not depend on hidden YAML setup.
 """
 from __future__ import annotations
 
-import asyncio, html, json, os, random, re, urllib.parse
+import asyncio, html, json, os, random, re, subprocess, time, urllib.parse, urllib.request
 import gws_legacy_deep_v2 as v2
 import gws_legacy_deep_v4 as v4
 
@@ -26,21 +27,12 @@ def _parsed_bing(body):
 
 
 def _raw_external_hosts(body,base):
-    """Count result-like external hosts without treating directories as owned.
-
-    This is only a SERP-health signal. Candidate-owned links still pass through
-    v2.platform() filtering and later HTTP identity validation.
-    """
     out=set(); base_host=v2.host(base)
     for href in re.findall(r'''href\s*=\s*["']([^"'#]+)''',body or "",re.I):
         u=html.unescape(urllib.parse.urljoin(base,href.strip()))
-        if "bing.com/ck/a" in u or "bing.com/aclick" in u:
-            # Bing redirect targets are not trivially reversible here; do not
-            # invent a host. Other direct hrefs still provide health evidence.
-            continue
+        if "bing.com/ck/a" in u or "bing.com/aclick" in u: continue
         h=v2.host(u)
-        if not h or h==base_host or any(x in h for x in ("bing.com","microsoft.com","msn.com")):
-            continue
+        if not h or h==base_host or any(x in h for x in ("bing.com","microsoft.com","msn.com")): continue
         out.add(h)
     return out
 
@@ -67,13 +59,45 @@ def provider_concurrency_plan(search_conc):
     c=max(1,int(search_conc)); return {"bing":c,"yep":c,"ghostery":c}
 
 
+def _fourget_healthy(base):
+    try:
+        req=urllib.request.Request(base.rstrip('/')+"/ami4get",headers={"User-Agent":"GWS-4get-health/1.0"})
+        with urllib.request.urlopen(req,timeout=2.5) as r:
+            return 200<=int(r.status)<500
+    except Exception:
+        return False
+
+
+def _ensure_fourget(base):
+    """Start a private localhost 4get when needed, fail-closed otherwise."""
+    if _fourget_healthy(base): return
+    h=v2.host(base)
+    local=h in {"127.0.0.1","localhost","::1"}
+    auto=os.getenv("GWS_AUTO_START_FOURGET", "1" if os.getenv("GITHUB_ACTIONS") else "0").strip().lower() not in {"0","false","no"}
+    if not local or not auto:
+        raise RuntimeError(f"FOURGET_UNAVAILABLE:{base}")
+    name="gws-fourget-v56"
+    subprocess.run(["docker","rm","-f",name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+    pull=subprocess.run(["docker","pull","luuul/4get:latest"],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+    if pull.returncode!=0: raise RuntimeError("FOURGET_DOCKER_PULL_FAILED:"+(pull.stderr or "")[-300:])
+    run=subprocess.run(["docker","run","-d","--name",name,"-p","127.0.0.1:8090:80","-e","FOURGET_SERVER_NAME=localhost","-e","FOURGET_PROTO=http","luuul/4get:latest"],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+    if run.returncode!=0: raise RuntimeError("FOURGET_DOCKER_RUN_FAILED:"+(run.stderr or "")[-300:])
+    deadline=time.time()+30
+    while time.time()<deadline:
+        if _fourget_healthy(base):
+            print("GWS_V56_FOURGET_AUTOBOOT_OK",flush=True); return
+        time.sleep(.75)
+    raise RuntimeError("FOURGET_AUTOBOOT_HEALTH_TIMEOUT")
+
+
 async def webcheck(rows,conc,search_conc):
     import aiohttp
+    fourget=os.getenv("FOURGET_URL","http://127.0.0.1:8090").rstrip('/')
+    _ensure_fourget(fourget)
     sem=asyncio.Semaphore(max(1,int(conc)))
     gates={k:asyncio.Semaphore(v) for k,v in provider_concurrency_plan(search_conc).items()}
     timeout=aiohttp.ClientTimeout(total=14,connect=4,sock_read=9)
     headers={"User-Agent":v2.UA,"Accept-Language":"fr-BE,fr;q=0.9,nl;q=0.8,en;q=0.7"}
-    fourget=os.getenv("FOURGET_URL","http://127.0.0.1:8090").rstrip('/')
     ans={}
     async with aiohttp.ClientSession(timeout=timeout,headers=headers) as sess:
         async def get(url,is_search=False,provider="",attempts=1):
@@ -96,11 +120,7 @@ async def webcheck(rows,conc,search_conc):
         async def bing_search(q):
             url="https://www.bing.com/search?count=10&q="+urllib.parse.quote_plus(q)
             r=await get(url,True,"bing",2); body=r.get("body",""); prelim=bool(r.get("ok") and 200<=int(r.get("status") or 999)<300 and _parsed_bing(body))
-            links=v4.hrefs(body,r.get("url",url),24) if prelim else []
-            raw_hosts=_raw_external_hosts(body,r.get("url",url)) if prelim else set()
-            explicit_zero=bool(prelim and _explicit_negative(body))
-            # If the parser says "results page" but exposes neither an external
-            # target nor an explicit no-results marker, treat it as ambiguous.
+            links=v4.hrefs(body,r.get("url",url),24) if prelim else []; raw_hosts=_raw_external_hosts(body,r.get("url",url)) if prelim else set(); explicit_zero=bool(prelim and _explicit_negative(body))
             parsed=bool(prelim and (raw_hosts or links or explicit_zero))
             return parsed,links,{"provider":"bing","provider_family":"bing","http_ok":bool(r.get("ok")),"parsed":parsed,"status":r.get("status"),"blocked":bool(r.get("blocked")),"error":r.get("error") if parsed else (r.get("error") or "AMBIGUOUS_ZERO_DOMAIN_SERP"),"external_domains":len({v2.host(x) for x in links if v2.host(x)}),"raw_result_domains":len(raw_hosts),"explicit_negative":explicit_zero}
 
@@ -124,21 +144,15 @@ async def webcheck(rows,conc,search_conc):
 
         async def search_one(q,strict):
             if strict:
-                (bp,bl,bh),(yp,yl,yh),(gp,gl,gh)=await asyncio.gather(bing_search(q),fourget_search("yep",q),fourget_search("ghostery",q))
-                fam=set()
+                (bp,bl,bh),(yp,yl,yh),(gp,gl,gh)=await asyncio.gather(bing_search(q),fourget_search("yep",q),fourget_search("ghostery",q)); fam=set()
                 if bp: fam.add("bing")
                 if yp: fam.add("yep")
                 return fam,list(bl)+list(yl)+list(gl),[bh,yh,gh]
-            (bp,bl,bh),(gp,gl,gh)=await asyncio.gather(bing_search(q),fourget_search("ghostery",q))
-            fam={"bing"} if bp else set()
-            return fam,list(bl)+list(gl),[bh,gh]
+            (bp,bl,bh),(gp,gl,gh)=await asyncio.gather(bing_search(q),fourget_search("ghostery",q)); fam={"bing"} if bp else set(); return fam,list(bl)+list(gl),[bh,gh]
 
         async def one(c):
             strict=bool(c.get("_strict_high_candidate")); ev={"search_queries":0,"search_usable_queries":0,"search_resultful_queries":0,"search_health":[],"search_candidates":[],"healthy_providers":[],"direct_checked":0,"direct_health":[],"owned":"","owned_identity":{},"owned_via":"","candidate_seeds":[],"strict_high_path":strict,"zero_paid_api":True}
-            seeds=v4.guesses(c); ev["candidate_seeds"]=seeds[:]; seed_hosts={v2.host(x) for x in seeds if v2.host(x) and not v2.platform(x)}
-            # Strict path deliberately reaches phone / website formulations rather
-            # than stopping after two brittle exact-name queries.
-            queries=list(v4.search_queries(c))[:5 if strict else 3]
+            seeds=v4.guesses(c); ev["candidate_seeds"]=seeds[:]; seed_hosts={v2.host(x) for x in seeds if v2.host(x) and not v2.platform(x)}; queries=list(v4.search_queries(c))[:5 if strict else 3]
             for q in queries:
                 ev["search_queries"]+=1; fam,links,health=await search_one(q,strict)
                 for f in sorted(fam):
