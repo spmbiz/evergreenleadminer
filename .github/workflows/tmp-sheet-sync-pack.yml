@@ -18,10 +18,10 @@ jobs:
           mkdir -p sheet-sync-pack/files
           find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%T@ %p\n' \
             | sort -n \
-            | head -n 10 \
+            | sed -n '1,10p' \
             | cut -d' ' -f2- > sheet-sync-pack/manifest.txt
           while IFS= read -r f; do cp "$f" sheet-sync-pack/files/; done < sheet-sync-pack/manifest.txt
-          wc -l sheet-sync-pack/manifest.txt
+          test "$(wc -l < sheet-sync-pack/manifest.txt)" -gt 0
           cat sheet-sync-pack/manifest.txt
       - uses: actions/upload-artifact@v4
         with:
