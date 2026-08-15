@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T13:15:00Z",
+  "requested_at": "2026-08-15T13:25:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "yield-aware-planner-benchmark",
-  "force_workers": 16,
-  "note": "Compare new 85/15 exploit-explore lane scheduler against run 31886447773 baseline (16 fast-email workers, 13 net-new). Broker may allocate fewer if live account capacity is lower. Keep only if useful output per runner-minute improves without material health regression."
+  "mode": "runner-local-work-stealing-canary",
+  "force_workers": 4,
+  "note": "Benchmark packed geo runner queues: target roughly 6 exploit recovery work units plus 4 cheap exploration units across 4 GitHub runner slots. Verify matrix transport, per-cell artifacts, canonical aggregate, persistence, and useful output per runner-minute before retaining."
 }
