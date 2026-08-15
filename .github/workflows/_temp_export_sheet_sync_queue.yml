@@ -18,7 +18,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/queue10
-          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort | head -n 10 > /tmp/files.txt
+          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort > /tmp/allfiles.txt
+          head -n 10 /tmp/allfiles.txt > /tmp/files.txt
           if [ ! -s /tmp/files.txt ]; then echo QUEUE_EMPTY; fi
           while IFS= read -r f; do cp "gpt/sheet_sync_queue/$f" /tmp/queue10/; done < /tmp/files.txt
           cp /tmp/files.txt /tmp/queue10/_files.txt
