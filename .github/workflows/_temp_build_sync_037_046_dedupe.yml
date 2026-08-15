@@ -1,0 +1,64 @@
+name: Temp Build Sync 037-046 Dedupe Pack
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_queue_trigger.json'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Materialize compact oldest-10 dedupe pack
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,re,csv
+          from pathlib import Path
+          from urllib.parse import urlparse
+          root=Path('gpt/sheet_sync_queue')
+          files=sorted(root.glob('*.jsonl'))[:10]
+          if len(files)!=10: raise SystemExit(f'expected 10 chunks, got {len(files)}')
+          multi={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          generic={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','squarespace.com'}
+          def clean(x): return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
+          def nn(x): return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',clean(x).lower())).strip()
+          def ph(x): return re.sub(r'\D','',clean(x))
+          def dom(x):
+            s=clean(x).lower()
+            if not s:return ''
+            if '://' not in s:s='http://'+s
+            h=(urlparse(s).hostname or '').lower().strip('.')
+            if h.startswith('www.'):h=h[4:]
+            p=h.split('.')
+            if len(p)>=3 and '.'.join(p[-2:]) in multi:h='.'.join(p[-3:])
+            elif len(p)>=2:h='.'.join(p[-2:])
+            return '' if h in generic else h
+          def market(r): return clean(r.get('city') or r.get('region')).split('::',1)[0].replace('-',' ').strip()
+          rows=[]
+          for f in files:
+            for line in f.read_text(encoding='utf-8').splitlines():
+              if not line.strip():continue
+              r=json.loads(line)
+              rows.append([clean(r.get('overture_id')),f.name,nn(r.get('name')),market(r),clean(r.get('country')),dom(r.get('domain') or r.get('website')),ph(r.get('public_phone'))])
+          if len(rows)!=500: raise SystemExit(f'expected 500 rows, got {len(rows)}')
+          out=Path('gpt/_sync_037_046_dedupe.tsv')
+          with out.open('w',encoding='utf-8',newline='') as fh:
+            csv.writer(fh,delimiter='\t',lineterminator='\n').writerows(rows)
+          Path('gpt/_sync_037_046_manifest.json').write_text(json.dumps({'files':[f.name for f in files],'rows':len(rows)},indent=2)+'\n',encoding='utf-8')
+          print({'files':[f.name for f in files],'rows':len(rows)})
+          PY
+      - name: Commit compact pack
+        run: |
+          git config user.name 'sheet-sync-dedupe-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/_sync_037_046_dedupe.tsv gpt/_sync_037_046_manifest.json
+          git commit -m 'sync: materialize oldest-10 dedupe pack [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
