@@ -86,7 +86,8 @@ def canonical_records(db_path: Path) -> list[dict]:
         r = dict(raw) if isinstance(raw, dict) else {}
         for k in (
             "domain", "name", "country", "region", "city", "state", "street",
-            "website", "public_email", "public_phone", "instagram", "live_status",
+            "website", "public_email", "public_phone", "instagram", "facebook",
+            "contact_page", "whatsapp", "portfolio_url", "live_status",
             "fit_tier", "operator_score", "premium_score", "source_url", "overture_id",
             "source_release", "first_seen", "last_seen",
         ):
@@ -98,9 +99,12 @@ def canonical_records(db_path: Path) -> list[dict]:
 
 
 def signature(r: dict) -> str:
+    # Any outreach-relevant enrichment change must create a Sheet delta. This is
+    # intentionally broader than the original signature, which only tracked IG.
     keys = (
         "domain", "name", "country", "region", "city", "state", "street",
-        "website", "public_email", "public_phone", "instagram", "live_status",
+        "website", "public_email", "public_phone", "instagram", "facebook",
+        "contact_page", "whatsapp", "portfolio_url", "live_status",
         "fit_tier", "operator_score", "premium_score", "source_url", "overture_id",
     )
     payload = "\x1f".join(str(r.get(k) or "").strip() for k in keys)
@@ -142,7 +146,7 @@ def snapshot_diff(db_path: Path, queue_dir: Path, state_path: Path, cycle_id: st
         "queued_records_this_pass": len(changed),
         "chunks_created_this_pass": chunks,
         "signatures": current,
-        "note": "Queue only. Google Sheet consumer must MASTER-dedupe and verify before deleting queue chunks."
+        "note": "Queue only. Google Sheet consumer must MASTER-dedupe and verify before deleting queue chunks. Multichannel fields are signature-tracked."
     })
     return len(changed), chunks, first
 
