@@ -5,6 +5,7 @@ import inspect
 
 import gws_no_website_certifier_v53 as prod
 import gws_search_provider_pool_v56_free as providers
+import gws_reference_mesh_v57 as ref
 import gws_worker_v54 as worker_policy
 import gws_worker_v55 as live_worker
 import gws_identity_resolver_v54 as identity
@@ -29,16 +30,27 @@ def main():
     kanoff_hosts={prod.v2.host(u) for u in v4.guesses({'n':'KANOFF LEGAL','em':'','cow':''})}; idcite_hosts={prod.v2.host(u) for u in v4.guesses({'n':'ID.CITE ARCHITECTS','em':'','cow':''})}
     assert 'kanofflegal.com' in kanoff_hosts and 'idcite.be' in idcite_hosts
 
+    # Historical false HIGH: Galerie root 404s but /index.html is the owned site.
+    gallery={'r':520,'n':'Galerie Frédéric Schots','p':'1160','a':'Chaussée de Wavre 1737','ph':'+32 2 662 12 44','em':''}
+    gallery_hosts={prod.v2.host(u) for u in prod.guesses_hardened(gallery)}
+    assert 'galeriefredericschots.com' in gallery_hosts,gallery_hosts
+    variants=ref.direct_variants('https://galeriefredericschots.com/')
+    assert 'https://galeriefredericschots.com/index.html' in variants,variants
+    assert 'https://www.galeriefredericschots.com/index.html' in variants,variants
+
+    # Business/reference directories can reveal a site but are never owned sites.
+    for u in ('https://www.idgarages.com/x','https://fr.mappy.com/x','https://www.autoscout24.be/x','https://www.pagesdor.be/x','https://www.proxibel.be/x'):
+        assert ref.is_reference(u),u
+        assert prod.v2.platform(u),u
+
     c={'r':1,'n':'Acme Brussels','p':'1050','a':'Rue Test 1','ph':'02 555 12 12','em':'','cow':''}; pe={'resolved':False,'overture_id':'weak-best-guess','overture_name':'Acme'}
     assert prod.preclassify_hardened(c,None,pe,True) is None
 
-    # Historical false HIGH: public school can never qualify as independent local business.
     school={'r':1235,'n':'Centre Scolaire du Souverain Cirquétude','p':'1160','a':'Rue Robert Willame 25, 1160 Auderghem','ph':'02 672 96 74','em':''}
     assert prod.obvious_non_independent_entity(school)
     srow=prod.preclassify_hardened(school,None,{'resolved':True},True)
     assert srow and srow['status']=='REJECT' and srow['reason']=='OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY',srow
 
-    # Two clean-looking queries are no longer enough for HIGH.
     weak_search={'healthy_providers':['bing','yep'],'search_queries':2,'search_usable_queries':2,'search_resultful_queries':0,'direct_checked':5,'direct_health':[{'seed':f'https://x{i}.be/','final':f'https://x{i}.be/','status':404,'ok':False,'dns_negative':True} for i in range(5)],'owned':''}
     assert prod.coverage_hardened(weak_search)['ok'] is False
     robust_search=dict(weak_search,search_queries=3,search_usable_queries=3,search_resultful_queries=1)
@@ -56,11 +68,12 @@ def main():
     psrc=inspect.getsource(providers.webcheck)
     assert 'EXA_API_KEY' not in psrc and 'api/v1/web' in psrc and 'yep' in psrc and 'ghostery' in psrc and '_strict_high_candidate' in psrc
     assert 'search_resultful_queries' in psrc and 'AMBIGUOUS_ZERO_DOMAIN_SERP' in psrc and '[:5 if strict else 3]' in psrc
+    assert 'direct_variants' in psrc and 'listing_identity' in psrc and 'outbound_candidates' in psrc and 'matched_reference_outbound' in psrc
 
     src=inspect.getsource(worker_policy.worker); durable=inspect.getsource(live_worker._original_checkpoint); live=inspect.getsource(live_worker._checkpoint)
     assert 'partial_results.jsonl' in durable and 'progress.json' in durable and 'GWS_V55_PROGRESS=' in durable and '::notice' in live
     assert 'GWS_WEB_BATCH_SIZE' in src and 'stage="resolved"' in src and 'stage="web_batch_complete"' in src and '_strict_high_candidate' in src
     assert 'IDENTITY_RESOLVED_NOT_STRONG_ENOUGH_FOR_HIGH_AFTER_BOUNDED_WEB_CHALLENGE' in src
-    print('GWS_V56_REGRESSION_OK')
+    print('GWS_V57_REGRESSION_OK')
 
 if __name__=='__main__': main()
