@@ -9,6 +9,8 @@ single-writer canonical SQLite.
 from __future__ import annotations
 
 import argparse
+import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +27,8 @@ MULTI_SUFFIXES = {
     "co.cr","com.pa","com.do","com.gt","com.hn","com.sv","com.ni",
     "co.il","com.my","co.th","com.ph","com.tw","com.cn","com.jp","co.jp","ne.jp",
 }
+MULTICHANNEL_BATCH_SIZE = 2800
+MULTICHANNEL_WORKERS = 64
 
 
 def registrable_domain(host: str) -> str:
@@ -62,7 +66,66 @@ def ensure_requests() -> None:
     )
 
 
-def run_multichannel_enrichment(canonical_db: str, outdir: str) -> None:
+def persist_multichannel_benchmark(canonical_db: str, outdir: str, cycle_id: str) -> None:
+    summary_path = Path(outdir) / "multichannel_enrichment_summary.json"
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    elapsed = float(summary.get("elapsed_seconds") or 0)
+    enriched = int(summary.get("domains_enriched") or 0)
+    attempted = int(summary.get("attempted") or 0)
+    failed = int(summary.get("failed") or 0)
+    field_adds = sum(int(summary.get(k) or 0) for k in (
+        "instagram_added", "facebook_added", "contact_page_added", "whatsapp_added", "portfolio_url_added"
+    ))
+    useful_per_minute = round(enriched / max(elapsed / 60.0, 1e-9), 3) if elapsed else 0.0
+    failure_rate = round(failed / attempted, 5) if attempted else 0.0
+    con = sqlite3.connect(canonical_db)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS multichannel_runs(
+            cycle_id TEXT PRIMARY KEY,
+            recorded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            batch_size INTEGER,
+            workers INTEGER,
+            attempted INTEGER,
+            domains_enriched INTEGER,
+            field_values_added INTEGER,
+            instagram_added INTEGER,
+            facebook_added INTEGER,
+            contact_page_added INTEGER,
+            whatsapp_added INTEGER,
+            portfolio_url_added INTEGER,
+            pages_fetched INTEGER,
+            failed INTEGER,
+            failure_rate REAL,
+            elapsed_seconds REAL,
+            useful_per_productive_minute REAL,
+            incomplete_domains_remaining INTEGER,
+            raw_json TEXT
+        )""")
+        con.execute(
+            """INSERT OR REPLACE INTO multichannel_runs(
+                cycle_id,batch_size,workers,attempted,domains_enriched,field_values_added,
+                instagram_added,facebook_added,contact_page_added,whatsapp_added,portfolio_url_added,
+                pages_fetched,failed,failure_rate,elapsed_seconds,useful_per_productive_minute,
+                incomplete_domains_remaining,raw_json
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                cycle_id, MULTICHANNEL_BATCH_SIZE, MULTICHANNEL_WORKERS, attempted, enriched, field_adds,
+                int(summary.get("instagram_added") or 0), int(summary.get("facebook_added") or 0),
+                int(summary.get("contact_page_added") or 0), int(summary.get("whatsapp_added") or 0),
+                int(summary.get("portfolio_url_added") or 0), int(summary.get("pages_fetched") or 0),
+                failed, failure_rate, elapsed, useful_per_minute,
+                int(summary.get("incomplete_domains_remaining") or 0), json.dumps(summary, ensure_ascii=False),
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def run_multichannel_enrichment(canonical_db: str, outdir: str, cycle_id: str) -> None:
     """Use spare aggregate-job CPU/network, not discovery runner slots.
 
     Fail-open by design: harvesting/canonicalization must survive a temporary
@@ -76,8 +139,8 @@ def run_multichannel_enrichment(canonical_db: str, outdir: str) -> None:
                 "tools/canonical_multichannel_enrich.py",
                 "--canonical-db", canonical_db,
                 "--outdir", outdir,
-                "--batch-size", "2800",
-                "--workers", "64",
+                "--batch-size", str(MULTICHANNEL_BATCH_SIZE),
+                "--workers", str(MULTICHANNEL_WORKERS),
                 "--timeout", "6",
                 "--max-pages", "3",
                 "--max-bytes", "750000",
@@ -87,6 +150,7 @@ def run_multichannel_enrichment(canonical_db: str, outdir: str) -> None:
             cwd=ROOT,
             check=True,
         )
+        persist_multichannel_benchmark(canonical_db, outdir, cycle_id)
     except Exception as exc:
         # Discovery volume is more important than this optional enrichment pass.
         print(f"multichannel enrichment degraded but harvest remains valid: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -170,7 +234,7 @@ def main():
     a = ap.parse_args()
     fr.root_host = registrable_domain
     fr.aggregate(a)
-    run_multichannel_enrichment(a.canonical_db, a.outdir)
+    run_multichannel_enrichment(a.canonical_db, a.outdir, a.cycle_id)
     persist_lane_health(a.results_root)
 
 
