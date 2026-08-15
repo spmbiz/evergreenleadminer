@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T01:42:00Z",
+  "requested_at": "2026-08-15T02:14:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "multilane-production-smoke",
+  "mode": "unified-source-production-smoke",
   "force_workers": 4,
-  "note": "Validate the activated multi-lane planner/workflow on four real autonomous cells. Existing Pass-A coverage keys must remain valid; Pass-B coverage remains separate."
+  "note": "Expect one due ATP source worker plus three Overture geographic workers. Validate shared canonical writer, ATP release checkpoint, quality gate, and Sheet bridge compatibility."
 }
