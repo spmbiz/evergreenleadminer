@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Reserve account-wide capacity for the one-time GWS legacy 5,047 challenge.
 
-This deliberately reuses global_capacity_broker instead of creating a second
-capacity model. The normal GWS planner may have zero fresh discovery backlog
-while the legacy challenge is still incomplete, so this wrapper injects the
-legacy verification backlog into the broker's demand snapshot for this run.
+The challenge reuses the global capacity broker, but it must not be starved by
+idle *elastic* reservations belonging to sibling workloads. During this bounded
+legacy benchmark sibling minimum guarantees are preserved while their elastic
+weights are treated as borrowable. Existing live jobs are never preempted.
 """
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,7 @@ def main() -> None:
     a = ap.parse_args()
 
     normal_local_demand = broker.local_demand
+    normal_load_json = broker.fr.load_json
     remaining = legacy_remaining()
 
     def challenge_demand():
@@ -57,7 +59,26 @@ def main() -> None:
         d["gws"] = remaining if remaining > 0 else 0
         return d
 
+    def challenge_load_json(path, default=None):
+        cfg = normal_load_json(path, default)
+        try:
+            p = Path(path)
+        except Exception:
+            return cfg
+        if p.name != "global_fleet.json" or not isinstance(cfg, dict):
+            return cfg
+        cfg = copy.deepcopy(cfg)
+        workloads = cfg.get("workloads") or {}
+        # Preserve every sibling minimum guarantee, but do not let an idle
+        # sibling's weighted elastic target reserve the pool ahead of this
+        # bounded GWS backlog. Live jobs still count as occupied in the broker.
+        for name, scfg in workloads.items():
+            if name != "gws" and isinstance(scfg, dict):
+                scfg["weight"] = 0.0
+        return cfg
+
     broker.local_demand = challenge_demand
+    broker.fr.load_json = challenge_load_json
     args = SimpleNamespace(
         workload="gws",
         requested=a.requested,
@@ -72,6 +93,7 @@ def main() -> None:
     payload = json.loads(Path(a.out).read_text(encoding="utf-8"))
     payload["legacy_expected"] = EXPECTED
     payload["legacy_remaining"] = remaining
+    payload["legacy_capacity_policy"] = "preserve_sibling_floors_borrow_idle_elastic"
     Path(a.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
