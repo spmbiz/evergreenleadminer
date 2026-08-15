@@ -46,7 +46,6 @@ def _blocked(status: int, body: str) -> bool:
 
 
 def _dns_negative(exc: BaseException) -> bool:
-    # Keep this local so the provider module has no circular dependency on v53.
     text = str(exc).lower(); name = type(exc).__name__.lower()
     return (
         "dns" in name or "name or service not known" in text or
@@ -55,12 +54,23 @@ def _dns_negative(exc: BaseException) -> bool:
     )
 
 
+def provider_family(provider: str) -> str:
+    p = str(provider)
+    if p.startswith("ddg"):
+        return "ddg"
+    if p in {"bing", "yahoo"}:
+        # Yahoo is conservatively treated as Bing-family because its web index can
+        # be Bing-backed. It is a transport fallback, not independent evidence.
+        return "bing"
+    return p
+
+
 async def webcheck(rows, conc: int, search_conc: int):
     import aiohttp
 
     sem = asyncio.Semaphore(max(1, int(conc)))
-    # Critical: provider smoke was healthy alone, while 10 workers x concurrency=2
-    # made DDG return 202. Serialize search requests inside each worker.
+    # Live calibration: DDG was healthy alone but returned 202 under multi-worker
+    # burst. Serialize search requests inside each worker and add jitter/backoff.
     ssem = asyncio.Semaphore(1)
     timeout = aiohttp.ClientTimeout(total=18, connect=5, sock_read=11)
     headers = {"User-Agent": v2.UA, "Accept-Language": "fr-BE,fr;q=0.9,nl;q=0.8,en;q=0.7"}
@@ -74,7 +84,6 @@ async def webcheck(rows, conc: int, search_conc: int):
                 try:
                     async with (ssem if is_search else sem):
                         if is_search:
-                            # Desynchronize independent GitHub workers/IP bursts.
                             await asyncio.sleep(random.uniform(.45, 1.15) + attempt * .35)
                         async with sess.get(url, allow_redirects=True, ssl=True) as r:
                             body = (await r.content.read(v2.MAXBODY)).decode(errors="ignore")
@@ -115,22 +124,24 @@ async def webcheck(rows, conc: int, search_conc: int):
             for sq in v4.search_queries(c):
                 ev["search_queries"] += 1
                 qlinks, qseen, qhealth = [], set(), []
-                parsed_names = set()
-                ddg_ok = False
+                parsed_names = set(); ddg_ok = False
                 for provider, url in primary_providers(sq):
                     resp = await get(url, is_search=True)
                     http_ok = bool(resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300 and not resp.get("blocked"))
                     parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
                     if parsed:
                         parsed_names.add(provider)
-                        if provider not in ev["healthy_providers"]:
-                            ev["healthy_providers"].append(provider)
-                        if provider == "ddg_html": ddg_ok = True
+                        fam = provider_family(provider)
+                        if fam not in ev["healthy_providers"]:
+                            ev["healthy_providers"].append(fam)
+                        if provider == "ddg_html":
+                            ddg_ok = True
                     links = v4.hrefs(resp.get("body", ""), resp.get("url", url), 24) if parsed else []
                     qhealth.append({
-                        "provider": provider, "http_ok": http_ok, "parsed": parsed,
-                        "status": resp.get("status"), "blocked": bool(resp.get("blocked")),
-                        "error": resp.get("error"), "external_domains": len({v2.host(x) for x in links}),
+                        "provider": provider, "provider_family": provider_family(provider),
+                        "http_ok": http_ok, "parsed": parsed, "status": resp.get("status"),
+                        "blocked": bool(resp.get("blocked")), "error": resp.get("error"),
+                        "external_domains": len({v2.host(x) for x in links}),
                     })
                     for u in links:
                         h = v2.host(u)
@@ -144,13 +155,13 @@ async def webcheck(rows, conc: int, search_conc: int):
                     http_ok = bool(resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300 and not resp.get("blocked"))
                     parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
                     if parsed:
-                        parsed_names.add("ddg")
+                        parsed_names.add(provider)
                         if "ddg" not in ev["healthy_providers"]:
                             ev["healthy_providers"].append("ddg")
                     links = v4.hrefs(resp.get("body", ""), resp.get("url", url), 24) if parsed else []
                     qhealth.append({
-                        "provider": provider, "http_ok": http_ok, "parsed": parsed,
-                        "status": resp.get("status"), "blocked": bool(resp.get("blocked")),
+                        "provider": provider, "provider_family": "ddg", "http_ok": http_ok,
+                        "parsed": parsed, "status": resp.get("status"), "blocked": bool(resp.get("blocked")),
                         "error": resp.get("error"), "external_domains": len({v2.host(x) for x in links}),
                     })
                     for u in links:
@@ -158,10 +169,8 @@ async def webcheck(rows, conc: int, search_conc: int):
                         if h and h not in qseen:
                             qseen.add(h); qlinks.append(u)
 
-                # Normalize DDG HTML/Lite into one provider family for coverage.
-                families = set()
-                for p in parsed_names:
-                    families.add("ddg" if p.startswith("ddg") else p)
+                # IMPORTANT: count independent evidence families, not transports.
+                families = {provider_family(p) for p in parsed_names}
                 if len(families) >= 2:
                     ev["search_usable_queries"] += 1
                 ev["search_health"].append({
