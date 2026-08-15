@@ -1,0 +1,56 @@
+name: TMP Sheet Sync Inspect
+on:
+  push:
+    paths:
+      - '.github/workflows/tmp-sheet-sync-inspect.yml'
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect snapshot and queue
+        run: |
+          python - <<'PY'
+          import json,glob,os
+          from pathlib import Path
+          p=Path('state/sheet_sync_snapshot.json')
+          raw=p.read_text(encoding='utf-8')
+          out={'snapshot_bytes':len(raw),'snapshot_head':raw[:500]}
+          try:
+              obj=json.loads(raw)
+              out['snapshot_type']=type(obj).__name__
+              if isinstance(obj,dict):
+                  out['snapshot_keys']=list(obj.keys())[:50]
+                  for k,v in obj.items():
+                      if isinstance(v,list):
+                          out.setdefault('list_fields',{})[k]={'len':len(v),'sample':v[:2]}
+                      elif isinstance(v,dict):
+                          out.setdefault('dict_fields',{})[k]={'keys':list(v.keys())[:30]}
+              elif isinstance(obj,list):
+                  out['snapshot_len']=len(obj); out['snapshot_sample']=obj[:2]
+          except Exception as e:
+              out['snapshot_error']=repr(e)
+          qs=sorted(glob.glob('gpt/sheet_sync_queue/*'))
+          qs=[q for q in qs if any(q.endswith(f'-{i:03d}.jsonl') for i in range(83,93))]
+          out['queue_files']=[]
+          for q in qs:
+              lines=[x for x in Path(q).read_text(encoding='utf-8').splitlines() if x.strip()]
+              sample=[]
+              for x in lines[:2]:
+                  try: sample.append(json.loads(x))
+                  except Exception: sample.append(x[:500])
+              out['queue_files'].append({'path':q,'records':len(lines),'sample':sample})
+          Path('state/tmp_sheet_sync_inspect_083_092.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+      - name: Commit report
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add state/tmp_sheet_sync_inspect_083_092.json
+          git commit -m 'ops: snapshot inspect 083-092' || exit 0
+          git push
