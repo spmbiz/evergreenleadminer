@@ -4,7 +4,7 @@
   "index_url": "https://download.geofabrik.de/index-v1-nogeom.json",
   "policy": {
     "production_enabled": true,
-    "source_slot_cap_per_cycle": 1,
+    "source_slot_cap_per_cycle": 2,
     "max_download_mb": 800,
     "public_tags_only": true,
     "pre_http_canonical_dedupe": true,
@@ -28,6 +28,71 @@
         "fast_candidates": 6,
         "canonical_unknown": 5,
         "live_ready": 5
+      }
+    },
+    {
+      "extract_id": "luxembourg",
+      "iso2": "LU",
+      "country": "Luxembourg",
+      "pbf_url": "https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf",
+      "production_enabled": true,
+      "priority": 88,
+      "revisit_hours": 168,
+      "max_download_mb": 800,
+      "canary": {
+        "mode": "planner_http_version_gate_then_production_small_extract"
+      }
+    },
+    {
+      "extract_id": "liechtenstein",
+      "iso2": "LI",
+      "country": "Liechtenstein",
+      "pbf_url": "https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf",
+      "production_enabled": true,
+      "priority": 87,
+      "revisit_hours": 168,
+      "max_download_mb": 800,
+      "canary": {
+        "mode": "planner_http_version_gate_then_production_small_extract"
+      }
+    },
+    {
+      "extract_id": "malta",
+      "iso2": "MT",
+      "country": "Malta",
+      "pbf_url": "https://download.geofabrik.de/europe/malta-latest.osm.pbf",
+      "production_enabled": true,
+      "priority": 86,
+      "revisit_hours": 168,
+      "max_download_mb": 800,
+      "canary": {
+        "mode": "planner_http_version_gate_then_production_small_extract"
+      }
+    },
+    {
+      "extract_id": "andorra",
+      "iso2": "AD",
+      "country": "Andorra",
+      "pbf_url": "https://download.geofabrik.de/europe/andorra-latest.osm.pbf",
+      "production_enabled": true,
+      "priority": 85,
+      "revisit_hours": 168,
+      "max_download_mb": 800,
+      "canary": {
+        "mode": "planner_http_version_gate_then_production_small_extract"
+      }
+    },
+    {
+      "extract_id": "iceland",
+      "iso2": "IS",
+      "country": "Iceland",
+      "pbf_url": "https://download.geofabrik.de/europe/iceland-latest.osm.pbf",
+      "production_enabled": true,
+      "priority": 84,
+      "revisit_hours": 168,
+      "max_download_mb": 800,
+      "canary": {
+        "mode": "planner_http_version_gate_then_production_small_extract"
       }
     }
   ]
