@@ -1,0 +1,58 @@
+name: Global Capacity Broker Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/global_broker_canary.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  broker-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dry-run live account allocation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p canary
+          python tools/global_capacity_broker.py reserve \
+            --workload hospitality \
+            --requested 20 \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out canary/broker.json \
+            --dry-run
+          python - <<'PY'
+          import json
+          b=json.load(open('canary/broker.json'))
+          tender=int((b.get('demand') or {}).get('tenders') or 0)
+          reserve=((b.get('sibling_reservations') or {}).get('tenders') or {})
+          print(json.dumps({
+            'requested':b.get('requested'),
+            'allocated':b.get('allocated'),
+            'external_slots':b.get('external_slots'),
+            'leased_other_slots':b.get('leased_other_slots'),
+            'tender_demand':tender,
+            'tender_reservation':reserve,
+            'sibling_headroom':b.get('sibling_headroom'),
+          },indent=2))
+          if tender <= 0:
+              raise SystemExit('Canary invalid: durable Tender backlog was not detected')
+          if int(reserve.get('target') or 0) < 6:
+              raise SystemExit('Broker regression: Tender guaranteed target below 6')
+          if int(b.get('allocated') or 0) + int(b.get('external_slots') or 0) + int(b.get('leased_other_slots') or 0) + int(b.get('sibling_headroom') or 0) > int(b.get('capacity') or 20):
+              raise SystemExit('Broker regression: planned occupancy exceeds account capacity')
+          PY
