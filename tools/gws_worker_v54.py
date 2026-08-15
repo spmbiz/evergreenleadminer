@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Worker execution policy for autonomous GWS verification v5.4.
+"""Worker policy for autonomous GWS verification v5.4.
 
-Unresolved current identities are still challenged on the web so owned sites can
-be discovered, but they cannot become HIGH. Strongly resolved candidates retain
-the mandatory two passes. Web work is processed in bounded batches and every
-completed batch is checkpointed atomically so a runner timeout cannot erase hours
-of completed verification work.
+HIGH criteria are unchanged. Strongly resolved candidates retain mandatory two
+passes. Unresolved identities can never become HIGH, so they receive a bounded
+site-discovery challenge and remain UNCERTAIN if no owned site is found. Every
+batch is checkpointed atomically and emits a GitHub Actions notice for live
+progress visibility.
 """
 from __future__ import annotations
 
@@ -30,7 +30,8 @@ def _atomic_dump(core, path: Path, rows) -> None:
 
 
 def _checkpoint(core, d: Path, part, out, *, worker: int, stage: str, batch_index: int,
-                pending_total: int, scan: float, release: str, started: float) -> None:
+                pending_total: int, pending_resolved: int, pending_unresolved: int,
+                scan: float, release: str, started: float) -> None:
     finalized = [out[int(c["r"])] for c in part if int(c["r"]) in out]
     _atomic_dump(core, d / "partial_results.jsonl", finalized)
     statuses = Counter(x.get("status") for x in finalized)
@@ -42,15 +43,20 @@ def _checkpoint(core, d: Path, part, out, *, worker: int, stage: str, batch_inde
         "partition_size": len(part),
         "finalized_rows": len(finalized),
         "pending_total": pending_total,
+        "pending_resolved": pending_resolved,
+        "pending_unresolved": pending_unresolved,
         "statuses": dict(statuses),
         "reasons": dict(reasons),
         "scan_seconds": scan,
         "overture_release": release,
         "elapsed_seconds": round(time.time() - started, 2),
-        "checkpoint_schema": "gws-v54-worker-checkpoint-v1",
+        "checkpoint_schema": "gws-v54-worker-checkpoint-v2",
     }
     _atomic_json(d / "progress.json", progress)
-    print("GWS_V54_PROGRESS=" + json.dumps(progress, separators=(",", ":")), flush=True)
+    compact = json.dumps(progress, separators=(",", ":"))
+    print("GWS_V54_PROGRESS=" + compact, flush=True)
+    # GitHub Check API exposes workflow-command notices while a job is active.
+    print(f"::notice title=GWS v5.4 worker {worker} progress::{compact}", flush=True)
 
 
 def worker(a, core):
@@ -79,7 +85,9 @@ def worker(a, core):
     resolved, pending, out = {}, [], {}
     for c in part:
         p, pe = core.v2.resolve(c, P, I) if core.v2.in_scope(c) else (None, {"resolved": False})
-        cc = dict(c); cc["alias"] = core.v2.t(pe.get("overture_name"))
+        cc = dict(c)
+        cc["alias"] = core.v2.t(pe.get("overture_name"))
+        cc["_unresolved_challenge"] = not bool(pe.get("resolved"))
         resolved[int(c["r"])] = (cc, p, pe)
         early = core.v5.preclassify(cc, p, pe, True)
         if early:
@@ -87,11 +95,15 @@ def worker(a, core):
         else:
             pending.append(cc)
 
-    # Persist cheap/Overture conclusions before the expensive web stage starts.
-    _checkpoint(core, d, part, out, worker=a.worker_index, stage="resolved",
-                batch_index=0, pending_total=len(pending), scan=scan, release=release, started=z)
+    pending_resolved = sum(not c.get("_unresolved_challenge") for c in pending)
+    pending_unresolved = len(pending) - pending_resolved
+    _checkpoint(
+        core, d, part, out, worker=a.worker_index, stage="resolved", batch_index=0,
+        pending_total=len(pending), pending_resolved=pending_resolved,
+        pending_unresolved=pending_unresolved, scan=scan, release=release, started=z,
+    )
 
-    batch_size = max(1, int(os.getenv("GWS_WEB_BATCH_SIZE", "24")))
+    batch_size = max(1, int(os.getenv("GWS_WEB_BATCH_SIZE", "12")))
     unresolved_challenged = 0
     second_pass_candidates = 0
 
@@ -104,28 +116,38 @@ def worker(a, core):
             for w in W1.values() for q in (w.get("search_health") or [])
         )
         if provider_attempts == 0:
-            _checkpoint(core, d, part, out, worker=a.worker_index, stage="pass1_zero_attempts",
-                        batch_index=batch_no, pending_total=len(pending), scan=scan, release=release, started=z)
+            _checkpoint(
+                core, d, part, out, worker=a.worker_index, stage="pass1_zero_attempts",
+                batch_index=batch_no, pending_total=len(pending), pending_resolved=pending_resolved,
+                pending_unresolved=pending_unresolved, scan=scan, release=release, started=z,
+            )
             raise SystemExit("SEARCH_ENGINE_ZERO_ATTEMPTS_PASS1")
 
         second = []
         for c in batch:
-            r = int(c["r"]); pe = resolved[r][2]; w = W1.get(r, {})
+            r = int(c["r"])
+            pe = resolved[r][2]
+            w = W1.get(r, {})
             if w.get("owned"):
                 out[r] = {
                     "r": r, "candidate": c, "place": pe, "web_pass1": w,
-                    "status": "REJECT", "reason": "OWNED_SITE_SEARCH_CONFIRMED", "owned_site": w["owned"],
+                    "status": "REJECT", "reason": "OWNED_SITE_SEARCH_CONFIRMED",
+                    "owned_site": w["owned"],
+                }
+            elif not pe.get("resolved"):
+                # This row is permanently HIGH-ineligible. Low provider coverage is
+                # evidence of uncertainty, not a reason to burn retries until timeout.
+                unresolved_challenged += 1
+                out[r] = {
+                    "r": r, "candidate": c, "place": pe, "web_pass1": w,
+                    "challenge_coverage": core.v5.coverage(w),
+                    "status": "UNCERTAIN",
+                    "reason": "CURRENT_IDENTITY_NOT_RESOLVED_AFTER_BOUNDED_WEB_CHALLENGE",
                 }
             elif not core.v5.coverage(w)["ok"]:
                 out[r] = {
                     "r": r, "candidate": c, "place": pe, "web_pass1": w,
                     "status": "ERROR_RETRYABLE", "reason": "SEARCH_COVERAGE_INSUFFICIENT_PASS1",
-                }
-            elif not pe.get("resolved"):
-                unresolved_challenged += 1
-                out[r] = {
-                    "r": r, "candidate": c, "place": pe, "web_pass1": w,
-                    "status": "UNCERTAIN", "reason": "CURRENT_IDENTITY_NOT_RESOLVED_AFTER_WEB_CHALLENGE",
                 }
             else:
                 second.append(c)
@@ -138,16 +160,23 @@ def worker(a, core):
                 for w in W2.values() for q in (w.get("search_health") or [])
             )
             if provider_attempts2 == 0:
-                _checkpoint(core, d, part, out, worker=a.worker_index, stage="pass2_zero_attempts",
-                            batch_index=batch_no, pending_total=len(pending), scan=scan, release=release, started=z)
+                _checkpoint(
+                    core, d, part, out, worker=a.worker_index, stage="pass2_zero_attempts",
+                    batch_index=batch_no, pending_total=len(pending), pending_resolved=pending_resolved,
+                    pending_unresolved=pending_unresolved, scan=scan, release=release, started=z,
+                )
                 raise SystemExit("SEARCH_ENGINE_ZERO_ATTEMPTS_PASS2")
 
         for c in second:
-            r = int(c["r"]); pe = resolved[r][2]; w1 = W1[r]; w2 = W2.get(r, {})
+            r = int(c["r"])
+            pe = resolved[r][2]
+            w1 = W1[r]
+            w2 = W2.get(r, {})
             if w2.get("owned"):
                 out[r] = {
                     "r": r, "candidate": c, "place": pe, "web_pass1": w1, "web_pass2": w2,
-                    "status": "REJECT", "reason": "OWNED_SITE_SECOND_PASS_CONFIRMED", "owned_site": w2["owned"],
+                    "status": "REJECT", "reason": "OWNED_SITE_SECOND_PASS_CONFIRMED",
+                    "owned_site": w2["owned"],
                 }
                 continue
             cert = core.v5.certificate(c, pe, w1, w2)
@@ -166,8 +195,11 @@ def worker(a, core):
                 "certificate": cert, "status": st, "reason": reason,
             }
 
-        _checkpoint(core, d, part, out, worker=a.worker_index, stage="web_batch_complete",
-                    batch_index=batch_no, pending_total=len(pending), scan=scan, release=release, started=z)
+        _checkpoint(
+            core, d, part, out, worker=a.worker_index, stage="web_batch_complete",
+            batch_index=batch_no, pending_total=len(pending), pending_resolved=pending_resolved,
+            pending_unresolved=pending_unresolved, scan=scan, release=release, started=z,
+        )
 
     if len(out) != len(part):
         missing = [int(c["r"]) for c in part if int(c["r"]) not in out]
@@ -175,17 +207,25 @@ def worker(a, core):
 
     final = [out[int(c["r"])] for c in part]
     core.v2.dump(d / "results.jsonl", final)
-    S = Counter(x["status"] for x in final); reasons = Counter(x.get("reason") for x in final)
+    S = Counter(x["status"] for x in final)
+    reasons = Counter(x.get("reason") for x in final)
     summ = {
-        "worker": a.worker_index, "attempted": len(part), "statuses": dict(S), "reasons": dict(reasons),
+        "worker": a.worker_index,
+        "attempted": len(part),
+        "statuses": dict(S),
+        "reasons": dict(reasons),
         "high_verified_no_website": S.get("HIGH", 0),
         "owned_sites_found": sum(str(x.get("reason", "")).startswith("OWNED_SITE") for x in final),
         "unresolved_web_challenged": unresolved_challenged,
         "second_pass_candidates": second_pass_candidates,
         "web_batch_size": batch_size,
         "web_batches": (len(pending) + batch_size - 1) // batch_size if pending else 0,
-        "scan_seconds": scan, "scan_error": "", "overture_release": release, "overture_rows": len(P),
-        "queue_files": len(qmeta["files"]), "elapsed_seconds": round(time.time() - z, 2),
+        "scan_seconds": scan,
+        "scan_error": "",
+        "overture_release": release,
+        "overture_rows": len(P),
+        "queue_files": len(qmeta["files"]),
+        "elapsed_seconds": round(time.time() - z, 2),
         "cert_version": core.CERT_VERSION,
     }
     _atomic_json(d / "summary.json", summ)
