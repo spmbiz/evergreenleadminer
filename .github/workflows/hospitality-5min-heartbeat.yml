@@ -27,7 +27,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Check desired state and active fleet runs
+      - name: Check desired state and productive harvest activity
         id: guard
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,28 +41,48 @@ jobs:
           )
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
           if [ "$ENABLED" != "true" ]; then
-            echo "active=false" >> "$GITHUB_OUTPUT"
+            echo "productive_active=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          gh api \
-            -H 'Accept: application/vnd.github+json' \
+          gh api -H 'Accept: application/vnd.github+json' \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/hospitality-autonomous-fleet.yml/runs?per_page=20" \
             > /tmp/runs.json
 
-          ACTIVE=$(python - <<'PY'
-          import json
+          PRODUCTIVE=$(python - <<'PY'
+          import json, os, subprocess, sys
           runs=json.load(open('/tmp/runs.json')).get('workflow_runs') or []
           active=[r for r in runs if r.get('status') in {'queued','in_progress','waiting','pending','requested'}]
-          print('true' if active else 'false')
-          if active:
-              print('Active hospitality runs:', [(r.get('id'),r.get('status'),r.get('event')) for r in active], file=__import__('sys').stderr)
+          # A queued/requested workflow may not have jobs yet, so treat it as a
+          # pending productive cycle. For in-progress workflows inspect jobs:
+          # aggregate/release-only tails no longer block the next harvest.
+          for r in active:
+              if r.get('status') != 'in_progress':
+                  print('true')
+                  print('Pending hospitality cycle:', r.get('id'), r.get('status'), file=sys.stderr)
+                  raise SystemExit
+              url=f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{r['id']}/jobs?per_page=100"
+              p=subprocess.run(['gh','api','-H','Accept: application/vnd.github+json',url],text=True,capture_output=True)
+              if p.returncode:
+                  print('true')
+                  print('Could not inspect active run jobs; conservatively treating active:', r.get('id'), file=sys.stderr)
+                  raise SystemExit
+              jobs=(json.loads(p.stdout).get('jobs') or [])
+              for j in jobs:
+                  if j.get('status') not in {'queued','in_progress','waiting','pending','requested'}:
+                      continue
+                  name=str(j.get('name') or '').lower()
+                  if name == 'plan' or name.startswith('harvest'):
+                      print('true')
+                      print('Productive hospitality work active:', r.get('id'), j.get('name'), j.get('status'), file=sys.stderr)
+                      raise SystemExit
+          print('false')
           PY
           )
-          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+          echo "productive_active=$PRODUCTIVE" >> "$GITHUB_OUTPUT"
 
-      - name: Redispatch hospitality fleet when idle
-        if: steps.guard.outputs.enabled == 'true' && steps.guard.outputs.active != 'true'
+      - name: Redispatch hospitality harvest when productive workers are idle
+        if: steps.guard.outputs.enabled == 'true' && steps.guard.outputs.productive_active != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -71,8 +91,8 @@ jobs:
             gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/actions/workflows/hospitality-autonomous-fleet.yml/dispatches" \
               --input -
-          echo 'Hospitality fleet was idle; dispatched a new autonomous cycle.'
+          echo 'No plan/harvest work was active; dispatched another leased autonomous cycle.'
 
       - name: Report healthy
-        if: steps.guard.outputs.enabled != 'true' || steps.guard.outputs.active == 'true'
-        run: echo 'Heartbeat healthy; no dispatch needed.'
+        if: steps.guard.outputs.enabled != 'true' || steps.guard.outputs.productive_active == 'true'
+        run: echo 'Heartbeat healthy; productive harvest already active or fleet disabled.'
