@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Worker policy for autonomous GWS verification v5.4.
+"""Tiered worker policy for autonomous GWS verification.
 
-HIGH criteria are unchanged. Strongly resolved candidates retain mandatory two
-passes. Unresolved identities can never become HIGH, so they receive a bounded
-site-discovery challenge and remain UNCERTAIN if no owned site is found. Every
-batch is checkpointed atomically and emits a GitHub Actions notice for live
-progress visibility.
+Only candidates with a strongly corroborated current identity can ever become
+HIGH, so only they receive the expensive independent-index two-pass certificate.
+Unresolved and resolved-but-weak identities receive one bounded owned-site
+challenge and remain UNCERTAIN/MEDIUM if no site is found. HIGH gates themselves
+remain strict and fail closed. Every batch is durably checkpointed.
 """
 from __future__ import annotations
 
@@ -50,13 +50,12 @@ def _checkpoint(core, d: Path, part, out, *, worker: int, stage: str, batch_inde
         "scan_seconds": scan,
         "overture_release": release,
         "elapsed_seconds": round(time.time() - started, 2),
-        "checkpoint_schema": "gws-v54-worker-checkpoint-v2",
+        "checkpoint_schema": "gws-v55-worker-checkpoint-v3",
     }
     _atomic_json(d / "progress.json", progress)
     compact = json.dumps(progress, separators=(",", ":"))
-    print("GWS_V54_PROGRESS=" + compact, flush=True)
-    # GitHub Check API exposes workflow-command notices while a job is active.
-    print(f"::notice title=GWS v5.4 worker {worker} progress::{compact}", flush=True)
+    print("GWS_V55_PROGRESS=" + compact, flush=True)
+    print(f"::notice title=GWS v5.5 worker {worker} progress::{compact}", flush=True)
 
 
 def worker(a, core):
@@ -79,15 +78,17 @@ def worker(a, core):
             "elapsed_seconds": round(time.time() - z, 2), "cert_version": core.CERT_VERSION,
         }
         _atomic_json(d / "summary.json", summary)
-        print("GWS_V54_WORKER_FATAL=" + json.dumps(summary, separators=(",", ":")), flush=True)
+        print("GWS_V55_WORKER_FATAL=" + json.dumps(summary, separators=(",", ":")), flush=True)
         raise SystemExit(2)
 
     resolved, pending, out = {}, [], {}
     for c in part:
         p, pe = core.v2.resolve(c, P, I) if core.v2.in_scope(c) else (None, {"resolved": False})
+        strong = bool(pe.get("resolved") and core.v5.strong_place_identity(pe))
         cc = dict(c)
         cc["alias"] = core.v2.t(pe.get("overture_name"))
         cc["_unresolved_challenge"] = not bool(pe.get("resolved"))
+        cc["_strict_high_candidate"] = strong
         resolved[int(c["r"])] = (cc, p, pe)
         early = core.v5.preclassify(cc, p, pe, True)
         if early:
@@ -97,6 +98,7 @@ def worker(a, core):
 
     pending_resolved = sum(not c.get("_unresolved_challenge") for c in pending)
     pending_unresolved = len(pending) - pending_resolved
+    strict_high_pending = sum(bool(c.get("_strict_high_candidate")) for c in pending)
     _checkpoint(
         core, d, part, out, worker=a.worker_index, stage="resolved", batch_index=0,
         pending_total=len(pending), pending_resolved=pending_resolved,
@@ -105,6 +107,7 @@ def worker(a, core):
 
     batch_size = max(1, int(os.getenv("GWS_WEB_BATCH_SIZE", "12")))
     unresolved_challenged = 0
+    resolved_weak_challenged = 0
     second_pass_candidates = 0
 
     for offset in range(0, len(pending), batch_size):
@@ -135,14 +138,22 @@ def worker(a, core):
                     "owned_site": w["owned"],
                 }
             elif not pe.get("resolved"):
-                # This row is permanently HIGH-ineligible. Low provider coverage is
-                # evidence of uncertainty, not a reason to burn retries until timeout.
                 unresolved_challenged += 1
                 out[r] = {
                     "r": r, "candidate": c, "place": pe, "web_pass1": w,
                     "challenge_coverage": core.v5.coverage(w),
                     "status": "UNCERTAIN",
                     "reason": "CURRENT_IDENTITY_NOT_RESOLVED_AFTER_BOUNDED_WEB_CHALLENGE",
+                }
+            elif not c.get("_strict_high_candidate"):
+                # Current entity is resolved but not strong enough for HIGH. Do not
+                # spend a second independent-index pass on a permanently HIGH-ineligible row.
+                resolved_weak_challenged += 1
+                out[r] = {
+                    "r": r, "candidate": c, "place": pe, "web_pass1": w,
+                    "challenge_coverage": core.v5.coverage(w),
+                    "status": "MEDIUM",
+                    "reason": "IDENTITY_RESOLVED_NOT_STRONG_ENOUGH_FOR_HIGH_AFTER_BOUNDED_WEB_CHALLENGE",
                 }
             elif not core.v5.coverage(w)["ok"]:
                 out[r] = {
@@ -217,6 +228,8 @@ def worker(a, core):
         "high_verified_no_website": S.get("HIGH", 0),
         "owned_sites_found": sum(str(x.get("reason", "")).startswith("OWNED_SITE") for x in final),
         "unresolved_web_challenged": unresolved_challenged,
+        "resolved_weak_web_challenged": resolved_weak_challenged,
+        "strict_high_candidates": strict_high_pending,
         "second_pass_candidates": second_pass_candidates,
         "web_batch_size": batch_size,
         "web_batches": (len(pending) + batch_size - 1) // batch_size if pending else 0,
@@ -229,4 +242,4 @@ def worker(a, core):
         "cert_version": core.CERT_VERSION,
     }
     _atomic_json(d / "summary.json", summ)
-    print("GWS_V54_WORKER=" + json.dumps(summ, separators=(",", ":")), flush=True)
+    print("GWS_V55_WORKER=" + json.dumps(summ, separators=(",", ":")), flush=True)
