@@ -5,9 +5,9 @@ Coverage remains independent per lane, but phases are no longer a hard global
 barrier. High-priority recovery work can exploit known commercial markets while
 a small exploration budget keeps cheap first-pass geographic coverage moving.
 
-Runner slots are work queues, not one-shot cells: default planning packs multiple
-independent geo cells into each runner. This amortizes checkout/setup/dependency
-cost and keeps a runner productive after its first shard finishes.
+One cell per runner is the current production baseline. A multi-cell runner-local
+packing canary produced materially worse canonical novelty per runner-minute, so
+packing remains disabled until novelty-aware cell metrics justify another canary.
 """
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ LANES_PATH = ROOT / "config/hospitality_source_lanes.json"
 ATLAS_PATH = ROOT / "config/hospitality_world_atlas.json"
 PHASE_PENALTY = 20_000_000.0
 EXPLORE_SHARE = 0.15
-EXPLOIT_CELLS_PER_RUNNER = 2
-EXPLORE_CELLS_PER_RUNNER = 4
+EXPLOIT_CELLS_PER_RUNNER = 1
+EXPLORE_CELLS_PER_RUNNER = 1
 
 
 def lane_catalog():
@@ -72,9 +72,9 @@ def lane_catalog():
 def choose_groups(ranked, capacity: int, force_lane: str):
     """Return runner-local groups of independent geo cells.
 
-    Default: ~85% runner slots exploit top-ranked work, two cells per runner;
-    ~15% explore unseen/retryable fast-email work, four cheap cells per runner.
-    A forced lane remains one cell per runner to keep manual canaries simple.
+    Production currently uses one cell per runner for both exploit and explore.
+    The grouping abstraction remains so packing can be canaried again later with
+    measured canonical-novelty metrics instead of changing worker contracts.
     """
     capacity = max(0, int(capacity))
     if capacity == 0:
@@ -136,9 +136,9 @@ def batch_task(cells: list[dict], bucket: str, index: int) -> dict:
     rep = dict(cells[0])
     lanes = sorted({str(c.get("lane") or "unknown") for c in cells})
     payload = encode_batch(cells)
-    # Keep a real supported lane value so the existing workflow/CLI needs no
-    # special matrix branch. hospitality_worker recognizes batch64: and hands
-    # the payload to the runner-local queue worker before lane-specific logic.
+    # Keep one execution path even for single-cell production groups. The batch
+    # wrapper records planner metadata and lets a future packing canary reuse the
+    # same worker contract without a workflow fork.
     rep.update({
         "name": f"geo-batch-{bucket}-{index:02d}-{sig}",
         "country": "BATCH",
