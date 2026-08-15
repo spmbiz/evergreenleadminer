@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Conservative current-identity resolver hardening for Brussels GWS.
 
-The legacy resolver compared digit strings literally, so a Belgian local phone
-such as 02 521 58 59 did not equal the same E.164 phone +32 2 521 58 59.
-This module canonicalizes equivalent Belgian national/international forms while
-preserving the existing name/address/postcode thresholds. It does not introduce
-fuzzy phone matching or suffix-only matching.
+Belgian national/E.164 phone forms are canonicalized, but an exact phone match is
+not allowed to override a material entity mismatch. Phone reuse, shared premises,
+service counters, recycled numbers, and stale directory records are common enough
+that strict VERIFIED_NO_WEBSITE needs at least one corroborating identity signal.
 """
 from __future__ import annotations
 
@@ -20,18 +19,34 @@ def phone_keys(value) -> set[str]:
     d = re.sub(r"\D", "", v2.t(value))
     if not d:
         return set()
-    # Normalize international access prefix.
     if d.startswith("0032"):
         d = d[2:]
     out = {d}
     if d.startswith("32") and len(d) >= 10:
-        # +32 removes the Belgian trunk zero.
-        national = "0" + d[2:]
-        out.add(national)
+        out.add("0" + d[2:])
     elif d.startswith("0") and len(d) >= 9:
         out.add("32" + d[1:])
-    # Keep only plausible full Belgian representations; never compare mere suffixes.
     return {x for x in out if 9 <= len(x) <= 11}
+
+
+def phone_identity_corroborated(phone_exact: bool, name_similarity: float,
+                                 address_overlap: float, postcode_match: bool) -> bool:
+    """Fail closed when the phone points at a materially different current entity.
+
+    This is intentionally stricter than the legacy resolver. A matching full phone
+    is powerful evidence, but for strict HIGH eligibility it must be supported by
+    the current name, or by a moderately matching name plus address/postcode.
+    """
+    if not phone_exact:
+        return False
+    ns = float(name_similarity or 0)
+    ao = float(address_overlap or 0)
+    pm = bool(postcode_match)
+    if ns >= 0.55:
+        return True
+    if ns >= 0.42 and pm and ao >= 0.25:
+        return True
+    return False
 
 
 def indexes(P):
@@ -71,16 +86,18 @@ def resolve(c, P, I):
         if best is None or sc > best[0]:
             best = (sc, p, px, ns, ao, pm, sorted(cphones & pphones))
     if not best:
-        return None, {"resolved": False, "phone_normalization": "be-national-e164-v1"}
+        return None, {"resolved": False, "phone_normalization": "be-national-e164-v2-corroborated"}
+
     _, p, px, ns, ao, pm, matched_phone_keys = best
-    # Same non-phone identity thresholds as the legacy resolver. The only
-    # behavior change is recognizing equivalent full Belgian phone forms.
-    ok = px or (ns >= 0.91 and (pm or ao >= 0.2)) or (ns >= 0.82 and pm and ao >= 0.25)
+    phone_ok = phone_identity_corroborated(px, ns, ao, pm)
+    non_phone_ok = (ns >= 0.91 and (pm or ao >= 0.2)) or (ns >= 0.82 and pm and ao >= 0.25)
+    ok = bool(phone_ok or non_phone_ok)
     ev = {
         "resolved": ok,
         "phone_exact": px,
+        "phone_corroborated": phone_ok,
         "phone_matched_keys": matched_phone_keys,
-        "phone_normalization": "be-national-e164-v1",
+        "phone_normalization": "be-national-e164-v2-corroborated",
         "name_similarity": round(ns, 3),
         "address_overlap": round(ao, 3),
         "postcode_match": pm,
