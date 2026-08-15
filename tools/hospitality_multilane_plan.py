@@ -4,11 +4,17 @@
 Coverage remains independent per lane, but phases are no longer a hard global
 barrier. High-priority recovery work can exploit known commercial markets while
 a small exploration budget keeps cheap first-pass geographic coverage moving.
+
+Runner slots are work queues, not one-shot cells: default planning packs multiple
+independent geo cells into each runner. This amortizes checkout/setup/dependency
+cost and keeps a runner productive after its first shard finishes.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 
@@ -18,10 +24,10 @@ import hospitality_grid_plan as gp
 ROOT = Path(__file__).resolve().parents[1]
 LANES_PATH = ROOT / "config/hospitality_source_lanes.json"
 ATLAS_PATH = ROOT / "config/hospitality_world_atlas.json"
-# A phase still carries a cost premium, but it must not force us to exhaust every
-# low-priority remote Pass-A cell before touching P0/P1 recovery inventory.
 PHASE_PENALTY = 20_000_000.0
 EXPLORE_SHARE = 0.15
+EXPLOIT_CELLS_PER_RUNNER = 2
+EXPLORE_CELLS_PER_RUNNER = 4
 
 
 def lane_catalog():
@@ -55,9 +61,6 @@ def lane_catalog():
                 c["contact_timeout"] = 7
                 c["contact_max_pages"] = 3
                 c["contact_max_bytes"] = 900000
-
-            # Preserve deployed Pass-A keys. Recovery gets its own deterministic
-            # coverage key, allowing both lanes to progress independently.
             if suffix:
                 c["name"] = f"{c['name']}--{suffix}"
                 c["region"] = f"{c['region']}::lane={suffix}"
@@ -66,49 +69,93 @@ def lane_catalog():
     return out
 
 
-def choose_exploit_explore(ranked, capacity: int, force_lane: str):
-    """Allocate ~85% to highest expected yield and ~15% to cheap exploration.
+def choose_groups(ranked, capacity: int, force_lane: str):
+    """Return runner-local groups of independent geo cells.
 
-    Exploration uses unseen/retryable fast-email cells. This preserves discovery
-    breadth without letting low-value P3 geography monopolize all runners while
-    high-priority site-recovery inventory exists.
+    Default: ~85% runner slots exploit top-ranked work, two cells per runner;
+    ~15% explore unseen/retryable fast-email work, four cheap cells per runner.
+    A forced lane remains one cell per runner to keep manual canaries simple.
     """
     capacity = max(0, int(capacity))
     if capacity == 0:
         return []
     if force_lane:
-        return [dict(x[2]) for x in ranked[:capacity]]
+        return [("forced", [dict(x[2], planner_bucket="forced", planner_score=round(float(x[0]), 3))]) for x in ranked[:capacity]]
 
-    explore_n = 0 if capacity < 4 else max(1, min(capacity - 1, round(capacity * EXPLORE_SHARE)))
-    exploit_n = capacity - explore_n
-    chosen = []
-    chosen_keys = set()
+    explore_slots = 0 if capacity < 4 else max(1, min(capacity - 1, round(capacity * EXPLORE_SHARE)))
+    exploit_slots = capacity - explore_slots
+    used = set()
 
+    exploit_units = []
     for score, key, cell in ranked:
-        if len(chosen) >= exploit_n:
+        if len(exploit_units) >= exploit_slots * EXPLOIT_CELLS_PER_RUNNER:
             break
-        chosen.append(dict(cell, planner_bucket="exploit", planner_score=round(float(score), 3)))
-        chosen_keys.add(key)
+        exploit_units.append(dict(cell, planner_bucket="exploit", planner_score=round(float(score), 3)))
+        used.add(key)
 
-    if explore_n:
+    explore_units = []
+    if explore_slots:
         for score, key, cell in ranked:
-            if len(chosen) >= capacity:
+            if len(explore_units) >= explore_slots * EXPLORE_CELLS_PER_RUNNER:
                 break
-            if key in chosen_keys or cell.get("lane") != "fast_email":
+            if key in used or cell.get("lane") != "fast_email":
                 continue
-            chosen.append(dict(cell, planner_bucket="explore", planner_score=round(float(score), 3)))
-            chosen_keys.add(key)
+            explore_units.append(dict(cell, planner_bucket="explore", planner_score=round(float(score), 3)))
+            used.add(key)
 
-    # If the exploration pool is exhausted, never leave usable capacity idle.
-    if len(chosen) < capacity:
+    groups = []
+    for i in range(exploit_slots):
+        cells = exploit_units[i::exploit_slots]
+        if cells:
+            groups.append(("exploit", cells))
+    for i in range(explore_slots):
+        cells = explore_units[i::explore_slots]
+        if cells:
+            groups.append(("explore", cells))
+
+    # Never leave an allocated runner slot unused if backlog exists. Fill missing
+    # slots with the next untouched work unit, without increasing instantaneous
+    # HTTP concurrency inside a runner.
+    if len(groups) < capacity:
         for score, key, cell in ranked:
-            if len(chosen) >= capacity:
+            if len(groups) >= capacity:
                 break
-            if key in chosen_keys:
+            if key in used:
                 continue
-            chosen.append(dict(cell, planner_bucket="exploit-fill", planner_score=round(float(score), 3)))
-            chosen_keys.add(key)
-    return chosen
+            used.add(key)
+            groups.append(("exploit-fill", [dict(cell, planner_bucket="exploit-fill", planner_score=round(float(score), 3))]))
+    return groups
+
+
+def encode_batch(cells: list[dict]) -> str:
+    raw = json.dumps(cells, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def batch_task(cells: list[dict], bucket: str, index: int) -> dict:
+    if len(cells) == 1 and bucket == "forced":
+        return dict(cells[0])
+    sig = hashlib.sha1("|".join(str(c.get("key") or "") for c in cells).encode()).hexdigest()[:16]
+    rep = dict(cells[0])
+    lanes = sorted({str(c.get("lane") or "unknown") for c in cells})
+    rep.update({
+        "name": f"geo-batch-{bucket}-{index:02d}-{sig}",
+        "country": "BATCH",
+        "region": f"RunnerQueue::{bucket}::{len(cells)}cells",
+        "bbox": f"batch:{sig}",
+        "key": f"batch-{sig}",
+        "lane": "geo_batch",
+        "lane_id": "geo_batch",
+        "source_family": "overture-batched",
+        "catalog_layer": "runner-queue",
+        "tier": "BATCH",
+        "planner_bucket": bucket,
+        "planner_score": max(float(c.get("planner_score") or 0) for c in cells),
+        "batch_size": len(cells),
+        "batch_lanes": lanes,
+        "batch_cells_b64": encode_batch(cells),
+    })
+    return rep
 
 
 def main():
@@ -158,13 +205,29 @@ def main():
         lane_backlog[lane] = lane_backlog.get(lane, 0) + 1
 
     ranked.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    selected = choose_exploit_explore(ranked, int(a.capacity), a.force_lane) if enabled else []
-    for i, s in enumerate(selected):
-        s["slot"] = i
-        s["local_workers"] = local_workers
-        if s.get("lane") == "site_recovery":
-            state = lane_state.get("site_recovery") or {}
-            s["contact_workers"] = int(state.get("recommended_contact_workers") or s.get("contact_workers") or 48)
+    groups = choose_groups(ranked, int(a.capacity), a.force_lane) if enabled else []
+
+    selected = []
+    selected_work_units = 0
+    work_unit_lane_counts = {}
+    for i, (bucket, cells) in enumerate(groups):
+        configured = []
+        for cell in cells:
+            c = dict(cell)
+            c["local_workers"] = local_workers
+            if c.get("lane") == "site_recovery":
+                state = lane_state.get("site_recovery") or {}
+                c["contact_workers"] = int(state.get("recommended_contact_workers") or c.get("contact_workers") or 48)
+            c["verify_engine"] = "thread"
+            c["per_host"] = 4
+            configured.append(c)
+            lane = str(c.get("lane") or "unknown")
+            work_unit_lane_counts[lane] = work_unit_lane_counts.get(lane, 0) + 1
+        task = batch_task(configured, bucket, i)
+        task["slot"] = i
+        task["local_workers"] = local_workers
+        selected.append(task)
+        selected_work_units += len(configured)
 
     payload = {
         "enabled": enabled,
@@ -177,9 +240,17 @@ def main():
         "tier_backlog": tier_backlog,
         "layer_backlog": layer_backlog,
         "lane_backlog": lane_backlog,
-        "planner_policy": {"exploit_share": 1.0 - EXPLORE_SHARE, "explore_share": EXPLORE_SHARE, "phase_penalty": PHASE_PENALTY},
+        "planner_policy": {
+            "exploit_share": 1.0 - EXPLORE_SHARE,
+            "explore_share": EXPLORE_SHARE,
+            "phase_penalty": PHASE_PENALTY,
+            "exploit_cells_per_runner": EXPLOIT_CELLS_PER_RUNNER,
+            "explore_cells_per_runner": EXPLORE_CELLS_PER_RUNNER,
+        },
         "selected_lane_counts": {},
         "selected_bucket_counts": {},
+        "selected_work_units": selected_work_units,
+        "selected_work_unit_lane_counts": work_unit_lane_counts,
         "include": selected,
     }
     for s in selected:
