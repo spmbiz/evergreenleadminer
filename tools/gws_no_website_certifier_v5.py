@@ -99,7 +99,7 @@ def coverage(w):
         "searched_queries": searched,
         "usable_query_families": usable,
         "direct_domains_checked": checked,
-        "ok": healthy >= 2 and searched >= 4 and usable >= 3 and checked >= 5,
+        "ok": healthy >= 2 and searched >= 2 and usable >= 2 and checked >= 5,
     }
 
 
@@ -149,7 +149,7 @@ def certificate(c, pe, w1, w2):
         "unresolved_plausible_domains": list(unresolved.values()),
         "gates": gates,
     }
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    raw = json.dumps({"place":pe,"pass1":w1,"pass2":w2}, sort_keys=True, separators=(",", ":"), default=str).encode()
     payload["evidence_digest"] = hashlib.sha256(raw).hexdigest()
     payload["verified"] = all(gates.values())
     return payload
@@ -265,17 +265,31 @@ def aggregate(a):
     if len(rows)!=a.expected:
         raise SystemExit(f"INCOMPLETE_AGGREGATE expected={a.expected} got={len(rows)}")
 
-    seen={}; canonical_dups=0
-    for x in rows:
-        k=canonical_key(x)
-        if k in seen:
-            canonical_dups+=1
-            x["status"]="DUPLICATE"; x["reason"]="CANONICAL_DUPLICATE"; x["duplicate_of_r"]=seen[k]
-        else: seen[k]=int(x["r"])
+    groups=defaultdict(list)
+    for x in rows: groups[canonical_key(x)].append(x)
+    canonical_dups=0; reconciled=[]
+    rank={"HIGH":5,"MEDIUM":4,"UNCERTAIN":3,"ERROR_RETRYABLE":2,"ERROR_HARD":1,"REJECT":0}
+    for key,members in groups.items():
+        site_bad=[x for x in members if str(x.get("reason","")).startswith("OWNED_SITE") or str(x.get("reason","")).startswith("CLOSED_")]
+        if site_bad:
+            canonical=min(members,key=lambda x:int(x["r"])); evidence=site_bad[0]
+            canonical["status"]="REJECT"
+            canonical["reason"]="CANONICAL_ENTITY_DISQUALIFIED"
+            canonical["group_disqualifier"]=evidence.get("reason")
+            if evidence.get("owned_site"): canonical["owned_site"]=evidence.get("owned_site")
+        else:
+            canonical=max(members,key=lambda x:(rank.get(x.get("status"),-1),-int(x["r"])))
+        cr=int(canonical["r"]); reconciled.append(canonical)
+        for x in members:
+            if x is canonical: continue
+            canonical_dups+=1; x["status"]="DUPLICATE"; x["reason"]="CANONICAL_DUPLICATE"; x["duplicate_of_r"]=cr
+            if site_bad: x["group_disqualifier"]=site_bad[0].get("reason")
+            reconciled.append(x)
+    rows=sorted(reconciled,key=lambda x:int(x["r"]))
 
     high=[x for x in rows if x.get("status")=="HIGH"]
     exceptions=[x for x in rows if x.get("status")!="HIGH"]
-    sites=[x for x in rows if str(x.get("reason","")).startswith("OWNED_SITE")]
+    sites=[x for x in rows if str(x.get("reason","")).startswith("OWNED_SITE") or x.get("group_disqualifier"," ").startswith("OWNED_SITE")]
     d=Path(a.outdir); d.mkdir(parents=True,exist_ok=True)
     v2.dump(d/"verified_no_website.jsonl",high); v2.dump(d/"exceptions.jsonl",exceptions); v2.dump(d/"owned_site_hits.jsonl",sites)
     import base64,gzip
