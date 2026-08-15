@@ -13,6 +13,10 @@ on:
         description: 'Optional canary worker count (0 = durable autoscaler)'
         required: false
         default: '0'
+      force_lane:
+        description: 'Optional lane override: fast_email or site_recovery'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -46,12 +50,13 @@ jobs:
         run: |
           mkdir -p planner
           python tools/fleet_runtime.py init
-      - name: Reserve account-wide GitHub slots and plan grid cells
+      - name: Reserve account-wide GitHub slots and plan multi-lane world cells
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
           EVENT_NAME: ${{ github.event_name }}
           DISPATCH_FORCE: ${{ github.event.inputs.force_workers || '0' }}
+          DISPATCH_LANE: ${{ github.event.inputs.force_lane || '' }}
         run: |
           set -euo pipefail
           FORCE=0
@@ -95,7 +100,11 @@ jobs:
           open('planner/cloud-capacity.json','w').write(json.dumps(out,indent=2)+'\n')
           print(json.dumps(out))
           PY
-          python tools/hospitality_grid_plan.py --provider github --capacity "$ALLOCATED" --out planner/plan.json
+          ARGS=(--provider github --capacity "$ALLOCATED" --out planner/plan.json)
+          if [ -n "${DISPATCH_LANE:-}" ]; then
+            ARGS+=(--force-lane "$DISPATCH_LANE")
+          fi
+          python tools/hospitality_multilane_plan.py "${ARGS[@]}"
       - id: emit
         name: Emit dynamic matrix
         run: |
@@ -136,7 +145,7 @@ jobs:
           python-version: '3.11'
       - name: Install minimal worker dependencies
         run: python -m pip install --disable-pip-version-check duckdb requests
-      - name: Harvest and live-verify grid cell
+      - name: Harvest and live-verify multi-lane cell
         run: |
           mkdir -p "results/${{ matrix.key }}"
           python tools/hospitality_worker.py \
@@ -148,7 +157,12 @@ jobs:
             --bbox="${{ matrix.bbox }}" \
             --release "${{ matrix.release }}" \
             --max-rows "${{ matrix.max_rows }}" \
+            --lane "${{ matrix.lane }}" \
             --local-workers "${{ matrix.local_workers }}" \
+            --contact-workers "${{ matrix.contact_workers }}" \
+            --contact-timeout "${{ matrix.contact_timeout }}" \
+            --contact-max-pages "${{ matrix.contact_max_pages }}" \
+            --contact-max-bytes "${{ matrix.contact_max_bytes }}" \
             --verify-engine thread \
             --outdir "results/${{ matrix.key }}"
       - name: Upload transport artifact
@@ -198,7 +212,7 @@ jobs:
             --canonical-db canonical/hospitality-canonical.sqlite \
             --outdir aggregate_out
           python tools/hospitality_scheduler.py after --metrics metrics/latest.json
-      - name: Preserve fast-ready observations beyond temporary artifacts
+      - name: Preserve enriched observations beyond temporary artifacts
         run: |
           python - <<'PY'
           import csv,gzip,json,os
@@ -249,7 +263,7 @@ jobs:
             echo "No small-state changes to commit"
             exit 0
           fi
-          git commit -m "fleet: hospitality grid checkpoint ${CYCLE_ID} [skip ci]"
+          git commit -m "fleet: hospitality multi-lane checkpoint ${CYCLE_ID} [skip ci]"
           for attempt in 1 2 3 4; do
             if git pull --rebase origin main && git push origin HEAD:main; then
               exit 0
