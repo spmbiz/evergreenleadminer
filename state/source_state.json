@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.20806,
-    "recent_429_rate": 0.00336,
-    "recent_timeout_rate": 0.02349,
+    "recent_error_rate": 0.0,
+    "recent_429_rate": 0.0,
+    "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-15T19:22:45.537577Z"
+    "last_updated": "2026-08-15T19:38:48.914929Z"
   },
   "hospitality_lanes": {
     "fast_email": {
-      "last_workers_completed": 2,
+      "last_workers_completed": 1,
       "last_workers_failed": 0,
-      "last_raw_discovered": 1068,
-      "last_fast_ready": 24,
-      "last_live_ready": 12,
+      "last_raw_discovered": 0,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.04167,
-        "error_rate": 0.33333
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -73,24 +73,24 @@
     "site_recovery": {
       "last_workers_completed": 3,
       "last_workers_failed": 0,
-      "last_raw_discovered": 4303,
-      "last_fast_ready": 92,
-      "last_live_ready": 46,
-      "last_recovery_candidates": 92,
-      "last_recovered_public_emails": 18,
+      "last_raw_discovered": 20,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
+      "last_recovery_candidates": 0,
+      "last_recovered_public_emails": 0,
       "last_live_health": {
-        "429_rate": 0.01087,
-        "timeout_rate": 0.03261,
-        "error_rate": 0.34783
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
       },
       "last_contact_health": {
-        "429_rate": 0.01087,
-        "timeout_rate": 0.04348,
-        "error_rate": 0.02174
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
       },
       "recommended_contact_workers": 48,
-      "last_contact_ready": 92,
-      "last_social_or_contact_without_email": 74
+      "last_contact_ready": 0,
+      "last_social_or_contact_without_email": 0
     }
   }
 }
