@@ -1,22 +1,17 @@
 {
   "schema_version": 1,
-  "steps": [
-    4,
-    8,
-    12,
-    16,
-    20
-  ],
-  "recommended_cloud_workers": 4,
+  "steps": [4, 8, 12, 16, 20],
+  "recommended_cloud_workers": 8,
   "last_cycle": "20260814T235603Z-github",
-  "last_decision": "hold",
-  "updated_at": "2026-08-14T23:59:35.913344Z",
+  "last_decision": "promote_disjoint_shard_canary",
+  "updated_at": "2026-08-15T00:00:00Z",
   "last_health": {
     "429_rate": 0.01009,
     "timeout_rate": 0.01226,
-    "error_rate": 0.10454,
-    "errors": 0
+    "site_error_rate": 0.10454,
+    "workers_failed": 0
   },
   "last_workers_completed": 4,
-  "last_live_ready": 932
+  "last_live_ready": 932,
+  "last_live_ready_per_worker": 233.0
 }
