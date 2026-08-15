@@ -3,14 +3,15 @@
 
 The broker allocates expiring GitHub-hosted-runner leases while observing all
 owner repositories. Hospitality/GWS write leases in this repository. Tender is
-read as a remote-demand workload and receives guaranteed headroom before an
-Evergreen workload borrows elastic capacity.
+read as a remote-demand workload.
 
 Important semantics:
 - only in-progress jobs consume observed runner occupancy;
 - queued jobs are demand, not occupancy;
-- sibling guarantees reserve only the *missing* part of a floor/weighted target;
-- unused guarantees are borrowable when sibling demand is zero;
+- sibling guarantees reserve only the missing part of a floor/weighted target;
+- a remote sibling floor is reserved only when that sibling has queued runnable
+  jobs; otherwise its idle floor is temporarily borrowable until natural worker
+  completion makes capacity available again;
 - leases expire automatically and are released at natural workflow completion;
 - after a short launch grace period, a lease shrinks to its observed live+queued
   jobs so completed workers do not strand phantom capacity behind one straggler.
@@ -60,7 +61,7 @@ def token():
 def req(url, method="GET", accept="application/vnd.github+json"):
     r = urllib.request.Request(url, method=method)
     r.add_header("Accept", accept)
-    r.add_header("User-Agent", "ai-prod-global-broker/2.1")
+    r.add_header("User-Agent", "ai-prod-global-broker/2.2")
     r.add_header("X-GitHub-Api-Version", "2022-11-28")
     if token():
         r.add_header("Authorization", f"Bearer {token()}")
@@ -191,7 +192,7 @@ def live_jobs(owner: str):
                     else:
                         r = urllib.request.Request(
                             url,
-                            headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/2.1"},
+                            headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/2.2"},
                         )
                         with urllib.request.urlopen(r, timeout=20) as x:
                             data = json.loads(x.read())
@@ -239,13 +240,7 @@ def prune_leases(state: dict, current_run: str | None = None):
 
 
 def effective_lease_accounting(leases: list[dict], jobs: list[dict]):
-    """Shrink mature leases to live outstanding jobs, preserving a launch grace.
-
-    A planner initially reserves N slots before its matrix appears. During the
-    grace period the full reservation is protected. Afterwards, if GitHub reports
-    fewer active+queued jobs for that run, completed worker slots become borrowable
-    immediately instead of remaining stranded until a slow sibling/aggregate ends.
-    """
+    """Shrink mature leases to live outstanding jobs, preserving a launch grace."""
     live_by_run = {str(j.get("run_id") or ""): j for j in jobs}
     now = now_utc()
     total = 0
@@ -294,8 +289,11 @@ def reserve(args):
     external_queued = sum(int(j.get("queued_jobs") or 0) for j in external_jobs)
     leased_slots, leased_by_workload, lease_accounting = effective_lease_accounting(leases, jobs)
     active_by_repo = Counter()
+    queued_by_repo = Counter()
     for j in external_jobs:
-        active_by_repo[str(j.get("repo") or "")] += int(j.get("active_jobs") or 0)
+        repo_name = str(j.get("repo") or "")
+        active_by_repo[repo_name] += int(j.get("active_jobs") or 0)
+        queued_by_repo[repo_name] += int(j.get("queued_jobs") or 0)
 
     demand = local_demand()
     current_cfg = wc.get(args.workload) or {}
@@ -304,6 +302,7 @@ def reserve(args):
 
     sibling_headroom = 0
     sibling_reservations = {}
+    borrowed_idle_floors = {}
     for name, scfg in wc.items():
         if name == args.workload or not scfg.get("enabled", True):
             continue
@@ -317,14 +316,26 @@ def reserve(args):
         target = min(sibling_demand, sibling_max, max(floor, weighted))
         repo = str(scfg.get("repo") or "")
         already = int(leased_by_workload.get(name, 0))
+        runnable_queued = 0
         if scfg.get("mode") == "remote-demand":
             already += int(active_by_repo.get(repo, 0))
+            runnable_queued = int(queued_by_repo.get(repo, 0))
         missing = max(0, target - already)
+        if scfg.get("mode") == "remote-demand" and missing and runnable_queued <= 0:
+            borrowed_idle_floors[name] = {
+                "demand": sibling_demand,
+                "target": target,
+                "already_active": already,
+                "temporarily_borrowable": missing,
+                "reason": "remote workload has no queued runnable jobs; return at natural completion when demand requeues",
+            }
+            missing = 0
         if missing:
             sibling_reservations[name] = {
                 "demand": sibling_demand,
                 "target": target,
                 "already_active_or_leased": already,
+                "queued_runnable": runnable_queued,
                 "missing_headroom": missing,
             }
             sibling_headroom += missing
@@ -363,6 +374,7 @@ def reserve(args):
         "lease_accounting": lease_accounting,
         "sibling_headroom": sibling_headroom,
         "sibling_reservations": sibling_reservations,
+        "borrowed_idle_floors": borrowed_idle_floors,
         "demand": demand,
         "external_jobs": external_jobs,
     }
@@ -378,6 +390,7 @@ def reserve(args):
         "lease_accounting": lease_accounting,
         "sibling_headroom": sibling_headroom,
         "sibling_reservations": sibling_reservations,
+        "borrowed_idle_floors": borrowed_idle_floors,
         "demand": demand,
         "lease": lease,
         "external_jobs": external_jobs,
