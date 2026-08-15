@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "principles": {
+    "canonical_writer": "github-single-writer",
+    "master_is_google_sheet": true,
+    "dedupe_before_http": true,
+    "blank_over_inference": true,
+    "no_login_no_form_submission": true,
+    "public_business_data_only": true
+  },
+  "lanes": [
+    {
+      "id": "overture_fast_email",
+      "source": "overture_places",
+      "enabled": true,
+      "phase": 0,
+      "planner_mode": "geographic",
+      "worker_mode": "fast_email",
+      "description": "Website + public email already present in Overture, then live site verification.",
+      "max_rows_per_cell": 125000,
+      "http_cost": "low",
+      "coverage_suffix": "",
+      "revisit_multiplier": 1.0
+    },
+    {
+      "id": "overture_site_recovery",
+      "source": "overture_places",
+      "enabled": true,
+      "phase": 1,
+      "planner_mode": "geographic",
+      "worker_mode": "site_recovery",
+      "description": "Hospitality place has an official website but no usable Overture email; crawl a bounded set of first-party public pages for public business email/socials, then live verify.",
+      "max_rows_per_cell": 80000,
+      "http_cost": "medium",
+      "coverage_suffix": "site-recovery",
+      "revisit_multiplier": 1.5,
+      "contact_crawl": {
+        "max_pages_per_domain": 3,
+        "timeout_seconds": 7,
+        "max_bytes_per_page": 900000,
+        "workers": 48,
+        "per_host": 1,
+        "candidate_paths": ["/contact", "/contact-us", "/about", "/about-us", "/booking", "/reservations"]
+      }
+    },
+    {
+      "id": "operator_first_resolution",
+      "source": "multi_source",
+      "enabled": false,
+      "phase": 2,
+      "planner_mode": "account",
+      "worker_mode": "operator_resolution",
+      "description": "Resolve multi-property operators across evidence sources after geographic recall lanes are stable. Disabled until its own canary is GREEN."
+    },
+    {
+      "id": "alltheplaces_direct",
+      "source": "alltheplaces",
+      "enabled": false,
+      "phase": 3,
+      "planner_mode": "source_partition",
+      "worker_mode": "alltheplaces",
+      "description": "Direct AllThePlaces ingestion. Disabled until dataset transport, licensing/provenance and dedupe canary are verified."
+    },
+    {
+      "id": "osm_geofabrik_hospitality",
+      "source": "openstreetmap_geofabrik",
+      "enabled": false,
+      "phase": 4,
+      "planner_mode": "source_partition",
+      "worker_mode": "osm_geofabrik",
+      "description": "OSM/Geofabrik tourism and accommodation objects. Disabled until extract partition canary is GREEN."
+    },
+    {
+      "id": "commoncrawl_pms_footprints",
+      "source": "common_crawl",
+      "enabled": false,
+      "phase": 5,
+      "planner_mode": "footprint_partition",
+      "worker_mode": "commoncrawl_pms",
+      "description": "Discover operator domains from public PMS/booking-engine footprints. Disabled until bounded index canary is GREEN."
+    },
+    {
+      "id": "official_str_registries",
+      "source": "official_registry",
+      "enabled": false,
+      "phase": 6,
+      "planner_mode": "jurisdiction",
+      "worker_mode": "registry",
+      "description": "Official public short-stay/accommodation registries, one jurisdiction adapter at a time. Never scraped through auth walls."
+    }
+  ]
+}
