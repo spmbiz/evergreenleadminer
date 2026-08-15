@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Search-provider pool for autonomous GWS verification.
+"""Bounded multi-provider search for autonomous GWS verification.
 
-Designed from live GitHub-runner calibration. Certification does not depend on
-Google's JS/throttle surface. Search concurrency is isolated per transport:
-DDG stays serialized per worker, while Bing and Yahoo may use the configured
-bounded concurrency. Evidence families remain conservative (Yahoo == Bing,
-DDG HTML/Lite == DDG), and blocked/failed providers still fail closed.
+HIGH semantics stay conservative: Yahoo is Bing-family and DDG HTML/Lite are one
+DDG family. Runtime policy is fail-closed rather than retry-until-timeout: Bing
+and DDG are queried concurrently, same-family transports are fallbacks, and a
+blocked independent provider simply makes coverage fail instead of consuming
+minutes of exponential backoff. Search stops as soon as the certificate's actual
+minimum evidence requirements can be met.
 """
 from __future__ import annotations
 
@@ -60,14 +61,11 @@ def provider_family(provider: str) -> str:
     if p.startswith("ddg"):
         return "ddg"
     if p in {"bing", "yahoo"}:
-        # Yahoo is conservatively treated as Bing-family because its web index can
-        # be Bing-backed. It is a transport fallback, not independent evidence.
         return "bing"
     return p
 
 
 def provider_concurrency_plan(search_conc: int) -> dict[str, int]:
-    """Transport limits. Evidence-family normalization is intentionally separate."""
     c = max(1, int(search_conc))
     return {"bing": c, "yahoo": c, "ddg": 1}
 
@@ -76,29 +74,41 @@ def _transport_gate(provider: str) -> str:
     return "ddg" if str(provider).startswith("ddg") else str(provider)
 
 
+def _urls(query: str):
+    q = urllib.parse.quote_plus(query)
+    return {
+        "bing": f"https://www.bing.com/search?count=10&q={q}",
+        "ddg_html": f"https://html.duckduckgo.com/html/?q={q}",
+        "ddg_lite": f"https://lite.duckduckgo.com/lite/?q={q}",
+        "yahoo": f"https://search.yahoo.com/search?p={q}",
+    }
+
+
 async def webcheck(rows, conc: int, search_conc: int):
     import aiohttp
 
     sem = asyncio.Semaphore(max(1, int(conc)))
-    limits = provider_concurrency_plan(search_conc)
-    search_sems = {name: asyncio.Semaphore(limit) for name, limit in limits.items()}
-    timeout = aiohttp.ClientTimeout(total=18, connect=5, sock_read=11)
+    search_sems = {
+        name: asyncio.Semaphore(limit)
+        for name, limit in provider_concurrency_plan(search_conc).items()
+    }
+    timeout = aiohttp.ClientTimeout(total=12, connect=4, sock_read=7)
     headers = {"User-Agent": v2.UA, "Accept-Language": "fr-BE,fr;q=0.9,nl;q=0.8,en;q=0.7"}
     ans = {}
 
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as sess:
-        async def get(url: str, is_search: bool = False, provider: str = ""):
-            attempts = 4 if is_search else 2
+        async def get(url: str, *, is_search: bool = False, provider: str = "", attempts: int = 1):
             last = {}
+            attempts = max(1, int(attempts))
             for attempt in range(attempts):
                 try:
                     gate = search_sems[_transport_gate(provider)] if is_search else sem
                     async with gate:
                         if is_search:
                             if _transport_gate(provider) == "ddg":
-                                await asyncio.sleep(random.uniform(.50, 1.10) + attempt * .30)
+                                await asyncio.sleep(random.uniform(.20, .45))
                             else:
-                                await asyncio.sleep(random.uniform(.20, .55) + attempt * .20)
+                                await asyncio.sleep(random.uniform(.05, .15))
                         async with sess.get(url, allow_redirects=True, ssl=True) as r:
                             body = (await r.content.read(v2.MAXBODY)).decode(errors="ignore")
                             if _blocked(int(r.status), body):
@@ -109,23 +119,60 @@ async def webcheck(rows, conc: int, search_conc: int):
                     if not is_search and _dns_negative(exc):
                         return {"ok": False, "status": 404, "dns_negative": True, "error": ""}
                     last = {"ok": False, "status": 0, "error": type(exc).__name__, "error_detail": str(exc)[:160]}
-                if is_search:
-                    await asyncio.sleep((1.0 * (2 ** attempt)) + random.uniform(.1, .7))
-                else:
-                    await asyncio.sleep(.25 * (2 ** attempt))
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(.20 + random.uniform(.05, .20))
             return last or {"ok": False, "status": 0, "error": "UNKNOWN"}
 
-        def primary_providers(query: str):
-            q = urllib.parse.quote_plus(query)
-            return [
-                ("bing", f"https://www.bing.com/search?count=10&q={q}"),
-                ("ddg_html", f"https://html.duckduckgo.com/html/?q={q}"),
-                ("yahoo", f"https://search.yahoo.com/search?p={q}"),
-            ]
+        def parsed_health(provider: str, resp: dict, url: str):
+            http_ok = bool(
+                resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300
+                and not resp.get("blocked")
+            )
+            parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
+            links = v4.hrefs(resp.get("body", ""), resp.get("url", url), 24) if parsed else []
+            h = {
+                "provider": provider,
+                "provider_family": provider_family(provider),
+                "http_ok": http_ok,
+                "parsed": parsed,
+                "status": resp.get("status"),
+                "blocked": bool(resp.get("blocked")),
+                "error": resp.get("error"),
+                "external_domains": len({v2.host(x) for x in links}),
+            }
+            return parsed, links, h
 
-        def ddg_lite(query: str):
-            q = urllib.parse.quote_plus(query)
-            return "ddg_lite", f"https://lite.duckduckgo.com/lite/?q={q}"
+        async def search_one_query(sq: str):
+            urls = _urls(sq)
+            # Independent families first, concurrently. No exponential retry storm.
+            bing_resp, ddg_resp = await asyncio.gather(
+                get(urls["bing"], is_search=True, provider="bing", attempts=2),
+                get(urls["ddg_html"], is_search=True, provider="ddg_html", attempts=1),
+            )
+            bp, blinks, bh = parsed_health("bing", bing_resp, urls["bing"])
+            dp, dlinks, dh = parsed_health("ddg_html", ddg_resp, urls["ddg_html"])
+            health = [bh, dh]
+            parsed_names = {p for p, ok in (("bing", bp), ("ddg_html", dp)) if ok}
+            links = list(blinks) + list(dlinks)
+
+            fallback_tasks = []
+            fallback_names = []
+            if not bp:
+                fallback_names.append("yahoo")
+                fallback_tasks.append(get(urls["yahoo"], is_search=True, provider="yahoo", attempts=1))
+            if not dp:
+                fallback_names.append("ddg_lite")
+                fallback_tasks.append(get(urls["ddg_lite"], is_search=True, provider="ddg_lite", attempts=1))
+            if fallback_tasks:
+                for provider, resp in zip(fallback_names, await asyncio.gather(*fallback_tasks)):
+                    pp, plinks, ph = parsed_health(provider, resp, urls[provider])
+                    health.append(ph)
+                    if pp:
+                        parsed_names.add(provider)
+                        links.extend(plinks)
+
+            families = {provider_family(p) for p in parsed_names}
+            return parsed_names, families, links, health
 
         async def one(c):
             ev = {
@@ -134,79 +181,53 @@ async def webcheck(rows, conc: int, search_conc: int):
                 "direct_health": [], "owned": "", "owned_identity": {}, "owned_via": "",
                 "candidate_seeds": [],
             }
-            seeds = v4.guesses(c); ev["candidate_seeds"] = seeds[:]
-            for sq in v4.search_queries(c):
+            seeds = v4.guesses(c)
+            ev["candidate_seeds"] = seeds[:]
+            seed_hosts = {v2.host(x) for x in seeds if v2.host(x) and not v2.platform(x)}
+            queries = list(v4.search_queries(c))
+            if c.get("_unresolved_challenge"):
+                queries = queries[:3]
+
+            for sq in queries:
                 ev["search_queries"] += 1
-                qlinks, qseen, qhealth = [], set(), []
-                parsed_names = set(); ddg_ok = False
-                for provider, url in primary_providers(sq):
-                    resp = await get(url, is_search=True, provider=provider)
-                    http_ok = bool(resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300 and not resp.get("blocked"))
-                    parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
-                    if parsed:
-                        parsed_names.add(provider)
-                        fam = provider_family(provider)
-                        if fam not in ev["healthy_providers"]:
-                            ev["healthy_providers"].append(fam)
-                        if provider == "ddg_html":
-                            ddg_ok = True
-                    links = v4.hrefs(resp.get("body", ""), resp.get("url", url), 24) if parsed else []
-                    qhealth.append({
-                        "provider": provider, "provider_family": provider_family(provider),
-                        "http_ok": http_ok, "parsed": parsed, "status": resp.get("status"),
-                        "blocked": bool(resp.get("blocked")), "error": resp.get("error"),
-                        "external_domains": len({v2.host(x) for x in links}),
-                    })
-                    for u in links:
-                        h = v2.host(u)
-                        if h and h not in qseen:
-                            qseen.add(h); qlinks.append(u)
-
-                # DDG Lite is a transport fallback, not a second independent DDG vote.
-                if not ddg_ok:
-                    provider, url = ddg_lite(sq)
-                    resp = await get(url, is_search=True, provider=provider)
-                    http_ok = bool(resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300 and not resp.get("blocked"))
-                    parsed = bool(http_ok and _parsed(provider, resp.get("body", "")))
-                    if parsed:
-                        parsed_names.add(provider)
-                        if "ddg" not in ev["healthy_providers"]:
-                            ev["healthy_providers"].append("ddg")
-                    links = v4.hrefs(resp.get("body", ""), resp.get("url", url), 24) if parsed else []
-                    qhealth.append({
-                        "provider": provider, "provider_family": "ddg", "http_ok": http_ok,
-                        "parsed": parsed, "status": resp.get("status"), "blocked": bool(resp.get("blocked")),
-                        "error": resp.get("error"), "external_domains": len({v2.host(x) for x in links}),
-                    })
-                    for u in links:
-                        h = v2.host(u)
-                        if h and h not in qseen:
-                            qseen.add(h); qlinks.append(u)
-
-                # IMPORTANT: count independent evidence families, not transports.
-                families = {provider_family(p) for p in parsed_names}
+                parsed_names, families, qlinks, qhealth = await search_one_query(sq)
+                for fam in sorted(families):
+                    if fam not in ev["healthy_providers"]:
+                        ev["healthy_providers"].append(fam)
                 if len(families) >= 2:
                     ev["search_usable_queries"] += 1
+
+                qseen = {v2.host(u) for u in qlinks if v2.host(u)}
                 ev["search_health"].append({
-                    "query": sq, "providers": qhealth, "parsed_providers": sorted(parsed_names),
-                    "parsed_families": sorted(families), "external_domains": len(qseen),
+                    "query": sq,
+                    "providers": qhealth,
+                    "parsed_providers": sorted(parsed_names),
+                    "parsed_families": sorted(families),
+                    "external_domains": len(qseen),
                 })
-                existing = {v2.host(x) for x in ev["search_candidates"]}
+                existing = {v2.host(x) for x in ev["search_candidates"] if v2.host(x)}
                 for u in qlinks:
                     h = v2.host(u)
                     if h and h not in existing:
-                        ev["search_candidates"].append(u); existing.add(h)
-                if len(existing) >= 16 and ev["search_usable_queries"] >= 2:
+                        ev["search_candidates"].append(u)
+                        existing.add(h)
+
+                # Stop exactly when the downstream certificate can already satisfy
+                # its search + direct-domain minimum. The old >=16 requirement was
+                # expensive over-collection, not a HIGH gate.
+                direct_pool = seed_hosts | existing
+                if ev["search_usable_queries"] >= 2 and len(direct_pool) >= 5:
                     break
 
             cand = seeds + ev["search_candidates"]
             seen = set()
+            direct_cap = 12 if c.get("_unresolved_challenge") else 20
             for u in cand:
                 h = v2.host(u)
                 if not h or h in seen or v2.platform(u):
                     continue
                 seen.add(h)
-                resp = await get(u)
+                resp = await get(u, attempts=2)
                 ev["direct_checked"] += 1
                 dh = {
                     "seed": u, "final": resp.get("url", u), "status": resp.get("status"),
@@ -214,13 +235,16 @@ async def webcheck(rows, conc: int, search_conc: int):
                     "dns_negative": bool(resp.get("dns_negative")),
                 }
                 if resp.get("ok") and not v4._dead(int(resp.get("status") or 999), resp.get("body", "")):
-                    ide = v4.identity(c, resp.get("body", ""), resp.get("url", u)); dh["identity"] = ide
+                    ide = v4.identity(c, resp.get("body", ""), resp.get("url", u))
+                    dh["identity"] = ide
                     if ide["matched"] and not v2.platform(resp.get("url", u)):
-                        ev["owned"] = resp.get("url", u); ev["owned_identity"] = ide
+                        ev["owned"] = resp.get("url", u)
+                        ev["owned_identity"] = ide
                         ev["owned_via"] = "prior_or_email_domain" if u in seeds else "persistent_search"
-                        ev["direct_health"].append(dh); break
+                        ev["direct_health"].append(dh)
+                        break
                 ev["direct_health"].append(dh)
-                if ev["direct_checked"] >= 20:
+                if ev["direct_checked"] >= direct_cap:
                     break
             return int(c["r"]), ev
 
