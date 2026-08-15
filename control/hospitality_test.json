@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T13:31:00Z",
+  "requested_at": "2026-08-15T14:03:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "global-capacity-broker-v2-canary",
+  "mode": "five-minute-live-max-throughput",
   "force_workers": 20,
-  "note": "Request all 20 slots intentionally. PASS requires broker to preserve Tender minimum headroom when Tender durable backlog exists, rather than granting Hospitality the whole account. No productive running jobs are cancelled."
+  "note": "Five-minute live throughput benchmark. Request the full 20-slot account ceiling; broker still observes actual in-progress jobs and leases, never kills productive jobs, and only allocates genuinely free slots. Measure canonical net-new and contact/social yield from baseline canonical_total=19926."
 }
