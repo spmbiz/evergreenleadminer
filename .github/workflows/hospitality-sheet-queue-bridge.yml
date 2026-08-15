@@ -1,0 +1,71 @@
+name: Hospitality Sheet Queue Bridge
+
+on:
+  workflow_run:
+    workflows: ["Hospitality Autonomous Fleet 24/7"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hospitality-sheet-queue-bridge
+  cancel-in-progress: false
+
+jobs:
+  materialize_queue:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore latest canonical hospitality SQLite
+        run: |
+          set -euo pipefail
+          mkdir -p canonical gpt/sheet_sync_queue
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir canonical \
+            --clobber
+      - name: Materialize durable Sheet-sync queue chunks
+        env:
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
+        run: |
+          set -euo pipefail
+          python tools/hospitality_sheet_queue.py \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --cycle-id "github-run-${SOURCE_RUN_ID}" \
+            --queue-dir gpt/sheet_sync_queue \
+            --snapshot-state state/sheet_sync_snapshot.json \
+            --chunk-size 400
+          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort | tail -20 || true
+      - name: Persist queue and snapshot state
+        run: |
+          set -euo pipefail
+          git config user.name "ai-prod-sheet-bridge"
+          git config user.email "actions@users.noreply.github.com"
+          git add gpt/sheet_sync_queue state/sheet_sync_snapshot.json
+          if git diff --cached --quiet; then
+            echo "No Sheet queue changes"
+            exit 0
+          fi
+          git commit -m "fleet: materialize MASTER Sheet sync queue [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 3))
+          done
+          echo "Failed to persist Sheet sync queue" >&2
+          exit 1
