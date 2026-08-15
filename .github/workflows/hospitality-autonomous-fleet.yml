@@ -14,7 +14,7 @@ on:
         required: false
         default: '0'
       force_lane:
-        description: 'Optional lane override: fast_email, site_recovery, or atp'
+        description: 'Optional lane override: fast_email, site_recovery, atp, or osm'
         required: false
         default: ''
 
@@ -170,7 +170,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install minimal worker dependencies
-        run: python -m pip install --disable-pip-version-check duckdb requests ijson
+        run: python -m pip install --disable-pip-version-check duckdb requests ijson osmium
       - name: Download read-only canonical snapshot
         uses: actions/download-artifact@v4
         with:
@@ -188,6 +188,16 @@ jobs:
               --expected-release "${{ matrix.release }}" \
               --canonical-domains "planner_input/canonical-domains.txt.gz" \
               --local-workers "${{ matrix.local_workers }}" \
+              --outdir "results/${{ matrix.key }}"
+          elif [ "${{ matrix.task_type }}" = "osm_geofabrik" ]; then
+            python tools/hospitality_osm_worker.py \
+              --provider github \
+              --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
+              --extract-id "${{ matrix.extract_id }}" \
+              --expected-release "${{ matrix.release }}" \
+              --canonical-domains "planner_input/canonical-domains.txt.gz" \
+              --local-workers "${{ matrix.local_workers }}" \
+              --contact-workers "${{ matrix.contact_workers }}" \
               --outdir "results/${{ matrix.key }}"
           else
             python tools/hospitality_worker.py \
