@@ -1,0 +1,86 @@
+name: OSM Geofabrik Hospitality Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/osm_geofabrik_canary.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: osm-geofabrik-hospitality-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install and static-check
+        run: |
+          python -m pip install --disable-pip-version-check requests osmium
+          python -m py_compile tools/geofabrik_osm_hospitality.py tools/v6_public_contact_enrich.py tools/v6_live_verify.py
+      - name: Restore canonical domain snapshot
+        run: |
+          mkdir -p canary/source canary/fast canary/recovery canary/canonical
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical.sqlite' --dir canary/canonical --clobber
+          python - <<'PY'
+          import gzip,sqlite3
+          con=sqlite3.connect('canary/canonical/hospitality-canonical.sqlite')
+          domains=sorted(set(str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''")))
+          con.close()
+          with gzip.open('canary/canonical-domains.txt.gz','wt',encoding='utf-8') as f:
+              for d in domains:f.write(d+'\n')
+          print({'canonical_domains':len(domains)})
+          PY
+          rm -rf canary/canonical
+      - name: Extract Monaco hospitality from official Geofabrik PBF
+        run: |
+          python tools/geofabrik_osm_hospitality.py --iso2 MC --country Monaco --outdir canary/source --max-download-mb 200
+      - name: Fast-email path
+        run: |
+          cp canary/source/v6_fast_ready.csv canary/fast/v6_fast_ready.csv
+          python tools/filter_canonical_domains.py --input canary/fast/v6_fast_ready.csv --domains canary/canonical-domains.txt.gz --stats canary/fast/canonical_prefilter.json
+          python tools/v6_live_verify.py --input canary/fast/v6_fast_ready.csv --outdir canary/fast --workers 24 --timeout 8
+      - name: Website-only recovery path
+        run: |
+          cp canary/source/v6_recovery_candidates.csv canary/recovery/v6_recovery_candidates.csv
+          python tools/filter_canonical_domains.py --input canary/recovery/v6_recovery_candidates.csv --domains canary/canonical-domains.txt.gz --stats canary/recovery/canonical_prefilter.json
+          python tools/v6_public_contact_enrich.py --input canary/recovery/v6_recovery_candidates.csv --outdir canary/recovery --workers 16 --timeout 8 --max-pages 3 --max-bytes 700000
+          python tools/v6_live_verify.py --input canary/recovery/v6_fast_ready.csv --outdir canary/recovery --workers 24 --timeout 8
+      - name: Summarize integrity
+        run: |
+          python - <<'PY'
+          import csv,json
+          src=json.load(open('canary/source/osm_summary.json'))
+          fpf=json.load(open('canary/fast/canonical_prefilter.json'))
+          fl=json.load(open('canary/fast/v6_live_summary.json'))
+          rpf=json.load(open('canary/recovery/canonical_prefilter.json'))
+          rec=json.load(open('canary/recovery/v6_contact_recovery_summary.json'))
+          rl=json.load(open('canary/recovery/v6_live_summary.json'))
+          for path in ('canary/fast/v6_live_ready.csv','canary/recovery/v6_live_ready.csv'):
+              with open(path,encoding='utf-8',newline='') as f:
+                  for r in csv.DictReader(f):
+                      assert r.get('website') and r.get('domain') and r.get('source_url'),r
+                      assert r.get('source_family')=='openstreetmap_geofabrik',r
+                      assert r.get('live_status') in ('HIGH','MEDIUM'),r
+          out={'source':src,'fast_prefilter':fpf,'fast_live':fl,'recovery_prefilter':rpf,'recovery':rec,'recovery_live':rl}
+          open('canary/summary.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: osm-geofabrik-canary-${{ github.run_id }}
+          path: canary/
+          if-no-files-found: warn
+          retention-days: 2
