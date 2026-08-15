@@ -14,30 +14,51 @@ orbs:
 
 jobs:
   setup_fleet:
-    executor: continuation/default
+    docker:
+      - image: cimg/python:3.11
+    resource_class: small
     steps:
       - checkout
+      - run:
+          name: Verify setup runtime
+          command: |
+            set -euo pipefail
+            python --version
+            curl --version | head -1
+            if ! command -v jq >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq jq
+            fi
+            jq --version
       - run:
           name: Build an exact-size provider plan
           command: |
             set -euo pipefail
             mkdir -p results/fleet_plan
+            requested_fleet="<< pipeline.parameters.fleet >>"
             workload="<< pipeline.parameters.workload >>"
-            if [ "<< pipeline.parameters.fleet >>" != "true" ]; then
+            capacity=30
+            if [ "${CIRCLE_BRANCH:-}" = "perf/gws-max-async-circleci" ]; then
+              requested_fleet=true
+              workload=gws
+              capacity=2
+            fi
+            if [ "$requested_fleet" != "true" ]; then
               selected=0
             elif [ "$workload" = "gws" ]; then
-              python tools/gws_fleet_plan.py --provider circleci --fixed-capacity 30 --outdir results/fleet_plan
+              python tools/gws_fleet_plan.py --provider circleci --fixed-capacity "$capacity" --outdir results/fleet_plan
               selected="$(python -c 'import json; print(json.load(open("results/fleet_plan/plan.json"))["selected_count"])')"
             elif [ "$workload" = "hospitality" ]; then
-              python tools/fleet_runtime.py plan --provider circleci --capacity 30 --out results/fleet_plan/plan.json
+              python tools/fleet_runtime.py plan --provider circleci --capacity "$capacity" --out results/fleet_plan/plan.json
               selected="$(python -c 'import json; print(len(json.load(open("results/fleet_plan/plan.json")).get("include") or []))')"
             else
               echo "Unsupported workload: $workload" >&2
               exit 2
             fi
+            echo "CircleCI branch=${CIRCLE_BRANCH:-unknown} workload=$workload requested=$requested_fleet capacity=$capacity selected=$selected"
             python tools/circleci_fleet_continue.py --workload "$workload" --selected-count "$selected" --out /tmp/continue.yml
       - save_cache:
-          key: fleet-plan-v1-<< pipeline.id >>
+          key: fleet-plan-v2-<< pipeline.id >>
           paths:
             - results/fleet_plan
       - continuation/continue:
