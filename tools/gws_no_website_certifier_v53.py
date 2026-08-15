@@ -18,6 +18,7 @@ import os
 import random
 import re
 import socket
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -29,10 +30,11 @@ import gws_legacy_deep_v4 as v4
 import gws_no_website_certifier_v5 as v5
 
 CERT_VERSION = "gws-no-website-v5.3"
-STAC_URL = os.getenv("OVERTURE_STAC_URL", "https://stac.overturemaps.org/catalog.json")
+STAC_URLS = tuple(x for x in (os.getenv("OVERTURE_STAC_URL", "").strip(), "https://stac.overturemaps.org", "https://stac.overturemaps.org/catalog.json") if x)
 RELEASE_RE = re.compile(r"^20\d{2}-\d{2}-\d{2}\.\d+$")
 MIN_OVERTURE_ROWS = int(os.getenv("GWS_MIN_OVERTURE_BRUSSELS_ROWS", "1000"))
 
+# Make delegated certificate / aggregate outputs identify the hardened version.
 v5.CERT_VERSION = CERT_VERSION
 
 
@@ -42,19 +44,31 @@ def resolve_overture_release() -> str:
         if not RELEASE_RE.match(pinned):
             raise RuntimeError(f"INVALID_OVERTURE_RELEASE:{pinned}")
         return pinned
-    req = urllib.request.Request(STAC_URL, headers={"User-Agent": "GWSVerifier/5.3"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        catalog = json.load(r)
-    release = str(catalog.get("latest") or "").strip()
-    if not RELEASE_RE.match(release):
-        raise RuntimeError(f"OVERTURE_STAC_LATEST_INVALID:{release!r}")
-    return release
+    errors = []
+    seen = set()
+    for url in STAC_URLS:
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "GWSVerifier/5.3"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                catalog = json.load(r)
+            release = str(catalog.get("latest") or "").strip()
+            if RELEASE_RE.match(release):
+                return release
+            errors.append(f"{url}:invalid_latest:{release!r}")
+        except Exception as exc:
+            errors.append(f"{url}:{type(exc).__name__}:{exc}")
+    raise RuntimeError("OVERTURE_STAC_UNAVAILABLE:" + " | ".join(errors))
 
 
 def overture_query(release: str, limit: int | None = None) -> str:
     w, s, e, nn = v2.BBOX
     path = f"s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/*"
     lim = f" LIMIT {int(limit)}" if limit else ""
+    # AS is intentional: the previous `names.primary name` projection caused
+    # DuckDB ParserException before any current-business verification happened.
     return f"""
     SELECT
       id,
@@ -73,6 +87,7 @@ def overture_query(release: str, limit: int | None = None) -> str:
 
 def load_places_fixed(threads: int, limit: int | None = None):
     import duckdb
+
     release = resolve_overture_release()
     con = duckdb.connect()
     try:
@@ -139,11 +154,13 @@ def _dns_negative(exc: BaseException) -> bool:
 
 async def webcheck_hardened(rows, conc, search_conc):
     import aiohttp
+
     sem = asyncio.Semaphore(conc)
     ssem = asyncio.Semaphore(search_conc)
     timeout = aiohttp.ClientTimeout(total=16, connect=5, sock_read=10)
     ans = {}
     headers = {"User-Agent": v2.UA, "Accept-Language": "fr-BE,fr;q=0.9,nl;q=0.8,en;q=0.7"}
+
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as sess:
         async def get(url, is_search=False):
             attempts = 3 if is_search else 2
@@ -210,6 +227,8 @@ async def webcheck_hardened(rows, conc, search_conc):
                         h = v2.host(u)
                         if h and h not in qseen:
                             qseen.add(h); qlinks.append(u)
+                # A clean zero-domain SERP is usable evidence. Requiring qlinks here
+                # made genuine no-site candidates impossible to certify.
                 if parsed_count >= 2:
                     ev["search_usable_queries"] += 1
                 ev["search_health"].append({"query": sq, "providers": qhealth, "parsed_providers": parsed_count, "external_domains": len(qseen)})
@@ -220,6 +239,7 @@ async def webcheck_hardened(rows, conc, search_conc):
                         ev["search_candidates"].append(u); existing.add(h)
                 if len(existing) >= 16 and ev["search_usable_queries"] >= 2:
                     break
+
             cand = seeds + ev["search_candidates"]
             seen = set()
             for u in cand:
@@ -247,11 +267,13 @@ async def webcheck_hardened(rows, conc, search_conc):
                 if ev["direct_checked"] >= 20:
                     break
             return int(c["r"]), ev
+
         results = await asyncio.gather(*(one(c) for c in rows))
         ans.update(results)
     return ans
 
 
+# v5.run_web calls v4.webcheck and temporarily changes v4 search/guess functions.
 v4.webcheck = webcheck_hardened
 v2.load_places = lambda threads: load_places_fixed(threads)[:2]
 
@@ -278,6 +300,7 @@ def worker(a):
         (d / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         print("GWS_V53_WORKER_FATAL=" + json.dumps(summary, separators=(",", ":")))
         raise SystemExit(2)
+
     resolved, pending, out = {}, [], {}
     for c in part:
         p, pe = v2.resolve(c, P, I) if v2.in_scope(c) else (None, {"resolved": False})
@@ -285,6 +308,7 @@ def worker(a):
         early = v5.preclassify(cc, p, pe, True)
         if early: out[int(c["r"])] = early
         else: pending.append(cc)
+
     W1 = asyncio.run(v5.run_web(pending, a.http_concurrency, a.search_concurrency, 1)) if pending else {}
     if pending:
         provider_attempts = sum(len(q.get("providers") or []) for w in W1.values() for q in (w.get("search_health") or []))
@@ -299,6 +323,7 @@ def worker(a):
             out[r] = {"r": r, "candidate": c, "place": pe, "web_pass1": w, "status": "ERROR_RETRYABLE", "reason": "SEARCH_COVERAGE_INSUFFICIENT_PASS1"}
         else:
             second.append(c)
+
     W2 = asyncio.run(v5.run_web(second, a.http_concurrency, a.search_concurrency, 2)) if second else {}
     if second:
         provider_attempts2 = sum(len(q.get("providers") or []) for w in W2.values() for q in (w.get("search_health") or []))
@@ -316,6 +341,7 @@ def worker(a):
         elif cert["verified"]: st, reason = "HIGH", "VERIFIED_NO_WEBSITE"
         else: st, reason = "MEDIUM", "SURVIVED_BUT_CERTIFICATE_GATES_INCOMPLETE"
         out[r] = {"r": r, "candidate": c, "place": pe, "web_pass1": w1, "web_pass2": w2, "certificate": cert, "status": st, "reason": reason}
+
     final = [out[int(c["r"])] for c in part]
     d = Path(a.outdir); d.mkdir(parents=True, exist_ok=True); v2.dump(d / "results.jsonl", final)
     S = Counter(x["status"] for x in final); reasons = Counter(x.get("reason") for x in final)
