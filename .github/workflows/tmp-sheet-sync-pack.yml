@@ -1,0 +1,30 @@
+name: TMP Sheet Sync Pack 037-046
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-sheet-sync-pack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage queue chunks
+        run: |
+          set -euo pipefail
+          mkdir -p pack
+          for n in $(seq -w 37 46); do
+            cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${n}.jsonl" pack/
+          done
+          wc -l pack/*.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-queue-037-046
+          path: pack/
+          retention-days: 1
