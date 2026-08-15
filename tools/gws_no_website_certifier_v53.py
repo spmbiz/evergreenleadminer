@@ -9,7 +9,8 @@ adds runtime-hardening layers discovered by live GitHub calibration:
    masquerade as independent evidence;
 4) Belgian national/E.164 phone canonicalization for current-identity resolution;
 5) unresolved Overture identities are still adversarially web-challenged, while
-   remaining categorically ineligible for HIGH until current identity is strong.
+   remaining categorically ineligible for HIGH until current identity is strong;
+6) unresolved Overture best guesses can never become canonical dedupe keys.
 """
 from __future__ import annotations
 
@@ -78,6 +79,30 @@ def preclassify_hardened(c, p, pe, ovok):
 _core.v5.preclassify = preclassify_hardened
 
 
+def canonical_key_hardened(x):
+    """Use only strongly supported identity keys for cross-row reconciliation."""
+    pe = x.get("place") or {}
+    c = x.get("candidate") or {}
+    oid = _core.v2.t(pe.get("overture_id"))
+    # An Overture ID is authoritative only after source->Overture resolution passed.
+    if oid and pe.get("resolved"):
+        return "o:" + oid
+
+    pc = _core.v2.t(c.get("p"))[:4]
+    addr = " ".join(_core.v2.n(c.get("a")).split()[:10])
+    phones = _identity.phone_keys(c.get("ph"))
+    if phones:
+        # Prefer Belgian national form for stable local/E.164 dedupe.
+        ph = next((p for p in sorted(phones) if p.startswith("0")), sorted(phones)[0])
+        if addr:
+            return "p:" + ph + "|" + pc + "|" + addr
+        return "p:" + ph + "|" + pc + "|" + _core.v2.n(c.get("n"))
+    return "n:" + _core.v2.n(c.get("n")) + "|" + pc + "|" + addr
+
+
+_core.v5.canonical_key = canonical_key_hardened
+
+
 async def provider_webcheck(rows, conc, search_conc):
     ans = await _providers.webcheck(rows, conc, search_conc)
     # DDG HTML/Lite are one family. Yahoo is conservatively grouped with Bing
@@ -111,6 +136,7 @@ for _name, _value in vars(_core).items():
 globals()["resolve_overture_release"] = resolve_overture_release
 globals()["provider_webcheck"] = provider_webcheck
 globals()["preclassify_hardened"] = preclassify_hardened
+globals()["canonical_key_hardened"] = canonical_key_hardened
 globals()["phone_keys"] = _identity.phone_keys
 
 
