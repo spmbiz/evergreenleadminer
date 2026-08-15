@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Provider-neutral hospitality worker with safe negative-bbox CLI handling.
 
-The underlying Overture CLI receives bbox as --bbox=<value> because argparse can
-otherwise interpret a comma-delimited value beginning with '-' as another option.
+Supports the legacy thread/requests verifier and an experimental bounded
+asyncio/aiohttp verifier. Missing or blocked sites are withheld rather than
+inferred.
 """
 from __future__ import annotations
 import argparse, csv, json, sys, time
@@ -27,14 +28,17 @@ def worker(a):
             "--release", a.release,
             "--max-rows", str(a.max_rows),
         ])
-        fr.run([
-            sys.executable,
-            "tools/v6_live_verify.py",
+        verifier = "tools/v6_live_verify_async.py" if a.verify_engine == "async" else "tools/v6_live_verify.py"
+        cmd = [
+            sys.executable, verifier,
             "--input", str(out / "v6_fast_ready.csv"),
             "--outdir", str(out),
             "--workers", str(a.local_workers),
             "--timeout", "7",
-        ])
+        ]
+        if a.verify_engine == "async":
+            cmd.extend(["--per-host", str(a.per_host)])
+        fr.run(cmd)
     except Exception as e:
         status = "failed_retryable"
         err = f"{type(e).__name__}: {e}"
@@ -48,24 +52,14 @@ def worker(a):
             for r in csv.DictReader(f):
                 reason = r.get("live_reason") or ""
                 reasons[reason] = reasons.get(reason, 0) + 1
-
     checked = sum(reasons.values())
     rate429 = reasons.get("HTTP_429", 0) / checked if checked else 0
     timeouts = sum(v for k, v in reasons.items() if "TIMEOUT" in k)
     errors = sum(v for k, v in reasons.items() if k.startswith("NETWORK_") or k.startswith("HTTP_5"))
     summary = {
-        "provider": a.provider,
-        "cycle_id": a.cycle_id,
-        "shard": {
-            "name": a.name,
-            "country": a.country,
-            "region": a.region,
-            "bbox": a.bbox,
-            "release": a.release,
-        },
-        "status": status,
-        "error": err,
-        "local_workers": a.local_workers,
+        "provider": a.provider, "cycle_id": a.cycle_id, "verify_engine": a.verify_engine,
+        "shard": {"name": a.name, "country": a.country, "region": a.region, "bbox": a.bbox, "release": a.release},
+        "status": status, "error": err, "local_workers": a.local_workers,
         "elapsed_seconds": round(time.time() - t0, 2),
         "raw_site_email_rows": int(fast.get("raw_site_email_rows") or 0),
         "fast_ready": int(fast.get("fast_ready") or 0),
@@ -95,9 +89,10 @@ def main():
     ap.add_argument("--release", default="2026-06-17.0")
     ap.add_argument("--max-rows", type=int, default=250000)
     ap.add_argument("--local-workers", type=int, default=64)
+    ap.add_argument("--verify-engine", choices=("thread", "async"), default="thread")
+    ap.add_argument("--per-host", type=int, default=4)
     ap.add_argument("--outdir", required=True)
     worker(ap.parse_args())
-
 
 if __name__ == "__main__":
     main()
