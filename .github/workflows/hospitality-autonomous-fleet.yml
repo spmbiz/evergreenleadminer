@@ -348,4 +348,5 @@ jobs:
     if: needs.plan.outputs.enabled != 'true' || needs.plan.outputs.worker_count == '0'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Hospitality fleet idle: enabled=${{ needs.plan.outputs.enabled }}, workers=${{ needs.plan.outputs.worker_count }}"
+      - run: |
+          echo "Hospitality fleet idle: enabled=${{ needs.plan.outputs.enabled }}, workers=${{ needs.plan.outputs.worker_count }}"
