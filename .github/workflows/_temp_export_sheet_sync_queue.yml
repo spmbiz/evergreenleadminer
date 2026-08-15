@@ -16,8 +16,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export
-          for n in $(seq -w 17 26); do
-            cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${n}.jsonl" export/
+          for n in $(seq 17 26); do
+            p=$(printf '%03d' "$n")
+            cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${p}.jsonl" export/
           done
           cp state/sheet_sync_snapshot.json export/
           ls -lh export
