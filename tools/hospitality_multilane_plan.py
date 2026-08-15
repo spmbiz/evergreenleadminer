@@ -113,9 +113,6 @@ def choose_groups(ranked, capacity: int, force_lane: str):
         if cells:
             groups.append(("explore", cells))
 
-    # Never leave an allocated runner slot unused if backlog exists. Fill missing
-    # slots with the next untouched work unit, without increasing instantaneous
-    # HTTP concurrency inside a runner.
     if len(groups) < capacity:
         for score, key, cell in ranked:
             if len(groups) >= capacity:
@@ -138,14 +135,17 @@ def batch_task(cells: list[dict], bucket: str, index: int) -> dict:
     sig = hashlib.sha1("|".join(str(c.get("key") or "") for c in cells).encode()).hexdigest()[:16]
     rep = dict(cells[0])
     lanes = sorted({str(c.get("lane") or "unknown") for c in cells})
+    payload = encode_batch(cells)
+    # Keep a real supported lane value so the existing workflow/CLI needs no
+    # special matrix branch. hospitality_worker recognizes batch64: and hands
+    # the payload to the runner-local queue worker before lane-specific logic.
     rep.update({
         "name": f"geo-batch-{bucket}-{index:02d}-{sig}",
         "country": "BATCH",
         "region": f"RunnerQueue::{bucket}::{len(cells)}cells",
-        "bbox": f"batch:{sig}",
+        "bbox": f"batch64:{payload}",
         "key": f"batch-{sig}",
-        "lane": "geo_batch",
-        "lane_id": "geo_batch",
+        "lane_id": f"runner-queue::{rep.get('lane') or 'geo'}",
         "source_family": "overture-batched",
         "catalog_layer": "runner-queue",
         "tier": "BATCH",
@@ -153,7 +153,7 @@ def batch_task(cells: list[dict], bucket: str, index: int) -> dict:
         "planner_score": max(float(c.get("planner_score") or 0) for c in cells),
         "batch_size": len(cells),
         "batch_lanes": lanes,
-        "batch_cells_b64": encode_batch(cells),
+        "batch_cells_b64": payload,
     })
     return rep
 
