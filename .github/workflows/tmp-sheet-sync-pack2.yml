@@ -1,0 +1,31 @@
+name: Temporary Sheet Sync Queue Packer v2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tmp-sheet-sync-pack2.yml']
+permissions:
+  contents: read
+  actions: write
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack oldest 10 queue files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sheet-sync-pack/files
+          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%T@ %p\n' \
+            | sort -n \
+            | sed -n '1,10p' \
+            | cut -d' ' -f2- > sheet-sync-pack/manifest.txt
+          while IFS= read -r f; do cp "$f" sheet-sync-pack/files/; done < sheet-sync-pack/manifest.txt
+          test "$(wc -l < sheet-sync-pack/manifest.txt)" -gt 0
+          cat sheet-sync-pack/manifest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-oldest-10-v2
+          path: sheet-sync-pack/
+          retention-days: 1
+          compression-level: 0
