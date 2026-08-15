@@ -1,0 +1,75 @@
+name: GWS v5.6 Free Strict Subset
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_v56_free_subset_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  strict_subset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: tools
+      FOURGET_URL: http://127.0.0.1:8090
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check aiohttp
+      - name: Start private 4get
+        run: |
+          set -euo pipefail
+          docker pull luuul/4get:latest
+          docker run -d --name fourget -p 127.0.0.1:8090:80 -e FOURGET_SERVER_NAME=localhost -e FOURGET_PROTO=http luuul/4get:latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8090/ami4get >/dev/null && exit 0; sleep 1; done
+          docker logs fourget || true
+          exit 1
+      - name: Download real 86-survivor queue
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-v55-shortlist-screen-31909704545
+          path: shortlist
+          github-token: ${{ github.token }}
+          repository: walidgdg1-ai/evergreenleadminer
+          run-id: 31909704545
+      - name: Run strict Bing plus Yep two-pass subset
+        run: |
+          mkdir -p out
+          python tools/gws_v56_strict_subset.py --input shortlist/strict_survivors.jsonl --outdir out --max 12 --http-concurrency 24 --search-concurrency 3
+      - name: Assert zero-paid integrity and provider health
+        run: |
+          python - <<'PY'
+          import json
+          s=json.load(open('out/summary.json'))
+          assert s['zero_paid_api'] is True,s
+          assert s['attempted']==12,s
+          assert s['integrity']['returned']==12,s
+          rows=[json.loads(x) for x in open('out/results.jsonl') if x.strip()]
+          attempts=parsed_bing=parsed_yep=0
+          for x in rows:
+            for w in (x.get('web_pass1') or {},x.get('web_pass2') or {}):
+              for q in w.get('search_health') or []:
+                for h in q.get('providers') or []:
+                  attempts+=1
+                  if h.get('provider')=='bing' and h.get('parsed'): parsed_bing+=1
+                  if h.get('provider')=='yep' and h.get('parsed'): parsed_yep+=1
+          assert attempts>0,(attempts,s)
+          assert parsed_bing>0,(parsed_bing,s)
+          assert parsed_yep>0,(parsed_yep,s)
+          print('GWS_V56_FREE_PROVIDER_HEALTH_OK',parsed_bing,parsed_yep)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-v56-free-strict-subset-${{ github.run_id }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 4
