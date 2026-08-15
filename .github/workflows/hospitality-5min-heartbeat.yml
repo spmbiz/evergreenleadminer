@@ -1,6 +1,6 @@
 name: Hospitality 5-Minute Heartbeat
 
-# Productive harvest activity, not aggregate tail activity, controls redispatch.
+# Productive plan/harvest activity, not aggregate tail activity, controls redispatch.
 on:
   schedule:
     - cron: '*/5 * * * *'
@@ -54,9 +54,6 @@ jobs:
           import json, os, subprocess, sys
           runs=json.load(open('/tmp/runs.json')).get('workflow_runs') or []
           active=[r for r in runs if r.get('status') in {'queued','in_progress','waiting','pending','requested'}]
-          # A queued/requested workflow may not have jobs yet, so treat it as a
-          # pending productive cycle. For in-progress workflows inspect jobs:
-          # aggregate/release-only tails no longer block the next harvest.
           for r in active:
               if r.get('status') != 'in_progress':
                   print('true')
