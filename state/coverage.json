@@ -20717,11 +20717,11 @@
       "bbox": "-110.000000,40.000000,-105.000000,45.000000",
       "release": "2026-06-17.0",
       "status": "failed_retryable",
-      "last_attempt": "2026-08-15T22:59:15.448890Z",
+      "last_attempt": "2026-08-15T23:07:22.088540Z",
       "last_success": null,
-      "consecutive_failures": 7,
+      "consecutive_failures": 8,
       "last_live_ready": 0,
-      "last_elapsed_seconds": 30.37
+      "last_elapsed_seconds": 44.28
     },
     "9c5eef2863561934": {
       "name": "atlas-14-33",
@@ -24440,6 +24440,45 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 7.34
+    },
+    "9d9b47fadd34ac0b": {
+      "name": "atlas-19-44--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::19-44::lane=site-recovery",
+      "bbox": "40.000000,35.000000,45.000000,40.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T23:07:22.088540Z",
+      "last_success": "2026-08-15T23:07:22.088540Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 18.16
+    },
+    "7b13126a9f3755b1": {
+      "name": "atlas-14-40",
+      "country": "AUTO",
+      "region": "World-Atlas::africa::14-40",
+      "bbox": "20.000000,10.000000,25.000000,15.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T23:07:22.088540Z",
+      "last_success": "2026-08-15T23:07:22.088540Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 9.07
+    },
+    "8189cbcae2bbdd5e": {
+      "name": "atlas-17-46--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::17-46::lane=site-recovery",
+      "bbox": "50.000000,25.000000,55.000000,30.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T23:07:22.088540Z",
+      "last_success": "2026-08-15T23:07:22.088540Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 5,
+      "last_elapsed_seconds": 32.93
     }
   }
 }
