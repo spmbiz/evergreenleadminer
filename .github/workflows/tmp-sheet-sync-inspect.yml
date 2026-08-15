@@ -10,13 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Inspect snapshot and queue
         run: |
           python - <<'PY'
-          import json,glob,os
+          import json,glob
           from pathlib import Path
           p=Path('state/sheet_sync_snapshot.json')
           raw=p.read_text(encoding='utf-8')
@@ -53,4 +55,5 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add state/tmp_sheet_sync_inspect_083_092.json
           git commit -m 'ops: snapshot inspect 083-092' || exit 0
-          git push
+          git pull --rebase origin main
+          git push origin HEAD:main
