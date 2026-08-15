@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-08-14T21:45:00Z",
+  "verified_at": "2026-08-15T00:15:00Z",
   "providers": {
     "github": {
       "enabled": true,
@@ -14,9 +14,10 @@
       "source": "https://docs.github.com/en/actions/reference/limits"
     },
     "circleci": {
-      "enabled": false,
+      "enabled": true,
       "configured": true,
-      "verified_eligible": false,
+      "verified_eligible": true,
+      "verification_scope": "stress-branch-runner-connectivity",
       "plan": "Free",
       "concurrency_limit": 30,
       "worker_target": 30,
@@ -30,16 +31,7 @@
       "worker_credits_per_minute": 10,
       "setup_resource_class": "small",
       "setup_credits_per_minute": 5,
-      "activation_requirements": [
-        "Connect walidgdg1-ai/evergreenleadminer to a CircleCI Free organization",
-        "Confirm the project is recognized as public/open-source",
-        "Enable dynamic configuration/setup workflows for the CircleCI project",
-        "Set FLEET_GH_TOKEN in CircleCI with write access to this repository for durable inbox upload",
-        "Create a scheduled CircleCI pipeline with parameter fleet=true and an explicit workload"
-      ],
-      "source": "https://circleci.com/pricing/",
-      "credit_source": "https://circleci.com/docs/guides/plans-pricing/credits/",
-      "resource_rate_source": "https://circleci.com/pricing/price-list/"
+      "source": "https://circleci.com/pricing/"
     }
   }
 }
