@@ -1,52 +1,52 @@
 {
-  "cycle_id": "20260815T163532Z-github-multilane",
+  "cycle_id": "20260815T163721Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T16:36:22.764059Z",
-  "workers_completed": 10,
+  "finished_at": "2026-08-15T16:38:12.686148Z",
+  "workers_completed": 9,
   "workers_failed": 0,
-  "raw_discovered": 363,
-  "live_ready_before_canonical_dedupe": 4,
-  "new_unique": 4,
+  "raw_discovered": 520,
+  "live_ready_before_canonical_dedupe": 7,
+  "new_unique": 7,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 1,
-  "gpt_review_pending": 0,
+  "instagram_found": 5,
+  "gpt_review_pending": 1,
   "errors": 0,
-  "peak_wall_seconds": 18.57,
-  "new_unique_per_worker_minute": 2.831,
-  "canonical_total": 26468,
+  "peak_wall_seconds": 11.48,
+  "new_unique_per_worker_minute": 6.805,
+  "canonical_total": 26475,
   "health": {
     "429_rate": 0.0,
     "timeout_rate": 0.0,
-    "error_rate": 0.2
+    "error_rate": 0.33333
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
       "workers_completed": 8,
       "workers_failed": 0,
-      "raw_discovered": 363,
-      "fast_ready": 5,
-      "live_ready": 4,
-      "recovery_candidates": 5,
-      "recovered_public_emails": 0,
-      "contact_ready": 5,
-      "social_or_contact_without_email": 5,
-      "instagram_found": 1,
-      "facebook_found": 1,
+      "raw_discovered": 520,
+      "fast_ready": 12,
+      "live_ready": 7,
+      "recovery_candidates": 13,
+      "recovered_public_emails": 3,
+      "contact_ready": 12,
+      "social_or_contact_without_email": 9,
+      "instagram_found": 5,
+      "facebook_found": 2,
       "live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.2
+        "error_rate": 0.33333
       },
       "contact_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.07692
       }
     },
     "fast_email": {
-      "workers_completed": 2,
+      "workers_completed": 1,
       "workers_failed": 0,
       "raw_discovered": 0,
       "fast_ready": 0,
