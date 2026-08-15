@@ -6,20 +6,97 @@ on:
       - '.github/workflows/tmp-sync-pack.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
-  pack:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Pack oldest 10 queue chunks
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build exact 047-056 combined staging TSV
         run: |
           set -euo pipefail
-          mkdir -p pack
-          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort | head -10 | while read f; do cp "gpt/sheet_sync_queue/$f" pack/; done
-          ls -lh pack
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sync-queue-pack
-          path: pack/
-          retention-days: 1
+          python - <<'PY'
+          import json,re,unicodedata
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          ctl=json.load(open('control/tmp-sync-047-056.json',encoding='utf-8'))
+          exclude=set(ctl['exclude_overture_ids']); ambig=set(ctl['ambiguous_overture_ids']); chunks=set(ctl['chunks'])
+          multipart={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          generic={'instagram.com','facebook.com','booking.com','airbnb.com','vrbo.com','tripadvisor.com','expedia.com','yelp.com','discoverpuertorico.com'}
+          def clean(x): return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
+          def norm(x):
+              s=unicodedata.normalize('NFKD',str(x or '')).encode('ascii','ignore').decode().lower()
+              return re.sub(r'[^a-z0-9]+',' ',s).strip()
+          def ph(x): return re.sub(r'\D','',str(x or '')).lstrip('0')
+          def host(u):
+              u=clean(u)
+              if not u:return ''
+              if '://' not in u:u='http://'+u
+              try:h=(urlparse(u).hostname or '').lower().strip('.')
+              except:return ''
+              return h[4:] if h.startswith('www.') else h
+          def root(h):
+              p=(h or '').lower().strip('.').split('.')
+              if len(p)<=2:return '.'.join(p)
+              l2='.'.join(p[-2:])
+              return '.'.join(p[-3:]) if l2 in multipart else l2
+          def safe(x):
+              s=clean(x)
+              return "'"+s if s.startswith(('=','+','-','@')) else s
+          rows=[]
+          for c in sorted(chunks):
+              p=Path(f'gpt/sheet_sync_queue/bootstrap-20260815T011144Z-{c}.jsonl')
+              for line in p.read_text(encoding='utf-8').splitlines():
+                  if line.strip():
+                      r=json.loads(line); r['_chunk']=c; rows.append(r)
+          assert len(rows)==500, len(rows)
+          keep=[r for r in rows if r.get('overture_id') not in exclude]
+          keep.sort(key=lambda r:(int(r['_chunk']),clean(r.get('name')).lower()))
+          assert len(keep)==367, len(keep)
+          out=[]; start=7649; high=0; ambiguous=0; sites=0; emails=0
+          for i,r in enumerate(keep):
+              rank=start+i; isamb=r.get('overture_id') in ambig
+              if isamb: ambiguous+=1
+              priority='B' if isamb else 'A'; high += priority=='A'
+              try:prem=int(float(r.get('premium_score') or 0))
+              except:prem=0
+              identity=' '.join(clean(r.get(k)).lower() for k in ('name','category','brand'))
+              if isamb: score=70+(8 if prem>=10 else 0)
+              elif any(k in identity for k in ('vacation','holiday','short term','short-term','cottage','cabin rental','chalet rental')): score=91
+              else: score=88
+              market=clean(r.get('city') or r.get('region')); country=clean(r.get('country')); name=clean(r.get('name'))
+              website=clean(r.get('website') or r.get('final_url')); rh=root(host(website)); official='' if rh in generic else website
+              instagram=clean(r.get('instagram'))
+              if root(host(website))=='instagram.com' and not instagram:instagram=website
+              address=', '.join(x for x in (clean(r.get('street')),clean(r.get('city')),clean(r.get('state'))) if x)
+              phone=ph(r.get('public_phone')); email=clean(r.get('public_email')); src=clean(r.get('source_url'))
+              notes='Recall-first: plausible adjacent hospitality/STR buyer retained.' if isamb else ''
+              conf='Medium' if isamb else ('High' if prem>=34 else 'Medium')
+              lead=[rank,priority,score,market,country,name,'',clean(r.get('category')),address,phone,1 if phone else '','','','High','','','',('overture:'+clean(r.get('overture_id')) if r.get('overture_id') else ''),46249,'New',notes,official,email,'',instagram,'','','','','','',conf,'Recall-first' if isamb else 'Verified',src,'','']
+              assert len(lead)==36
+              d=root(host(official)) if official else ''
+              key='domain:'+d if d else ('phone:'+phone if phone else 'name:'+norm(name)+'|'+norm(market)+'|'+norm(country))
+              dd=[key,phone,d,norm(name),market,country,name,rank]
+              assert len(dd)==8
+              out.append(lead+dd); sites+=bool(official); emails+=bool(email)
+          Path('tmp').mkdir(exist_ok=True)
+          def line(vals): return '\t'.join(safe(v) for v in vals)
+          Path('tmp/sync-047-056-combined.tsv').write_text('\n'.join(line(r) for r in out),encoding='utf-8')
+          summary={'inspected':500,'duplicates':130,'clear_rejects':3,'new':len(out),'ambiguous_retained':ambiguous,'high_priority':high,'sites':sites,'emails':emails,'start_rank':start,'end_rank':start+len(out)-1}
+          Path('tmp/sync-047-056-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary))
+          PY
+      - name: Commit staging files
+        run: |
+          git config user.name 'ai-prod-sheet-bridge'
+          git config user.email 'actions@users.noreply.github.com'
+          git add tmp/sync-047-056-combined.tsv tmp/sync-047-056-summary.json
+          git commit -m 'tmp: stage sheet sync 047-056 [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
