@@ -41,6 +41,22 @@ jobs:
             --pattern 'hospitality-canonical.sqlite' \
             --dir canonical \
             --clobber
+      - name: Optional clean rebootstrap for small reliable chunks
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          MODE=$(python - <<'PY'
+          import json
+          try:
+              print(json.load(open('control/sheet_queue_trigger.json')).get('mode',''))
+          except Exception:
+              print('')
+          PY
+          )
+          if [ "$MODE" = "rebootstrap-small-chunks" ]; then
+            rm -f gpt/sheet_sync_queue/*.jsonl state/sheet_sync_snapshot.json
+            echo "Rebootstrap requested: cleared old queue + snapshot in working tree"
+          fi
       - name: Materialize durable Sheet-sync queue chunks
         env:
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
@@ -51,14 +67,14 @@ jobs:
             --cycle-id "github-run-${SOURCE_RUN_ID}" \
             --queue-dir gpt/sheet_sync_queue \
             --snapshot-state state/sheet_sync_snapshot.json \
-            --chunk-size 400
+            --chunk-size 50
           find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort | tail -20 || true
       - name: Persist queue and snapshot state
         run: |
           set -euo pipefail
           git config user.name "ai-prod-sheet-bridge"
           git config user.email "actions@users.noreply.github.com"
-          git add gpt/sheet_sync_queue state/sheet_sync_snapshot.json
+          git add -A gpt/sheet_sync_queue state/sheet_sync_snapshot.json
           if git diff --cached --quiet; then
             echo "No Sheet queue changes"
             exit 0
