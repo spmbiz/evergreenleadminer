@@ -21,7 +21,7 @@ import gws_no_website_certifier_v53_core as _core
 import gws_search_provider_pool_v54 as _providers
 import gws_identity_resolver_v54 as _identity
 
-FALLBACK_RELEASE = os.getenv("OVERTURE_FALLBACK_RELEASE", "2026-06-17.0").strip()
+FALLBACK_RELEASE = os.getenv("OVERTURE_FALLBACK_RELEASE", "2026-07-22.0").strip()
 _original_resolve = _core.resolve_overture_release
 
 
