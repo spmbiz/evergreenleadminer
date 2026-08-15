@@ -1,0 +1,32 @@
+name: GWS Cancel On Demand
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_cancel_run.json'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cancel requested workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          target=$(python - <<'PY'
+          import json
+          print(json.load(open('control/gws_cancel_run.json'))['run_id'])
+          PY
+          )
+          echo "Cancelling run $target"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${target}/cancel"
+          echo "CANCEL_REQUESTED=$target"
