@@ -9,7 +9,8 @@ Runtime-hardening layers discovered by live GitHub calibration:
 5) unresolved identities still receive a web challenge but remain HIGH-ineligible;
 6) unresolved Overture guesses never become canonical dedupe keys;
 7) unresolved identities stop after one complete adversarial pass because a second
-   pass cannot make them HIGH; resolved HIGH candidates still require two passes.
+   pass cannot make them HIGH; resolved HIGH candidates still require two passes;
+8) worker checkpoints are mirrored as live GitHub Check annotations.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import sys
 import gws_no_website_certifier_v53_core as _core
 import gws_search_provider_pool_v54 as _providers
 import gws_identity_resolver_v54 as _identity
-import gws_worker_v54 as _worker_policy
+import gws_worker_v55 as _worker_policy
 
 FALLBACK_RELEASE = os.getenv("OVERTURE_FALLBACK_RELEASE", "2026-07-22.0").strip()
 _original_resolve = _core.resolve_overture_release
