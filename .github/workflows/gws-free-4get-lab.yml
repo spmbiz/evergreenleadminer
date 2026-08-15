@@ -1,0 +1,84 @@
+name: GWS Free 4get Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_free_4get_lab_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fourget_probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start private 4get locally
+        run: |
+          set -euo pipefail
+          docker pull luuul/4get:latest
+          docker run -d --name fourget -p 127.0.0.1:8090:80 \
+            -e FOURGET_SERVER_NAME=localhost \
+            -e FOURGET_PROTO=http \
+            luuul/4get:latest
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8090/ami4get >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs fourget || true
+          exit 1
+      - name: Probe zero-key web scrapers
+        run: |
+          set -euo pipefail
+          mkdir -p fourget_lab
+          python - <<'PY'
+          import json, time, urllib.parse, urllib.request
+          scrapers=['ghostery','yep','marginalia','wiby','mwmbl','mojeek','coccoc','solofield']
+          cases=[('KANOFF LEGAL','kanofflegal.com'),('ID.CITE ARCHITECTS','idcite.be'),("Imagin'Hair",'imagin-hair.be')]
+          rows=[]
+          for name,expected in cases:
+            q=f'"{name}" Brussels website'
+            for scraper in scrapers:
+              url='http://127.0.0.1:8090/api/v1/web?'+urllib.parse.urlencode({'s':q,'scraper':scraper})
+              rec={'scraper':scraper,'name':name,'expected_domain':expected,'query':q}
+              t=time.time()
+              try:
+                with urllib.request.urlopen(url,timeout=35) as r:
+                  body=r.read().decode(errors='ignore')
+                  rec['http_status']=int(r.status); rec['seconds']=round(time.time()-t,2); rec['body_bytes']=len(body)
+                  rec['found_expected']=expected.lower() in body.lower()
+                  try:
+                    d=json.loads(body); rec['status']=d.get('status'); rec['result_count']=len(d.get('web') or []); rec['sample_urls']=[x.get('url') for x in (d.get('web') or [])[:5]]
+                  except Exception as exc: rec['json_error']=type(exc).__name__
+              except Exception as exc:
+                rec['seconds']=round(time.time()-t,2); rec['error']=type(exc).__name__+':'+str(exc)[:180]
+              rows.append(rec)
+              print('FOURGET_PROBE='+json.dumps(rec,separators=(',',':')),flush=True)
+          summary={}
+          for s in scrapers:
+            sr=[x for x in rows if x['scraper']==s]
+            summary[s]={
+              'queries':len(sr),
+              'responses':sum('http_status' in x for x in sr),
+              'ok':sum(x.get('status')=='ok' for x in sr),
+              'nonempty':sum(int(x.get('result_count') or 0)>0 for x in sr),
+              'expected_hits':sum(bool(x.get('found_expected')) for x in sr),
+              'errors':sum('error' in x for x in sr),
+              'avg_seconds':round(sum(float(x.get('seconds',0)) for x in sr)/max(1,len(sr)),2),
+            }
+          open('fourget_lab/probe.json','w').write(json.dumps(rows,indent=2)+'\n')
+          open('fourget_lab/summary.json','w').write(json.dumps(summary,indent=2)+'\n')
+          print('FOURGET_SUMMARY='+json.dumps(summary,separators=(',',':')),flush=True)
+          PY
+      - name: Diagnostics
+        if: always()
+        run: docker logs fourget > fourget_lab/container.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-free-4get-lab-${{ github.run_id }}
+          path: fourget_lab/
+          retention-days: 3
