@@ -52,7 +52,7 @@ jobs:
             --default-workers 20 \
             --ignore-run-id "$RUN_ID" \
             --out planner/provider-capacity.json
-      - name: Choose adaptive cloud canary and plan shards
+      - name: Choose adaptive cloud canary and plan grid cells
         env:
           EVENT_NAME: ${{ github.event_name }}
           DISPATCH_FORCE: ${{ github.event.inputs.force_workers || '0' }}
@@ -83,7 +83,7 @@ jobs:
           fi
           echo "$CAP_JSON" | tee planner/cloud-capacity.json
           CAP=$(python -c 'import json,sys; print(json.load(sys.stdin)["chosen"])' <<<"$CAP_JSON")
-          python tools/fleet_runtime.py plan --provider github --capacity "$CAP" --out planner/plan.json
+          python tools/hospitality_grid_plan.py --provider github --capacity "$CAP" --out planner/plan.json
       - id: emit
         name: Emit dynamic matrix
         run: |
@@ -124,7 +124,7 @@ jobs:
           python-version: '3.11'
       - name: Install minimal worker dependencies
         run: python -m pip install --disable-pip-version-check duckdb requests
-      - name: Harvest and live-verify shard
+      - name: Harvest and live-verify grid cell
         run: |
           mkdir -p "results/${{ matrix.key }}"
           python tools/hospitality_worker.py \
@@ -137,6 +137,7 @@ jobs:
             --release "${{ matrix.release }}" \
             --max-rows "${{ matrix.max_rows }}" \
             --local-workers "${{ matrix.local_workers }}" \
+            --verify-engine thread \
             --outdir "results/${{ matrix.key }}"
       - name: Upload transport artifact
         if: always()
@@ -236,7 +237,7 @@ jobs:
             echo "No small-state changes to commit"
             exit 0
           fi
-          git commit -m "fleet: hospitality checkpoint ${CYCLE_ID} [skip ci]"
+          git commit -m "fleet: hospitality grid checkpoint ${CYCLE_ID} [skip ci]"
           for attempt in 1 2 3 4; do
             if git pull --rebase origin main && git push origin HEAD:main; then
               exit 0
