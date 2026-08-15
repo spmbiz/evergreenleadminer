@@ -6,6 +6,7 @@ import base64
 import gzip
 import json
 import re
+import time
 import unicodedata
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
@@ -82,34 +83,35 @@ class Collector(osmium.SimpleHandler):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--queue",required=True); ap.add_argument("--pbf",required=True); ap.add_argument("--expected",type=int,required=True); ap.add_argument("--outdir",required=True); a=ap.parse_args()
-    out=Path(a.outdir); out.mkdir(parents=True,exist_ok=True)
+    started=time.time(); out=Path(a.outdir); out.mkdir(parents=True,exist_ok=True)
     Q=load_queue(a.queue)
     if len(Q)!=a.expected: raise SystemExit(f"QUEUE_COUNT_MISMATCH:{len(Q)}")
-    c=Collector(); c.apply_file(a.pbf,locations=False)
-    P=c.rows
-    ex=defaultdict(list); tk=defaultdict(list); ph=defaultdict(list); pc=defaultdict(list)
+    c=Collector(); c.apply_file(a.pbf,locations=False); P=c.rows
+    ex=defaultdict(list); tk=defaultdict(list); ph=defaultdict(list)
     for i,p in enumerate(P):
         for nm in p["names"]:
             ex[n(nm)].append(i)
-            for x in list(toks(nm))[:5]: tk[x].append(i)
+            for x in toks(nm): tk[x].append(i)
         for x in p["phones"]:
             for d in digits(x): ph[d].append(i)
-        ppc=postcode(p.get("postcode") or p.get("address"))
-        if ppc: pc[ppc].append(i)
-    results=[]; counts=Counter(); sites=[]; resolved=[]
-    for q in Q:
+    results=[]; counts=Counter(); sites=[]; resolved=[]; candidate_pool_sizes=[]
+    for pos,q in enumerate(Q,1):
         qn=n(q.get("n")); qpc=t(q.get("p"))[:4]; qph=set()
         for d in digits(q.get("ph")): qph.add(d)
         ids=set(ex.get(qn,[]))
         for d in qph: ids.update(ph.get(d,[]))
-        for x in list(toks(q.get("n")))[:4]: ids.update(tk.get(x,[])[:1500])
-        if qpc: ids.update(pc.get(qpc,[])[:3000])
+        # Rare shared name tokens are a high-recall, bounded candidate generator.
+        # Postcode/address NEVER generate candidates; they only corroborate a name/phone hit.
+        qt=sorted(toks(q.get("n")), key=lambda x: len(tk.get(x,[])))
+        for x in qt[:4]:
+            bucket=tk.get(x,[])
+            if len(bucket)<=600: ids.update(bucket)
+        candidate_pool_sizes.append(len(ids))
         best=None
         for i in ids:
             p=P[i]; ns=max([sim(q.get("n"),z) for z in p["names"]] or [0]); pp=set()
             for z in p["phones"]: pp |= digits(z)
-            px=bool(qph & pp)
-            ao=ov(q.get("a"),p.get("address")); pm=bool(qpc and qpc==postcode(p.get("postcode") or p.get("address")))
+            px=bool(qph & pp); ao=ov(q.get("a"),p.get("address")); pm=bool(qpc and qpc==postcode(p.get("postcode") or p.get("address")))
             score=(1.5 if px else 0)+0.9*ns+0.22*ao+(0.15 if pm else 0)
             if best is None or score>best[0]: best=(score,p,px,ns,ao,pm)
         rec={"r":int(q["r"]),"candidate":q,"resolved":False,"strong":False,"owned_site":""}
@@ -117,17 +119,19 @@ def main():
             _,p,px,ns,ao,pm=best
             ok=(px and (ns>=0.35 or ao>=0.30 or pm)) or (ns>=0.93 and (pm or ao>=0.20)) or (ns>=0.82 and pm and ao>=0.25)
             strong=ok and ((px and (ns>=0.55 or ao>=0.45)) or (ns>=0.93 and (pm or ao>=0.35)))
-            rec.update(resolved=ok,strong=strong,osm=p,evidence={"phone_exact":px,"name_similarity":round(ns,3),"address_overlap":round(ao,3),"postcode_match":pm})
+            rec.update(resolved=ok,strong=strong,osm=p,evidence={"phone_exact":px,"name_similarity":round(ns,3),"address_overlap":round(ao,3),"postcode_match":pm,"candidate_pool":len(ids)})
             if ok: resolved.append(rec); counts["resolved"]+=1
             if strong: counts["strong"]+=1
             if ok and p.get("urls"):
                 rec["owned_site"]=p["urls"][0]; sites.append(rec); counts["owned_site"]+=1
         if not rec["resolved"]: counts["unresolved"]+=1
         results.append(rec)
+        if pos%500==0:
+            print("GWS_OSM_PROGRESS="+json.dumps({"processed":pos,"resolved":counts["resolved"],"strong":counts["strong"],"owned_site":counts["owned_site"],"elapsed_seconds":round(time.time()-started,2)},separators=(",",":")),flush=True)
     def dump(name,rows):
         (out/name).write_text("".join(json.dumps(x,ensure_ascii=False,separators=(",",":"))+"\n" for x in rows),encoding="utf-8")
     dump("results.jsonl",results); dump("resolved.jsonl",resolved); dump("owned_sites.jsonl",sites)
-    summary={"schema":"gws-osm-direct-resolver-v55","source_candidates":len(Q),"osm_features":len(P),"counts":dict(counts),"new_owned_site_candidates":len(sites),"note":"OSM matches are independent candidate evidence; owned-site URLs require final HTTP identity validation before REJECT."}
+    summary={"schema":"gws-osm-direct-resolver-v55-bounded","source_candidates":len(Q),"osm_features":len(P),"counts":dict(counts),"new_owned_site_candidates":len(sites),"candidate_pool_max":max(candidate_pool_sizes or [0]),"candidate_pool_mean":round(sum(candidate_pool_sizes)/max(1,len(candidate_pool_sizes)),2),"elapsed_seconds":round(time.time()-started,2),"note":"OSM matches are independent candidate evidence; owned-site URLs require final HTTP identity validation before REJECT. Address/postcode corroborate but never generate candidates."}
     (out/"summary.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
     print("GWS_OSM_DIRECT_SUMMARY="+json.dumps(summary,separators=(",",":")),flush=True)
 
