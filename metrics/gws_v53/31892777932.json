@@ -1,0 +1,44 @@
+{
+  "schema_version": 3,
+  "cert_version": "gws-no-website-v5.3",
+  "expected": 5047,
+  "attempted_unique": 5047,
+  "statuses": {
+    "UNCERTAIN": 2964,
+    "REJECT": 973,
+    "DUPLICATE": 1035,
+    "ERROR_RETRYABLE": 75
+  },
+  "reasons": {
+    "CURRENT_IDENTITY_NOT_RESOLVED": 2962,
+    "CANONICAL_ENTITY_DISQUALIFIED": 778,
+    "CANONICAL_DUPLICATE": 1035,
+    "OUT_OF_SCOPE": 195,
+    "SEARCH_COVERAGE_INSUFFICIENT_PASS1": 75,
+    "SOURCE_IDENTITY_INCOMPLETE": 2
+  },
+  "verified_no_website": 0,
+  "owned_sites_found": 124,
+  "exceptions": 5047,
+  "duplicate_results": 0,
+  "canonical_duplicates": 1035,
+  "worker_summaries": 10,
+  "run_id": "31892777932",
+  "updated_at": "2026-08-15T15:33:50Z",
+  "runner_minutes": 29.8,
+  "productive_seconds_sum": 1653.68,
+  "setup_overhead_seconds_estimate": 134.32,
+  "useful_final": 0,
+  "useful_per_runner_minute": 0.0,
+  "provider_attempts": 2949,
+  "parsed_serp_responses": 673,
+  "rate_429": 0.179044,
+  "rate_403": 0.059342,
+  "timeout_rate": 0.012547,
+  "provider_error_rate": 0.030519,
+  "brokered_workers": 10,
+  "snapshot_id": "gws-legacy-5047-v5-sharded",
+  "overture_releases": [
+    "2026-06-17.0"
+  ]
+}
