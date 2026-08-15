@@ -1,0 +1,22 @@
+name: TMP Package Sheet Sync 061-070
+on:
+  push:
+    paths:
+      - '.github/workflows/tmp-pack-sheet-sync-061-070.yml'
+permissions:
+  contents: read
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage oldest ten chunks
+        run: |
+          mkdir -p package
+          cp gpt/sheet_sync_queue/bootstrap-20260815T011144Z-{061..070}.jsonl package/
+          ls -lh package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-061-070
+          path: package/
+          retention-days: 1
