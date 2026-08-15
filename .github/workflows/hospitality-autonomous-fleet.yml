@@ -22,10 +22,6 @@ permissions:
   contents: write
   actions: read
 
-concurrency:
-  group: hospitality-autonomous-fleet
-  cancel-in-progress: false
-
 jobs:
   plan:
     concurrency:
@@ -50,7 +46,7 @@ jobs:
         run: |
           mkdir -p planner
           python tools/fleet_runtime.py init
-      - name: Reserve account-wide slots and plan world + approved source tasks
+      - name: Reserve account-wide slots and plan non-overlapping useful work
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
@@ -100,11 +96,21 @@ jobs:
           open('planner/cloud-capacity.json','w').write(json.dumps(out,indent=2)+'\n')
           print(json.dumps(out))
           PY
-          ARGS=(--provider github --capacity "$ALLOCATED" --out planner/plan.json)
+          python tools/hospitality_inflight.py snapshot \
+            --repo "$GITHUB_REPOSITORY" \
+            --out planner/inflight-keys.txt
+          ARGS=(--provider github --capacity "$ALLOCATED" --out planner/plan.json --exclude-keys planner/inflight-keys.txt)
           if [ -n "${DISPATCH_LANE:-}" ]; then
             ARGS+=(--force-lane "$DISPATCH_LANE")
           fi
-          python tools/hospitality_master_plan.py "${ARGS[@]}"
+          python tools/hospitality_plan_with_inflight.py "${ARGS[@]}"
+          CYCLE_ID=$(python -c 'import json; print(json.load(open("planner/plan.json")).get("cycle_id") or "none")')
+          python tools/hospitality_inflight.py reserve \
+            --repo "$GITHUB_REPOSITORY" \
+            --plan planner/plan.json \
+            --cycle-id "$CYCLE_ID" \
+            --run-id "$RUN_ID" \
+            --ttl-minutes 75
       - name: Build read-only canonical domain snapshot
         env:
           GH_TOKEN: ${{ github.token }}
@@ -232,6 +238,9 @@ jobs:
   aggregate:
     needs: [plan, harvest]
     if: always() && needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
+    concurrency:
+      group: hospitality-canonical-writer
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -361,6 +370,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
         run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
+      - name: Release work-unit leases after durable aggregate
+        if: needs.aggregate.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CYCLE_ID: ${{ needs.plan.outputs.cycle_id }}
+        run: python tools/hospitality_inflight.py release --repo "$GITHUB_REPOSITORY" --cycle-id "$CYCLE_ID"
 
   idle:
     needs: plan
