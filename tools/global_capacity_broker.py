@@ -14,7 +14,8 @@ Important semantics:
   completion makes capacity available again;
 - leases expire automatically and are released at natural workflow completion;
 - after a short launch grace period, a lease shrinks to its observed live+queued
-  jobs so completed workers do not strand phantom capacity behind one straggler.
+  jobs; if no live jobs remain observable, the mature reservation is reclaimed so
+  completed workers cannot strand phantom capacity behind an aggregate tail.
 """
 from __future__ import annotations
 
@@ -240,7 +241,7 @@ def prune_leases(state: dict, current_run: str | None = None):
 
 
 def effective_lease_accounting(leases: list[dict], jobs: list[dict]):
-    """Shrink mature leases to live outstanding jobs, preserving a launch grace."""
+    """Shrink mature leases to observed work; reclaim them when no jobs remain."""
     live_by_run = {str(j.get("run_id") or ""): j for j in jobs}
     now = now_utc()
     total = 0
@@ -253,11 +254,15 @@ def effective_lease_accounting(leases: list[dict], jobs: list[dict]):
         age_seconds = max(0.0, (now - created).total_seconds()) if created else 0.0
         live = live_by_run.get(rid)
         effective = reserved
-        reason = "full_reservation"
-        if live is not None and age_seconds >= LEASE_LAUNCH_GRACE_SECONDS:
-            outstanding = max(0, int(live.get("active_jobs") or 0) + int(live.get("queued_jobs") or 0))
-            effective = min(reserved, outstanding)
-            reason = "shrunk_to_live_outstanding" if effective < reserved else "live_outstanding_matches_reservation"
+        reason = "full_reservation_launch_grace"
+        if age_seconds >= LEASE_LAUNCH_GRACE_SECONDS:
+            if live is None:
+                effective = 0
+                reason = "reclaimed_no_live_outstanding"
+            else:
+                outstanding = max(0, int(live.get("active_jobs") or 0) + int(live.get("queued_jobs") or 0))
+                effective = min(reserved, outstanding)
+                reason = "shrunk_to_live_outstanding" if effective < reserved else "live_outstanding_matches_reservation"
         total += effective
         workload = str(lease.get("workload") or "")
         by_workload[workload] += effective
