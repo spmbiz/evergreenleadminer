@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Provider-neutral hospitality worker with safe negative-bbox CLI handling.
 
-The underlying Overture CLI receives bbox as --bbox=<value> because argparse can
-otherwise interpret a comma-delimited value beginning with '-' as another option.
+Supports the legacy thread/requests verifier and an experimental bounded
+asyncio/aiohttp verifier. Missing or blocked sites are withheld rather than
+inferred.
 """
 from __future__ import annotations
 import argparse, csv, json, sys, time
@@ -27,14 +28,18 @@ def worker(a):
             "--release", a.release,
             "--max-rows", str(a.max_rows),
         ])
-        fr.run([
+        verifier = "tools/v6_live_verify_async.py" if a.verify_engine == "async" else "tools/v6_live_verify.py"
+        cmd = [
             sys.executable,
-            "tools/v6_live_verify.py",
+            verifier,
             "--input", str(out / "v6_fast_ready.csv"),
             "--outdir", str(out),
             "--workers", str(a.local_workers),
             "--timeout", "7",
-        ])
+        ]
+        if a.verify_engine == "async":
+            cmd.extend(["--per-host", str(a.per_host)])
+        fr.run(cmd)
     except Exception as e:
         status = "failed_retryable"
         err = f"{type(e).__name__}: {e}"
@@ -56,6 +61,7 @@ def worker(a):
     summary = {
         "provider": a.provider,
         "cycle_id": a.cycle_id,
+        "verify_engine": a.verify_engine,
         "shard": {
             "name": a.name,
             "country": a.country,
@@ -95,6 +101,8 @@ def main():
     ap.add_argument("--release", default="2026-06-17.0")
     ap.add_argument("--max-rows", type=int, default=250000)
     ap.add_argument("--local-workers", type=int, default=64)
+    ap.add_argument("--verify-engine", choices=("thread", "async"), default="thread")
+    ap.add_argument("--per-host", type=int, default=4)
     ap.add_argument("--outdir", required=True)
     worker(ap.parse_args())
 
