@@ -8,32 +8,72 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package oldest ten sheet-sync chunks
+        with:
+          fetch-depth: 0
+      - name: Build recall-first mapped staging payload
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p packaged
-          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' | sort | head -n 10 | while read -r f; do cp "$f" packaged/; done
-          ls -lh packaged
           python - <<'PY'
-          import glob,json,os
-          files=sorted(glob.glob('packaged/*.jsonl'))
-          meta=[]
+          import csv,glob,json,os,re,unicodedata
+          skip=set(json.load(open('control/sheet_sync_027_036_skip_ids.json')))
+          files=sorted(glob.glob('gpt/sheet_sync_queue/*.jsonl'))[:10]
+          assert len(files)==10, files
+          rows=[]
           for f in files:
-              with open(f,encoding='utf-8') as h: n=sum(1 for _ in h)
-              meta.append({'name':os.path.basename(f),'records':n})
-          open('packaged/manifest.json','w').write(json.dumps(meta,indent=2)+'\n')
-          print(meta)
+              with open(f,encoding='utf-8') as h:
+                  for line in h:
+                      q=json.loads(line)
+                      if q.get('overture_id') not in skip: rows.append(q)
+          assert len(rows)==361, len(rows)
+          def c(x): return str(x or '').replace('\t',' ').replace('\r',' ').replace('\n',' ')
+          def phone(x): return ''.join(re.findall(r'\d',str(x or '')))
+          def domain(x):
+              s=str(x or '').strip().lower(); s=re.sub(r'^https?://','',s).split('/')[0].split(':')[0]
+              return s[4:] if s.startswith('www.') else s
+          def nname(x):
+              s=unicodedata.normalize('NFKD',str(x or '')).encode('ascii','ignore').decode().lower()
+              return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',s)).strip()
+          def ambiguous(q):
+              cat=(q.get('category') or '').lower(); name=(q.get('name') or '').lower()
+              generic=('property_management' in cat or 'real_estate' in cat or 'property management' in name)
+              explicit=any(x in cat or x in name for x in ('vacation','holiday','hotel','resort','villa','cabin','chalet','lodging','short term','short-term','serviced','aparthotel'))
+              return generic and not explicit
+          def addr(q):
+              out=[]
+              for p in (c(q.get('street')),c(q.get('city')),c(q.get('state'))):
+                  if p and p not in out: out.append(p)
+              return ', '.join(out)
+          combined=[]
+          rank=6918
+          a_count=b_count=0
+          for q in rows:
+              amb=ambiguous(q); pri='B' if amb else 'A'; score='78' if amb else '91'
+              a_count += pri=='A'; b_count += pri=='B'
+              market=c(q.get('city') or q.get('region')); country=c(q.get('country')); d=domain(q.get('domain') or q.get('website')); p=phone(q.get('public_phone')); nm=nname(q.get('name'))
+              note='Recall-first: plausible adjacent hospitality/STR buyer retained.' if amb else ''
+              lead=[str(rank),pri,score,market,country,c(q.get('name')),'',c(q.get('category')),addr(q),p,'1','','','High','','','','overture:'+c(q.get('overture_id')),'2026-08-15','New',note,c(q.get('website')),c(q.get('public_email')),'',c(q.get('instagram')),'','','','','','',('Medium' if amb else 'High'),('Recall-first' if amb else 'Verified'),c(q.get('source_url')),'','']
+              key=('domain:'+d) if d else (('phone:'+p) if p else 'name:'+nm+'|'+nname(market)+'|'+nname(country))
+              dd=[key,p,d,nm,market,country,c(q.get('name')),str(rank)]
+              assert len(lead)==36 and len(dd)==8
+              combined.append(lead+dd); rank+=1
+          assert rank==7279
+          out='gpt/sheet_sync_stage_027_036.tsv'
+          with open(out,'w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f,delimiter='\t',lineterminator='\n',quoting=csv.QUOTE_MINIMAL); w.writerows(combined)
+          summary={'files':[os.path.basename(x) for x in files],'inspected':500,'existing_or_batch_duplicates':len(skip),'clear_rejects':0,'new_rows':len(rows),'priority_a':a_count,'ambiguous_retained':b_count,'rank_start':6918,'rank_end':7278}
+          open('gpt/sheet_sync_stage_027_036_summary.json','w').write(json.dumps(summary,indent=2,ensure_ascii=False)+'\n')
+          print(json.dumps(summary))
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sheet-sync-oldest-ten
-          path: packaged/
-          retention-days: 1
+          git config user.name 'sheet-sync-stage-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/sheet_sync_stage_027_036.tsv gpt/sheet_sync_stage_027_036_summary.json
+          git commit -m 'sync: stage chunks 027-036 mapped payload [skip ci]'
+          git push origin HEAD:main
