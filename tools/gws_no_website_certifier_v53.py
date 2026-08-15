@@ -9,12 +9,15 @@ independent local-business HIGHs.
 """
 from __future__ import annotations
 
+import html
 import os
 import re
 import sys
+import urllib.parse
 
 import gws_no_website_certifier_v53_core as _core
 import gws_search_provider_pool_v56_free as _providers
+import gws_reference_mesh_v57 as _ref
 import gws_identity_resolver_v54 as _identity
 import gws_worker_v55 as _worker_policy
 
@@ -24,11 +27,8 @@ _original_guesses = _core.v4.guesses
 _original_web_identity = _core.v4.identity
 
 _extra_platforms = ("creditsafe.", "numero-pro.", "busibee.")
-_core.v2.PLAT = tuple(dict.fromkeys(tuple(_core.v2.PLAT) + _extra_platforms))
+_core.v2.PLAT = tuple(dict.fromkeys(tuple(_core.v2.PLAT) + _extra_platforms + tuple(_ref.REFERENCE_MARKERS)))
 
-# Conservative lexical blocker for entities that are clearly public/educational
-# institutions rather than independent local businesses. Ambiguous words like
-# "academy", "institute", "centre" alone are intentionally NOT blocked.
 _PUBLIC_ENTITY_PATTERNS = tuple(re.compile(p, re.I) for p in (
     r"\bcentre\s+scolaire\b", r"\becole\b", r"\bécole\b", r"\bschool\b",
     r"\bathenee\b", r"\bathénée\b", r"\badministration\s+communale\b",
@@ -112,8 +112,6 @@ def coverage_hardened(w):
         "usable_query_families": usable,
         "resultful_queries": resultful,
         "direct_domains_checked": checked,
-        # Three distinct formulations per pass materially lowers false-HIGH risk;
-        # at least one resultful SERP proves the parser saw an actual web surface.
         "ok": healthy >= 2 and searched >= 3 and usable >= 3 and resultful >= 1 and checked >= 5,
     }
 
@@ -124,18 +122,13 @@ _core.v5.coverage = coverage_hardened
 def preclassify_hardened(c, p, pe, ovok):
     base = {"r": int(c["r"]), "candidate": c, "place": pe}
     complete, _ = _core.v5.complete_identity(c)
-    if not _core.v2.in_scope(c):
-        return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE"}
-    if obvious_non_independent_entity(c):
-        return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY"}
-    if not complete:
-        return {**base, "status": "UNCERTAIN", "reason": "SOURCE_IDENTITY_INCOMPLETE"}
-    if not ovok:
-        return {**base, "status": "ERROR_RETRYABLE", "reason": "OVERTURE_UNAVAILABLE"}
+    if not _core.v2.in_scope(c): return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE"}
+    if obvious_non_independent_entity(c): return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY"}
+    if not complete: return {**base, "status": "UNCERTAIN", "reason": "SOURCE_IDENTITY_INCOMPLETE"}
+    if not ovok: return {**base, "status": "ERROR_RETRYABLE", "reason": "OVERTURE_UNAVAILABLE"}
     if p:
         site = _core.v2.owned(p.get("websites"))
-        if site:
-            return {**base, "status": "REJECT", "reason": "OWNED_SITE_OVERTURE", "owned_site": site}
+        if site: return {**base, "status": "REJECT", "reason": "OWNED_SITE_OVERTURE", "owned_site": site}
         if _core.v2.t(p.get("operating_status")).lower() in {"closed", "permanently_closed"}:
             return {**base, "status": "REJECT", "reason": "CLOSED_OVERTURE"}
     return None
@@ -157,6 +150,28 @@ def canonical_key_hardened(x):
 
 
 _core.v5.canonical_key = canonical_key_hardened
+
+
+def bing_href_inventory_hardened(body, base):
+    """Decode Bing /ck/a targets using the already-tested legacy unwrap logic."""
+    normal=[]; references=[]; raw_hosts=set(); seen=set(); seen_ref=set(); base_host=_core.v2.host(base)
+    for raw in re.findall(r'''href\s*=\s*["']([^"'#]+)''', body or "", re.I):
+        joined=urllib.parse.urljoin(base, html.unescape(raw.strip()))
+        u=_core.v4._unwrap(joined)
+        h=_core.v2.host(u)
+        if not u.startswith("http") or not h or h==base_host or any(x in h for x in ("bing.com","microsoft.com","msn.com")):
+            continue
+        raw_hosts.add(h)
+        if _ref.is_reference(u):
+            if h not in seen_ref: seen_ref.add(h); references.append(u)
+        elif not _core.v2.platform(u) and h not in seen:
+            seen.add(h); normal.append(u)
+    return normal,references,raw_hosts
+
+
+# webcheck resolves this global at call time; patching it here keeps the provider
+# fail-closed while reusing the mature Bing redirect decoder from v4.
+_providers._href_inventory = bing_href_inventory_hardened
 
 
 async def provider_webcheck(rows, conc, search_conc):
@@ -186,6 +201,7 @@ globals()["guesses_hardened"] = guesses_hardened
 globals()["web_identity_hardened"] = web_identity_hardened
 globals()["coverage_hardened"] = coverage_hardened
 globals()["obvious_non_independent_entity"] = obvious_non_independent_entity
+globals()["bing_href_inventory_hardened"] = bing_href_inventory_hardened
 globals()["phone_keys"] = _identity.phone_keys
 
 if __name__ == "__main__": _core.main()
