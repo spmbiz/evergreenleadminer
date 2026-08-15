@@ -7,7 +7,9 @@ adds runtime-hardening layers discovered by live GitHub calibration:
 2) a throttled multi-provider search pool resilient to GitHub-runner rate limits;
 3) conservative provider-family normalization so transport fallbacks cannot
    masquerade as independent evidence;
-4) Belgian national/E.164 phone canonicalization for current-identity resolution.
+4) Belgian national/E.164 phone canonicalization for current-identity resolution;
+5) unresolved Overture identities are still adversarially web-challenged, while
+   remaining categorically ineligible for HIGH until current identity is strong.
 """
 from __future__ import annotations
 
@@ -46,6 +48,36 @@ _core.v2.indexes = _identity.indexes
 _core.v2.resolve = _identity.resolve
 
 
+def preclassify_hardened(c, p, pe, ovok):
+    """Only stop before web when the verdict is already safely terminal.
+
+    A missing Overture resolution is NOT evidence that a website search should be
+    skipped. Such candidates may be disqualified by the web challenger, but the
+    certificate still requires a strong current identity, so they cannot become
+    HIGH merely by surviving search.
+    """
+    base = {"r": int(c["r"]), "candidate": c, "place": pe}
+    complete, _ = _core.v5.complete_identity(c)
+    if not _core.v2.in_scope(c):
+        return {**base, "status": "REJECT", "reason": "OUT_OF_SCOPE"}
+    if not complete:
+        return {**base, "status": "UNCERTAIN", "reason": "SOURCE_IDENTITY_INCOMPLETE"}
+    if not ovok:
+        return {**base, "status": "ERROR_RETRYABLE", "reason": "OVERTURE_UNAVAILABLE"}
+    # Only trust Overture website/closure evidence when that Overture entity was
+    # actually resolved to the source candidate. `p` is None for unresolved best guesses.
+    if p:
+        site = _core.v2.owned(p.get("websites"))
+        if site:
+            return {**base, "status": "REJECT", "reason": "OWNED_SITE_OVERTURE", "owned_site": site}
+        if _core.v2.t(p.get("operating_status")).lower() in {"closed", "permanently_closed"}:
+            return {**base, "status": "REJECT", "reason": "CLOSED_OVERTURE"}
+    return None
+
+
+_core.v5.preclassify = preclassify_hardened
+
+
 async def provider_webcheck(rows, conc, search_conc):
     ans = await _providers.webcheck(rows, conc, search_conc)
     # DDG HTML/Lite are one family. Yahoo is conservatively grouped with Bing
@@ -78,6 +110,7 @@ for _name, _value in vars(_core).items():
         globals()[_name] = _value
 globals()["resolve_overture_release"] = resolve_overture_release
 globals()["provider_webcheck"] = provider_webcheck
+globals()["preclassify_hardened"] = preclassify_hardened
 globals()["phone_keys"] = _identity.phone_keys
 
 
