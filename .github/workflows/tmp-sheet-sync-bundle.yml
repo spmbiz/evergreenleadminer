@@ -1,0 +1,36 @@
+name: TMP Sheet Sync Bundle
+on:
+  push:
+    paths:
+      - '.github/workflows/tmp-sheet-sync-bundle.yml'
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bundle queue 083-092
+        run: |
+          mkdir -p /tmp/queue
+          python - <<'PY'
+          import glob,shutil,os
+          files=sorted(glob.glob('gpt/sheet_sync_queue/*.jsonl'))
+          chosen=[]
+          for q in files:
+              b=os.path.basename(q)
+              try:
+                  n=int(b.rsplit('-',1)[-1].split('.')[0])
+              except Exception:
+                  continue
+              if 83 <= n <= 92:
+                  shutil.copy2(q,'/tmp/queue/'+b)
+                  chosen.append(q)
+          print('\n'.join(chosen))
+          assert len(chosen)==10, chosen
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-083-092
+          path: /tmp/queue/*.jsonl
+          retention-days: 1
