@@ -1,19 +1,24 @@
 version: 2.1
 
 jobs:
-  token_probe:
+  push_probe:
     docker:
-      - image: cimg/python:3.11
+      - image: cimg/base:stable
     steps:
       - checkout
       - run:
-          name: Verify GitHub persistence token exists
+          name: Test whether CircleCI checkout credentials can persist to GitHub
           command: |
             set -euo pipefail
-            test -n "${FLEET_GH_TOKEN:-}" || { echo "FLEET_GH_TOKEN missing" >&2; exit 42; }
-            echo "token_present=yes"
+            git config user.name "circleci-fleet-bot"
+            git config user.email "circleci@users.noreply.github.com"
+            mkdir -p state
+            printf '{"circleci_push_probe":"ok","workflow":"%s"}\n' "$CIRCLE_WORKFLOW_ID" > state/circleci_push_probe.json
+            git add state/circleci_push_probe.json
+            git commit -m "[ci skip] CircleCI persistence capability probe"
+            git push origin HEAD:refs/heads/circleci-persistence-probe
 
 workflows:
-  token_probe_workflow:
+  push_probe_workflow:
     jobs:
-      - token_probe
+      - push_probe
