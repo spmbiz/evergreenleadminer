@@ -1,0 +1,61 @@
+name: GWS Direct OSM Brussels Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_osm_direct_lab_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  osm_resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LEGACY_EXPECTED: '5047'
+      SNAPSHOT_DIR: data/gws/legacy_deep/source_snapshot_5047_v5
+      SNAPSHOT_MANIFEST: data/gws/legacy_deep/source_snapshot_5047_v5/manifest_shards.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install parser
+        run: python -m pip install --disable-pip-version-check osmium
+      - name: Stage exact 5047 snapshot
+        run: |
+          python tools/gws_legacy_shard_guard.py \
+            --source-dir "$SNAPSHOT_DIR" \
+            --manifest "$SNAPSHOT_MANIFEST" \
+            --outdir source_queue \
+            --expected "$LEGACY_EXPECTED"
+      - name: Download current Brussels OSM PBF
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 \
+            --output brussels.osm.pbf \
+            https://download.bbbike.org/osm/bbbike/Bruessel/Bruessel.osm.pbf
+          test -s brussels.osm.pbf
+          ls -lh brussels.osm.pbf
+          sha256sum brussels.osm.pbf | tee osm_pbf.sha256
+      - name: Resolve all legacy candidates against raw OSM tags
+        run: |
+          mkdir -p osm_out
+          python tools/gws_osm_direct_resolver_v55.py \
+            --queue source_queue \
+            --pbf brussels.osm.pbf \
+            --expected "$LEGACY_EXPECTED" \
+            --outdir osm_out
+      - name: Publish summary
+        run: |
+          cat osm_out/summary.json
+          cp osm_pbf.sha256 osm_out/source_pbf.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-osm-direct-lab-${{ github.run_id }}
+          path: osm_out/
+          retention-days: 4
