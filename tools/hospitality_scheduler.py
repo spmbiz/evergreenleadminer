@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Tiny durable cloud-worker autoscaler for the 24/7 hospitality fleet.
 
-It intentionally starts below the GitHub ceiling and promotes one canary step only
-when the previous complete cycle is healthy. Source/local HTTP concurrency remains
-managed separately by fleet_runtime.py.
+Cloud concurrency measures shard/runner health and source throttling signals. Generic
+per-site connection/5xx errors are useful telemetry but must not globally suppress
+parallel geographic shards; local HTTP concurrency handles that pressure separately.
 """
 from __future__ import annotations
 import argparse, datetime as dt, json
@@ -52,22 +52,26 @@ def after(metrics_path: str):
         cur = min(steps, key=lambda x: abs(x-cur))
     idx = steps.index(cur)
     health = m.get("health") or {}
-    errors = int(m.get("errors") or 0)
+    failed = int(m.get("workers_failed") or m.get("errors") or 0)
     completed = int(m.get("workers_completed") or 0)
     r429 = float(health.get("429_rate") or 0)
     tout = float(health.get("timeout_rate") or 0)
-    err_rate = float(health.get("error_rate") or 0)
+    site_err = float(health.get("error_rate") or 0)
     useful = int(m.get("live_ready_before_canonical_dedupe") or 0)
+    yield_per_worker = useful / completed if completed else 0.0
 
-    unhealthy = errors > 0 or r429 > 0.02 or tout > 0.15 or err_rate > 0.20
-    healthy = errors == 0 and r429 < 0.005 and tout < 0.05 and err_rate < 0.08 and completed > 0
+    # Cloud jobs cover disjoint geography. Demote only when runners actually fail or
+    # the source-level throttle signals are materially bad. Per-site DNS/SSL/5xx
+    # noise is handled by the local HTTP autoscaler, not by shrinking the cloud fleet.
+    unhealthy = failed > 0 or r429 > 0.03 or tout > 0.12
+    healthy = failed == 0 and completed > 0 and useful > 0 and r429 < 0.02 and tout < 0.08
 
     if unhealthy and idx > 0:
         nxt = steps[idx-1]
-        decision = "demote_unhealthy"
-    elif healthy and useful > 0 and idx < len(steps)-1:
+        decision = "demote_cloud_source_pressure"
+    elif healthy and idx < len(steps)-1:
         nxt = steps[idx+1]
-        decision = "promote_healthy_canary"
+        decision = "promote_disjoint_shard_canary"
     else:
         nxt = cur
         decision = "hold"
@@ -77,9 +81,15 @@ def after(metrics_path: str):
         "recommended_cloud_workers": nxt,
         "last_cycle": m.get("cycle_id"),
         "last_decision": decision,
-        "last_health": {"429_rate": r429, "timeout_rate": tout, "error_rate": err_rate, "errors": errors},
+        "last_health": {
+            "429_rate": r429,
+            "timeout_rate": tout,
+            "site_error_rate": site_err,
+            "workers_failed": failed,
+        },
         "last_workers_completed": completed,
         "last_live_ready": useful,
+        "last_live_ready_per_worker": round(yield_per_worker, 3),
     })
     save(st)
     print(json.dumps(st, separators=(",", ":")))
