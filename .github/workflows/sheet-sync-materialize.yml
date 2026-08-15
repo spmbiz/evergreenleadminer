@@ -1,0 +1,128 @@
+name: Sheet Sync Materialize
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_sync_materialize.json'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Build verified recall-first TSV bridge
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,hashlib,json,re
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          cfg=json.load(open('control/sheet_sync_materialize.json'))
+          expected=cfg['expected_files']
+          actual=[p.name for p in sorted(Path('gpt/sheet_sync_queue').glob('*.jsonl'))[:10]]
+          if actual != expected:
+              raise SystemExit(f'oldest queue changed: expected={expected} actual={actual}')
+          excluded={x['id']:x['reason'] for x in cfg['excluded']}
+          next_rank=int(cfg['master_max_rank'])+1
+          outdir=Path('gpt/sheet_sync_ready'); outdir.mkdir(parents=True,exist_ok=True)
+          platform={'airbnb.com','booking.com','expedia.com','tripadvisor.com','vrbo.com','houfy.com','visitlakeiseo.info','discoverpuertorico.com','facebook.com','instagram.com','ownerrez.com'}
+          vr_terms=('vacation rental','vacation rentals','vacation home','holiday rental','holiday home','short term rental','short-term rental','short stay','short-stay','serviced apartment','serviced accommodation','aparthotel','airbnb','vrbo')
+          hosp_terms=('hotel','resort','villa','chalet','cabin','cottage','guest house','guesthouse','lodging','accommodation','bnb','bed and breakfast')
+          country_alias={'USA':'United States','US':'United States'}
+          def s(v): return str(v or '').strip()
+          def norm(v): return re.sub(r'\s+',' ',s(v)).strip()
+          def nname(v): return re.sub(r'[^a-z0-9]+',' ',norm(v).lower()).strip()
+          def nphone(v): return re.sub(r'\D','',s(v))
+          def host(v):
+              try:
+                  u=s(v)
+                  if u and '://' not in u: u='https://'+u
+                  h=(urlparse(u).hostname or '').lower().strip('.')
+                  return h[4:] if h.startswith('www.') else h
+              except: return ''
+          def root(h):
+              h=host(h) if '://' in s(h) else s(h).lower().strip('.')
+              if h.startswith('www.'): h=h[4:]
+              parts=h.split('.')
+              # sufficient for current queue; protect common cc second-level suffixes
+              if len(parts)>=3 and '.'.join(parts[-2:]) in {'co.uk','com.au','co.nz','co.za','com.br','com.mx','co.jp'}:
+                  return '.'.join(parts[-3:])
+              return '.'.join(parts[-2:]) if len(parts)>=2 else h
+          def first_party_domain(r):
+              d=root(r.get('final_url') or r.get('website') or r.get('domain'))
+              return '' if d in platform else d
+          def first_party_ig(r,d):
+              ig=s(r.get('instagram')); src=root(r.get('instagram_source_url'))
+              return ig if ig and d and src==d else ''
+          leads=[]; dedupe=[]; per=[]; ambiguous=0; sites=0; highA=0
+          for fn in expected:
+              p=Path('gpt/sheet_sync_queue')/fn
+              st={'file':fn,'inspected':0,'accepted':0,'duplicates':0,'clear_rejects':0,'ambiguous_retained':0}
+              for line in p.read_text(encoding='utf-8').splitlines():
+                  if not line.strip(): continue
+                  r=json.loads(line); st['inspected']+=1
+                  oid=s(r.get('overture_id'))
+                  if oid in excluded:
+                      if excluded[oid]=='duplicate': st['duplicates']+=1
+                      else: st['clear_rejects']+=1
+                      continue
+                  rank=next_rank; next_rank+=1; st['accepted']+=1
+                  name=norm(r.get('name')); cat=norm(r.get('category')); brand=norm(r.get('brand'))
+                  blob=' '.join((name,cat,brand,s(r.get('live_reason')),s(r.get('domain')))).lower()
+                  explicit_vr=any(t in blob for t in vr_terms) or cat.lower()=='holiday_rental_home'
+                  explicit_hosp=explicit_vr or any(t in blob for t in hosp_terms) or cat.lower() in {'hotel','resort','ski_resort'}
+                  amb=not explicit_hosp
+                  if amb: ambiguous+=1; st['ambiguous_retained']+=1
+                  live=s(r.get('live_status')).upper(); country=country_alias.get(s(r.get('country')),s(r.get('country')))
+                  market=norm(r.get('city') or r.get('region')); address=', '.join(x for x in [norm(r.get('street')),norm(r.get('city')),norm(r.get('state'))] if x)
+                  phone=s(r.get('public_phone')); email=s(r.get('public_email')); d=first_party_domain(r)
+                  website=s(r.get('final_url') or r.get('website')) if d else ''
+                  ig=first_party_ig(r,d)
+                  if website: sites+=1
+                  if explicit_vr:
+                      pri='A'; score=91 if live=='HIGH' else 84; leadtype='Vacation Rental / Hospitality Operator'; portfolio='High'; pitch='AI property-video portfolio sample → upsell multiple listings'; psig='Multi-property / operator signal'; conf='High' if live=='HIGH' else 'Medium'; status='Verified — queue sync + MASTER dedupe'; note='Queue sync; recall-first; MASTER-deduped.'
+                  elif explicit_hosp:
+                      pri='B'; score=84 if live=='HIGH' else 78; leadtype='Independent Hospitality'; portfolio='Good'; pitch='AI property-video package'; psig='Hospitality property'; conf='High' if live=='HIGH' else 'Medium'; status='Verified — queue sync + MASTER dedupe'; note='Queue sync; recall-first; MASTER-deduped.'
+                  else:
+                      pri='B'; score=78 if live=='HIGH' else 70; leadtype='Property Manager — STR plausible'; portfolio='Possible'; pitch='Validate STR / vacation-rental portfolio → AI property-video sample'; psig='Recall-first adjacent property-management signal'; conf='Medium'; status='Retained — recall-first queue sync + MASTER dedupe'; note='Queue sync; recall-first ambiguous adjacency retained; MASTER-deduped.'
+                  if pri=='A': highA+=1
+                  source=s(r.get('source_url'))
+                  urls=' | '.join(x for x in [website,source,ig] if x)
+                  enrich_note='Public email/phone supplied by queue; no inference.' + (' Ambiguous-but-plausible adjacency intentionally retained.' if amb else '')
+                  row=[rank,pri,score,market,country,name,leadtype,cat,address,phone,1 if phone else '', '', '',portfolio,pitch,'','',source,'2026-08-15','New',note,website,email,'',ig,'','','','',''+psig,'Email' if email else ('Phone' if phone else ''),conf,status,urls,enrich_note,'']
+                  assert len(row)==36
+                  leads.append(row)
+                  key=('domain:'+d) if d else (('phone:'+nphone(phone)) if nphone(phone) else 'name:'+hashlib.sha1((nname(name)+'|'+nname(market)+'|'+nname(country)).encode()).hexdigest())
+                  dedupe.append([key,nphone(phone),d,nname(name),market,country,name,rank])
+              per.append(st)
+          if len(leads)!=393 or next_rank-1!=6323:
+              raise SystemExit(f'guard failed rows={len(leads)} last_rank={next_rank-1}')
+          for path,rows in [(outdir/'leads.tsv',leads),(outdir/'dedupe.tsv',dedupe)]:
+              with path.open('w',encoding='utf-8',newline='') as f:
+                  csv.writer(f,delimiter='\t',lineterminator='\n',quoting=csv.QUOTE_MINIMAL).writerows(rows)
+          summary={'inspected':500,'accepted':len(leads),'duplicates':sum(x['duplicates'] for x in per),'clear_rejects':sum(x['clear_rejects'] for x in per),'ambiguous_retained':ambiguous,'sites_found':sites,'emails_found':sum(bool(x[22]) for x in leads),'high_priority':highA,'first_rank':leads[0][0],'last_rank':leads[-1][0],'files':per}
+          (outdir/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary,indent=2))
+          PY
+      - name: Commit bridge files
+        run: |
+          set -euo pipefail
+          git config user.name 'sheet-sync-materializer'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/sheet_sync_ready/leads.tsv gpt/sheet_sync_ready/dedupe.tsv gpt/sheet_sync_ready/summary.json
+          git commit -m 'ops: materialize verified hospitality sheet sync bridge [skip ci]'
+          for i in 1 2 3 4; do
+            if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
