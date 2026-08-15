@@ -6,6 +6,8 @@ Supported lanes:
   prefilter, then live verification.
 - site_recovery: Overture website-first discovery, canonical-domain prefilter,
   bounded first-party public contact recovery, then the same live gate.
+- batch64:<payload> bbox: runner-local queue of ordinary geo cells, processed
+  sequentially to amortize VM startup while preserving per-shard artifacts.
 
 The domain snapshot is only an optimization. Final canonicalization remains the
 single writer, so a stale/missing snapshot can never create a false append.
@@ -37,6 +39,23 @@ def prefilter(path: Path, domains: str, out: Path, label: str):
 def worker(a):
     out = Path(a.outdir)
     out.mkdir(parents=True, exist_ok=True)
+
+    # Runner-local work queue. The child tool calls this same worker with normal
+    # bboxes, each under its own output directory, so aggregate semantics remain
+    # identical while checkout/setup/dependency cost is paid only once.
+    if str(a.bbox).startswith("batch64:"):
+        payload = str(a.bbox).split(":", 1)[1]
+        fr.run([
+            sys.executable,
+            "tools/hospitality_geo_batch_worker.py",
+            "--provider", a.provider,
+            "--cycle-id", a.cycle_id,
+            "--cells-b64", payload,
+            "--canonical-domains", a.canonical_domains,
+            "--outdir", str(out),
+        ])
+        return
+
     t0 = time.time()
     status = "success"
     err = ""
