@@ -5,5 +5,6 @@
   "verifier": "tools/gws_legacy_deep_v4.py",
   "planner": "single-shot-global-capacity-broker",
   "mode": "full-volume-adversarial-then-gpt-research",
-  "trigger_nonce": "gws-legacy-v51-5047-volume-02"
+  "capacity_policy": "preserve-sibling-floors-borrow-idle-elastic",
+  "trigger_nonce": "gws-legacy-v51-5047-volume-03"
 }
