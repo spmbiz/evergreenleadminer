@@ -76,7 +76,7 @@ def run_multichannel_enrichment(canonical_db: str, outdir: str) -> None:
                 "tools/canonical_multichannel_enrich.py",
                 "--canonical-db", canonical_db,
                 "--outdir", outdir,
-                "--batch-size", "700",
+                "--batch-size", "2800",
                 "--workers", "64",
                 "--timeout", "6",
                 "--max-pages", "3",
