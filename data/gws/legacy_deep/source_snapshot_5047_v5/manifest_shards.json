@@ -1,0 +1,25 @@
+{
+  "schema": "gws-legacy-immutable-shards-v5",
+  "source_spreadsheet_id": "1L4CB030tcA8PiJhStPgqQ1Be7n4mCL3V0kpxK07JeSo",
+  "source_tab": "ACTIONABLE_NO_SITE",
+  "source_sheet_id": 816629564,
+  "expected_records": 5047,
+  "unique_source_rows": 5047,
+  "blank_business_names": 7,
+  "fields": ["r", "n", "p", "a", "ph", "em", "cow"],
+  "shards": {
+    "queue_00.jsonl.gz.b64": 421,
+    "queue_01.jsonl.gz.b64": 421,
+    "queue_02.jsonl.gz.b64": 421,
+    "queue_03.jsonl.gz.b64": 421,
+    "queue_04.jsonl.gz.b64": 421,
+    "queue_05.jsonl.gz.b64": 421,
+    "queue_06.jsonl.gz.b64": 421,
+    "queue_07.jsonl.gz.b64": 420,
+    "queue_08.jsonl.gz.b64": 420,
+    "queue_09.jsonl.gz.b64": 420,
+    "queue_10.jsonl.gz.b64": 420,
+    "queue_11.jsonl.gz.b64": 420
+  },
+  "integrity_rule": "stage only the 12 listed shards, decode each independently, require expected per-shard count and exactly 5047 unique source rows before verification"
+}
