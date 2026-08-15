@@ -4,6 +4,10 @@
 The underlying yield ranking is unchanged. We simply request enough ranked
 candidates to replace currently leased units, remove overlaps, and trim back to
 the broker-allocated runner capacity.
+
+A deliberately bounded stress-test control may temporarily force one existing
+lane. Normal production ignores the control override unless the mode explicitly
+starts with ``five-minute-live-max-throughput``.
 """
 from __future__ import annotations
 
@@ -40,6 +44,21 @@ def task_keys(item: dict) -> list[str]:
     return [k] if k else []
 
 
+def bounded_control_lane(cli_lane: str) -> str:
+    if cli_lane:
+        return cli_lane
+    try:
+        control = json.loads((ROOT / "control/hospitality_test.json").read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    mode = str(control.get("mode") or "")
+    lane = str(control.get("force_lane") or "").strip()
+    if not mode.startswith("five-minute-live-max-throughput"):
+        return ""
+    allowed = {"fast_email", "site_recovery", "atp", "osm"}
+    return lane if lane in allowed else ""
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=("github", "circleci"), default="github")
@@ -50,6 +69,7 @@ def main():
     ap.add_argument("--force-lane", default="")
     a = ap.parse_args()
 
+    force_lane = bounded_control_lane(a.force_lane)
     excluded = read_keys(a.exclude_keys)
     capacity = max(0, int(a.capacity))
     # In the worst case every currently leased unit would otherwise occupy a top
@@ -67,8 +87,8 @@ def main():
     ]
     if a.ignore_coverage:
         cmd.append("--ignore-coverage")
-    if a.force_lane:
-        cmd += ["--force-lane", a.force_lane]
+    if force_lane:
+        cmd += ["--force-lane", force_lane]
     subprocess.run(cmd, cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     plan = json.loads(tmp.read_text(encoding="utf-8"))
     try:
@@ -102,6 +122,7 @@ def main():
         "inflight_keys_seen": len(excluded),
         "inflight_tasks_excluded": excluded_tasks,
         "inflight_work_units_excluded": excluded_units,
+        "stress_force_lane": force_lane,
         "selected_lane_counts": lane_counts,
         "include": kept,
     })
