@@ -1,20 +1,24 @@
 version: 2.1
 
 jobs:
-  four_way:
+  harvest_real:
     parallelism: 4
     docker:
       - image: cimg/python:3.11
     steps:
       - checkout
       - run:
-          name: Parallel node smoke
+          name: Install dependencies
+          command: python -m pip install --disable-pip-version-check duckdb requests
+      - run:
+          name: Plan and harvest one disjoint shard per node
           command: |
-            set -e
-            echo "node=${CIRCLE_NODE_INDEX} total=${CIRCLE_NODE_TOTAL}"
-            python --version
+            set -euo pipefail
+            mkdir -p results/fleet_plan "results/shards/node-${CIRCLE_NODE_INDEX}"
+            python tools/fleet_runtime.py plan --provider circleci --capacity 4 --out results/fleet_plan/plan.json
+            python tools/circleci_hospitality_worker.py --plan-json results/fleet_plan/plan.json --task-index "$CIRCLE_NODE_INDEX" --outdir "results/shards/node-${CIRCLE_NODE_INDEX}"
 
 workflows:
-  four_way_stress:
+  circleci_hospitality_real:
     jobs:
-      - four_way
+      - harvest_real
