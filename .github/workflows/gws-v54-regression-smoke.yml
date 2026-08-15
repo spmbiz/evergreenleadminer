@@ -1,0 +1,23 @@
+name: GWS v5.4 Regression Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_v54_regression_smoke.json'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Deterministic v5.4 hardening regressions
+        run: python tools/gws_v54_regression_test.py
