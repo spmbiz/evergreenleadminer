@@ -2,9 +2,10 @@
 """Fast current-web verifier for V6 hospitality candidates.
 
 Verifies current first-party hospitality identity. Generic long-term property
-management is not hospitality: a candidate whose identity is merely property
-management must show explicit short-stay/vacation/holiday accommodation evidence
-on the current website or it is rejected.
+management / real-estate services are not hospitality: they must show explicit
+short-stay/vacation/holiday accommodation evidence on the current website.
+Strong hospitality names may only bypass a missing textual brand match when a
+first-party email/domain match independently supports the identity.
 """
 from __future__ import annotations
 import argparse,csv,html as htmlmod,re,time
@@ -17,7 +18,7 @@ HOSP=("vacation rental","vacation rentals","vacation home","holiday rental","hol
 STR_PROOF=("vacation rental","vacation rentals","vacation home","vacation homes","holiday rental","holiday rentals","holiday home","holiday homes","short-term rental","short term rental","short stay","nightly rental","airbnb","vrbo","serviced apartment","serviced apartments","serviced accommodation","aparthotel","villa rental","villa rentals","cabin rental","cabin rentals","chalet rental","chalet rentals")
 PARKED=("domain is for sale","this domain is for sale","buy this domain","domain may be for sale","expired domain","website is for sale","parked free","sedo domain parking","hugedomains","afternic","dan.com","coming soon")
 CLOSED=("permanently closed","ceased operations","we have closed","no longer operating","business has closed","closed our doors")
-UA="Mozilla/5.0 (compatible; AIProdLeadVerifier/1.2; public-business-research)"
+UA="Mozilla/5.0 (compatible; AIProdLeadVerifier/1.3; public-business-research)"
 BAD_IG_PREFIXES=("p/","reel/","reels/","stories/","explore/","accounts/","direct/","about/","legal/","developer/")
 
 def norm(x): return re.sub(r"\s+"," ",str(x or "")).strip()
@@ -52,14 +53,23 @@ def verify(row,timeout):
         text=re.sub(r"<[^>]+>"," ",r.text[:900000]).lower();text=re.sub(r"\s+"," ",text)
         if any(x in text for x in PARKED): out["live_status"]="REJECT";out["live_reason"]="PARKED_OR_FOR_SALE";return out
         if any(x in text for x in CLOSED): out["live_status"]="REJECT";out["live_reason"]="CLOSED_SIGNAL";return out
-        identity=(name+" "+cat).lower();generic_pm=("property management" in identity or "property manager" in identity) and not any(x in identity for x in STR_PROOF)
-        if generic_pm and not any(x in text for x in STR_PROOF):
+        identity=(name+" "+cat).lower()
+        generic_pm=("property management" in identity or "property manager" in identity) and not any(x in identity for x in STR_PROOF)
+        generic_real_estate=("real estate" in identity or "real_estate" in identity) and not any(x in identity for x in STR_PROOF)
+        explicit_str=any(x in text for x in STR_PROOF)
+        if generic_pm and not explicit_str:
             out["live_status"]="REJECT";out["live_reason"]="GENERIC_PROPERTY_MANAGEMENT_NOT_SHORT_STAY";return out
+        if generic_real_estate and not explicit_str:
+            out["live_status"]="REJECT";out["live_reason"]="GENERIC_REAL_ESTATE_NOT_SHORT_STAY";return out
         hh=sum(1 for x in HOSP if x in text);it=sum(1 for x in tokens(name) if x in text)
         out["hospitality_hits"]=str(hh);out["identity_hits"]=str(it);out["email_on_homepage"]="YES" if email and email.lower() in text else "NO"
         strong_name=any(x in identity for x in ("vacation rental","vacation rentals","holiday rental","short-term rental","short term rental","cabin rental","cabin rentals","chalet rental","villa rental","serviced apartment","aparthotel"))
-        if hh>=2 and (it>=1 or strong_name): out["live_status"]="HIGH";out["live_reason"]="CURRENT_HOSPITALITY_IDENTITY"
-        elif hh>=1 and (it>=1 or strong_name): out["live_status"]="MEDIUM";out["live_reason"]="CURRENT_WEAK_HOSPITALITY_IDENTITY"
+        email_match=str(row.get("email_domain_match") or "").strip().lower() in {"yes","true","1","match","matched"}
+        identity_ok=it>=1 or (strong_name and email_match)
+        if hh>=2 and identity_ok: out["live_status"]="HIGH";out["live_reason"]="CURRENT_HOSPITALITY_IDENTITY"
+        elif hh>=1 and identity_ok: out["live_status"]="MEDIUM";out["live_reason"]="CURRENT_WEAK_HOSPITALITY_IDENTITY"
+        elif strong_name and it==0 and not email_match:
+            out["live_status"]="REJECT";out["live_reason"]="STRONG_NAME_WITHOUT_FIRST_PARTY_IDENTITY_PROOF"
         else: out["live_status"]="UNCERTAIN";out["live_reason"]="INSUFFICIENT_CURRENT_IDENTITY_PROOF"
         return out
     except requests.RequestException as e: out["live_reason"]="NETWORK_"+type(e).__name__.upper();return out
