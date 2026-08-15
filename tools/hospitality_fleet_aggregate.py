@@ -2,9 +2,9 @@
 """Hospitality aggregate wrapper.
 
 Keeps fleet_runtime as the single canonical implementation, fixes registrable-
-domain handling for common multi-label public suffixes, persists lane-specific
-health, and runs a bounded second-pass multichannel enrichment against the same
-single-writer canonical SQLite.
+domain handling for common multi-label public suffixes, preserves monotonic
+multichannel enrichment, persists lane-specific health, and runs a bounded
+second-pass enrichment against the same single-writer canonical SQLite.
 """
 from __future__ import annotations
 
@@ -29,6 +29,10 @@ MULTI_SUFFIXES = {
 }
 MULTICHANNEL_BATCH_SIZE = 2800
 MULTICHANNEL_WORKERS = 64
+MONOTONIC_RAW_FIELDS = (
+    "facebook", "facebook_source_url", "contact_page", "whatsapp", "portfolio_url",
+    "instagram", "instagram_source_url", "email_source_url",
+)
 
 
 def registrable_domain(host: str) -> str:
@@ -51,6 +55,55 @@ def weighted(summaries, key: str, weight_key: str) -> float:
     if not denom:
         return 0.0
     return sum(float(s.get(key) or 0) * max(0, int(s.get(weight_key) or 0)) for s in summaries) / denom
+
+
+def snapshot_monotonic_fields(canonical_db: str) -> dict[str, dict]:
+    db = Path(canonical_db)
+    if not db.exists():
+        return {}
+    con = sqlite3.connect(db)
+    try:
+        out = {}
+        for domain, raw_json in con.execute("SELECT domain, raw_json FROM leads"):
+            try:
+                raw = json.loads(raw_json or "{}")
+            except Exception:
+                raw = {}
+            keep = {k: raw.get(k) for k in MONOTONIC_RAW_FIELDS if str(raw.get(k) or "").strip()}
+            if keep:
+                out[str(domain)] = keep
+        return out
+    finally:
+        con.close()
+
+
+def restore_monotonic_fields(canonical_db: str, snapshot: dict[str, dict]) -> int:
+    """Never let a poorer later observation erase explicit public enrichment."""
+    if not snapshot or not Path(canonical_db).exists():
+        return 0
+    con = sqlite3.connect(canonical_db)
+    changed = 0
+    try:
+        for domain, prior in snapshot.items():
+            row = con.execute("SELECT raw_json FROM leads WHERE domain=?", (domain,)).fetchone()
+            if not row:
+                continue
+            try:
+                raw = json.loads(row[0] or "{}")
+            except Exception:
+                raw = {}
+            dirty = False
+            for key, value in prior.items():
+                if value and not str(raw.get(key) or "").strip():
+                    raw[key] = value
+                    dirty = True
+            if dirty:
+                con.execute("UPDATE leads SET raw_json=? WHERE domain=?", (json.dumps(raw, ensure_ascii=False), domain))
+                changed += 1
+        con.commit()
+        return changed
+    finally:
+        con.close()
 
 
 def ensure_requests() -> None:
@@ -126,11 +179,6 @@ def persist_multichannel_benchmark(canonical_db: str, outdir: str, cycle_id: str
 
 
 def run_multichannel_enrichment(canonical_db: str, outdir: str, cycle_id: str) -> None:
-    """Use spare aggregate-job CPU/network, not discovery runner slots.
-
-    Fail-open by design: harvesting/canonicalization must survive a temporary
-    second-pass enrichment issue. The next cycle will retry eligible domains.
-    """
     try:
         ensure_requests()
         subprocess.run(
@@ -152,7 +200,6 @@ def run_multichannel_enrichment(canonical_db: str, outdir: str, cycle_id: str) -
         )
         persist_multichannel_benchmark(canonical_db, outdir, cycle_id)
     except Exception as exc:
-        # Discovery volume is more important than this optional enrichment pass.
         print(f"multichannel enrichment degraded but harvest remains valid: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
@@ -184,6 +231,8 @@ def persist_lane_health(results_root: str) -> None:
             "live_ready": sum(int(s.get("live_ready") or 0) for s in arr),
             "recovery_candidates": sum(int(s.get("recovery_candidates") or 0) for s in arr),
             "recovered_public_emails": sum(int(s.get("recovered_public_emails") or 0) for s in arr),
+            "contact_ready": sum(int(s.get("contact_ready") or 0) for s in arr),
+            "social_or_contact_without_email": sum(int(s.get("social_or_contact_without_email") or 0) for s in arr),
             "instagram_found": sum(int(s.get("instagram_found") or 0) for s in arr),
             "facebook_found": sum(int(s.get("facebook_found") or 0) for s in arr),
             "live_health": {
@@ -207,6 +256,8 @@ def persist_lane_health(results_root: str) -> None:
             "last_live_ready": lm["live_ready"],
             "last_recovery_candidates": lm["recovery_candidates"],
             "last_recovered_public_emails": lm["recovered_public_emails"],
+            "last_contact_ready": lm["contact_ready"],
+            "last_social_or_contact_without_email": lm["social_or_contact_without_email"],
             "last_live_health": lm["live_health"],
             "last_contact_health": lm["contact_health"],
         })
@@ -233,7 +284,10 @@ def main():
     ap.add_argument("--outdir", required=True)
     a = ap.parse_args()
     fr.root_host = registrable_domain
+    prior_enrichment = snapshot_monotonic_fields(a.canonical_db)
     fr.aggregate(a)
+    restored = restore_monotonic_fields(a.canonical_db, prior_enrichment)
+    print(json.dumps({"monotonic_raw_rows_restored": restored}))
     run_multichannel_enrichment(a.canonical_db, a.outdir, a.cycle_id)
     persist_lane_health(a.results_root)
 
