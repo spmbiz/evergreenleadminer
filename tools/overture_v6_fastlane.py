@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """V6 fast-lane hospitality/account harvester.
 
-Zero per-lead HTTP: query public Overture Places in bulk and retain only records
-with a website + public email already present. Apply cheap account-fit and contact
-sanity gates so output is suitable for canonical MASTER dedupe / final QA.
+Zero per-lead HTTP discovery: query public Overture Places in bulk and retain
+records with a website + public email already present. Apply cheap account-fit
+and contact sanity gates before live verification / canonical MASTER dedupe.
 Nothing is inferred.
+
+World-atlas cells may pass --country AUTO. In that mode the country is taken
+from Overture places.addresses[0].country (ISO alpha-2), with a display-name map
+for the commercial markets we use most heavily.
 """
 from __future__ import annotations
 import argparse,csv,json,re,time
@@ -22,15 +26,18 @@ OPERATOR=(
     "vacation rental","vacation rentals","vacation home","vacation homes",
     "holiday rental","holiday rentals","holiday home","holiday homes",
     "villa rental","villa rentals","villa management","property management",
-    "rental management","short term rental","short-term rental","serviced apartment",
-    "serviced apartments","serviced accommodation","luxury rentals","luxury stays",
-    "managed homes","managed properties","condo rentals","cabin rentals",
-    "chalet rentals","beach rentals","vacation property"
+    "rental management","short term rental","short-term rental","short stay",
+    "short-stay","serviced apartment","serviced apartments","serviced accommodation",
+    "aparthotel","apartment hotel","luxury rentals","luxury stays","managed homes",
+    "managed properties","condo rentals","cabin rentals","chalet rentals",
+    "beach rentals","vacation property","holiday lets","holiday let",
+    "self catering","self-catering","rental agency","holiday cottages"
 )
 PREMIUM=(
     "luxury","boutique","villa","villas","resort","retreat","estate",
     "residence","residences","beachfront","oceanfront","waterfront","ski",
-    "chalet","penthouse","private island","design hotel","collection"
+    "chalet","penthouse","private island","design hotel","collection","lodge",
+    "spa hotel","country house","country resort","eco resort","glamping"
 )
 HARD_REJECT=(
     "hostel","backpacker","motel 6","super 8","econo lodge","econolodge",
@@ -48,7 +55,38 @@ FREE_EMAIL=(
     "gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","yahoo.com",
     "icloud.com","me.com","aol.com","proton.me","protonmail.com"
 )
-MULTIPART_SUFFIXES=("co.uk","com.au","com.br","com.mx","co.nz","co.za","com.pt","com.es","com.tr")
+MULTIPART_SUFFIXES=(
+    "co.uk","org.uk","me.uk","ltd.uk","plc.uk","net.uk",
+    "com.au","net.au","org.au","com.br","com.mx","co.nz","net.nz","org.nz",
+    "co.za","com.pt","com.es","com.tr","co.jp","com.sg","com.hk","com.my"
+)
+COUNTRY_DISPLAY={
+    "US":"USA","CA":"Canada","MX":"Mexico","GB":"United Kingdom","IE":"Ireland",
+    "FR":"France","ES":"Spain","PT":"Portugal","IT":"Italy","GR":"Greece",
+    "DE":"Germany","AT":"Austria","CH":"Switzerland","NL":"Netherlands",
+    "BE":"Belgium","LU":"Luxembourg","DK":"Denmark","NO":"Norway","SE":"Sweden",
+    "FI":"Finland","IS":"Iceland","PL":"Poland","CZ":"Czechia","SK":"Slovakia",
+    "HU":"Hungary","SI":"Slovenia","HR":"Croatia","ME":"Montenegro","AL":"Albania",
+    "MT":"Malta","CY":"Cyprus","RO":"Romania","BG":"Bulgaria","RS":"Serbia",
+    "BA":"Bosnia and Herzegovina","MK":"North Macedonia","EE":"Estonia","LV":"Latvia",
+    "LT":"Lithuania","TR":"Turkey","GE":"Georgia","AM":"Armenia","AZ":"Azerbaijan",
+    "AE":"United Arab Emirates","SA":"Saudi Arabia","QA":"Qatar","BH":"Bahrain",
+    "OM":"Oman","JO":"Jordan","IL":"Israel","LB":"Lebanon","MA":"Morocco",
+    "TN":"Tunisia","EG":"Egypt","AU":"Australia","NZ":"New Zealand","FJ":"Fiji",
+    "NC":"New Caledonia","VU":"Vanuatu","WS":"Samoa","TO":"Tonga","JP":"Japan",
+    "KR":"South Korea","TH":"Thailand","VN":"Vietnam","MY":"Malaysia","SG":"Singapore",
+    "ID":"Indonesia","PH":"Philippines","LK":"Sri Lanka","MV":"Maldives","IN":"India",
+    "NP":"Nepal","CN":"China","HK":"Hong Kong","TW":"Taiwan","ZA":"South Africa",
+    "MU":"Mauritius","SC":"Seychelles","KE":"Kenya","TZ":"Tanzania","NA":"Namibia",
+    "BW":"Botswana","MZ":"Mozambique","MG":"Madagascar","SN":"Senegal","GH":"Ghana",
+    "NG":"Nigeria","BR":"Brazil","AR":"Argentina","CL":"Chile","UY":"Uruguay",
+    "CO":"Colombia","PE":"Peru","EC":"Ecuador","BO":"Bolivia","PY":"Paraguay",
+    "VE":"Venezuela","BS":"Bahamas","JM":"Jamaica","DO":"Dominican Republic",
+    "KY":"Cayman Islands","TC":"Turks and Caicos Islands","BB":"Barbados","AW":"Aruba",
+    "CW":"Curaçao","LC":"Saint Lucia","AG":"Antigua and Barbuda","GD":"Grenada",
+    "BZ":"Belize","CR":"Costa Rica","PA":"Panama","GT":"Guatemala","HN":"Honduras",
+    "NI":"Nicaragua","SV":"El Salvador","PR":"Puerto Rico","VI":"US Virgin Islands"
+}
 
 def norm(x): return re.sub(r"\s+"," ",str(x or "")).strip()
 def first(v): return norm(v[0]) if isinstance(v,(list,tuple)) and v else norm(v)
@@ -80,10 +118,18 @@ def brand_name(v):
     n=v.get("names")
     return norm(n.get("primary")) if isinstance(n,dict) else norm(v.get("name"))
 def addr(v):
-    if not isinstance(v,(list,tuple)) or not v or not isinstance(v[0],dict):return {"city":"","state":"","street":""}
+    if not isinstance(v,(list,tuple)) or not v or not isinstance(v[0],dict):
+        return {"city":"","state":"","street":"","country":""}
     a=v[0]; lines=a.get("address_lines")
     street=", ".join(norm(x) for x in lines if norm(x)) if isinstance(lines,(list,tuple)) else norm(lines or a.get("freeform"))
-    return {"city":norm(a.get("locality") or a.get("city")),"state":norm(a.get("region") or a.get("state")),"street":street}
+    return {
+        "city":norm(a.get("locality") or a.get("city")),
+        "state":norm(a.get("region") or a.get("state")),
+        "street":street,
+        "country":norm(a.get("country")).upper(),
+    }
+def display_country(code):
+    c=norm(code).upper(); return COUNTRY_DISPLAY.get(c,c)
 def hits(text,phrases):
     low=(text or "").lower(); return sum(1 for p in phrases if p in low)
 
@@ -111,11 +157,25 @@ def main():
           OR COALESCE(categories.primary,'') ILIKE '%hotel%'
           OR COALESCE(categories.primary,'') ILIKE '%resort%'
           OR COALESCE(categories.primary,'') ILIKE '%vacation%rental%'
+          OR COALESCE(categories.primary,'') ILIKE '%holiday%rental%'
+          OR COALESCE(categories.primary,'') ILIKE '%holiday%home%'
           OR COALESCE(categories.primary,'') ILIKE '%property%management%'
+          OR COALESCE(categories.primary,'') ILIKE '%serviced%apartment%'
+          OR COALESCE(categories.primary,'') ILIKE '%aparthotel%'
           OR COALESCE(categories.primary,'') ILIKE '%villa%'
+          OR COALESCE(categories.primary,'') ILIKE '%chalet%'
+          OR COALESCE(categories.primary,'') ILIKE '%cabin%rental%'
           OR COALESCE(names.primary,'') ILIKE '%vacation%rental%'
+          OR COALESCE(names.primary,'') ILIKE '%holiday%rental%'
+          OR COALESCE(names.primary,'') ILIKE '%holiday%home%'
           OR COALESCE(names.primary,'') ILIKE '%property%management%'
+          OR COALESCE(names.primary,'') ILIKE '%short%term%rental%'
+          OR COALESCE(names.primary,'') ILIKE '%serviced%apartment%'
           OR COALESCE(names.primary,'') ILIKE '%villa%rental%'
+          OR COALESCE(names.primary,'') ILIKE '%chalet%rental%'
+          OR COALESCE(names.primary,'') ILIKE '%cabin%rental%'
+          OR COALESCE(names.primary,'') ILIKE '%boutique%hotel%'
+          OR COALESCE(names.primary,'') ILIKE '%luxury%stay%'
         )
       LIMIT {int(a.max_rows)}
     """
@@ -130,17 +190,18 @@ def main():
         same=(root_host(dom)==root_host(ed)); free=(root_host(ed) in FREE_EMAIL)
         if not (same or free): reject["domain_mismatch"]+=1; continue
         oh=hits(identity,OPERATOR); ph=hits(identity,PREMIUM)
-        op_score=min(100,(48 if oh else 0)+(12*min(3,oh))+(15 if any(k in name.lower() for k in ("rentals","property management","vacation","villas","homes")) else 0))
+        op_score=min(100,(48 if oh else 0)+(12*min(3,oh))+(15 if any(k in name.lower() for k in ("rentals","property management","vacation","holiday","villas","homes","stays")) else 0))
         p_score=min(100,(20 if "resort" in cat.lower() else 0)+(10 if "hotel" in cat.lower() else 0)+12*min(4,ph))
-        operatorish=(op_score>=48 or any(k in cat.lower() for k in ("vacation","property management")))
+        operatorish=(op_score>=48 or any(k in cat.lower() for k in ("vacation","holiday rental","property management","serviced apartment")))
         propertyish=(p_score>=34)
         if not (operatorish or propertyish): reject["weak_fit"]+=1; continue
         key=root_host(dom) or (name.lower()+"|"+ad["city"].lower())
         if key in seen: reject["duplicate"]+=1; continue
         seen.add(key)
         tier="A" if operatorish and (op_score>=60 or p_score>=24) else ("A" if p_score>=48 else "B")
-        oid=norm(x.get("id")); rows.append({
-          "source":"Overture Places V6 fast-lane","overture_id":oid,"country":a.country,"region":a.region,
+        oid=norm(x.get("id")); country=display_country(ad.get("country")) if norm(a.country).upper()=="AUTO" else norm(a.country)
+        rows.append({
+          "source":"Overture Places V6 fast-lane","overture_id":oid,"country":country,"region":a.region,
           "name":name,"category":cat,"brand":brand,"website":site,"domain":dom,"public_email":email,
           "email_domain":ed,"email_domain_match":"YES" if same else "FREE_WEBMAIL","public_phone":phone,
           "city":ad["city"],"state":ad["state"],"street":ad["street"],"confidence":norm(x.get("confidence")),
