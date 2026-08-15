@@ -42,7 +42,7 @@ jobs:
 
           if enabled and workflow == 'Hospitality Autonomous Fleet 24/7':
               subprocess.run([
-                  'python','tools/hospitality_multilane_plan.py','--provider','github',
+                  'python','tools/hospitality_master_plan.py','--provider','github',
                   '--capacity','1','--out','/tmp/hospitality-plan.json'
               ],check=True,stdout=subprocess.DEVNULL)
               plan=json.load(open('/tmp/hospitality-plan.json'))
