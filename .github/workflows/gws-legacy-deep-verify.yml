@@ -1,0 +1,98 @@
+name: GWS Legacy 5K Deep Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gws-legacy-deep-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        worker_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install verifier dependencies
+        run: python -m pip install --disable-pip-version-check duckdb aiohttp
+      - name: Deep verify legacy shard
+        run: |
+          set -euo pipefail
+          mkdir -p "results/worker-${{ matrix.worker_index }}"
+          python tools/gws_legacy_mega.py worker \
+            --queue data/gws/legacy_deep/queue_5003.jsonl.gz.b64 \
+            --worker-index "${{ matrix.worker_index }}" \
+            --worker-count 20 \
+            --threads 16 \
+            --http-concurrency 64 \
+            --outdir "results/worker-${{ matrix.worker_index }}"
+      - name: Upload shard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-deep-worker-${{ github.run_id }}-${{ matrix.worker_index }}
+          path: results/worker-${{ matrix.worker_index }}/
+          retention-days: 2
+          compression-level: 6
+
+  aggregate:
+    needs: verify
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download all shard evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: legacy-deep-worker-${{ github.run_id }}-*
+          path: incoming
+      - name: Aggregate all 5K outcomes
+        run: |
+          set -euo pipefail
+          python tools/gws_legacy_mega.py aggregate \
+            --input-root incoming \
+            --outdir aggregate_out \
+            --expected 5003
+          cat aggregate_out/summary.json
+      - name: Persist durable verification evidence
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          RUN_DIR="data/gws/legacy_deep/runs/${GITHUB_RUN_ID}"
+          mkdir -p "$RUN_DIR" metrics gpt/gws_legacy_deep_review
+          cp aggregate_out/results.jsonl.gz.b64 "$RUN_DIR/results.jsonl.gz.b64"
+          cp aggregate_out/summary.json "$RUN_DIR/summary.json"
+          cp aggregate_out/summary.json metrics/gws_legacy_deep_latest.json
+          cp aggregate_out/strict_review_ready.jsonl "gpt/gws_legacy_deep_review/${GITHUB_RUN_ID}.jsonl"
+          git config user.name "evergreen-gws-legacy-verifier"
+          git config user.email "actions@users.noreply.github.com"
+          git add "$RUN_DIR" metrics/gws_legacy_deep_latest.json gpt/gws_legacy_deep_review/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "[legacy-deep] verify 5003 candidates ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:$BRANCH"; then exit 0; fi
+            git rebase --abort >/dev/null 2>&1 || true
+            git fetch origin "$BRANCH"
+            git rebase "origin/$BRANCH" || { git rebase --abort || true; exit 1; }
+            sleep $((attempt * 3))
+          done
+          exit 1
