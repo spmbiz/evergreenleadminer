@@ -5,7 +5,9 @@ Supported lanes:
 - fast_email: zero-HTTP Overture website+email discovery, canonical-domain
   prefilter, then live verification.
 - site_recovery: Overture website-first discovery, canonical-domain prefilter,
-  bounded first-party public contact recovery, then the same live gate.
+  bounded first-party public contact recovery, then the same live gate. Any
+  explicit public outreach route (email/phone/Instagram/Facebook/contact page)
+  may advance to the gate; email is no longer mandatory.
 - batch64:<payload> bbox: runner-local queue of ordinary geo cells, processed
   sequentially to amortize VM startup while preserving per-shard artifacts.
 
@@ -40,9 +42,6 @@ def worker(a):
     out = Path(a.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    # Runner-local work queue. The child tool calls this same worker with normal
-    # bboxes, each under its own output directory, so aggregate semantics remain
-    # identical while checkout/setup/dependency cost is paid only once.
     if str(a.bbox).startswith("batch64:"):
         payload = str(a.bbox).split(":", 1)[1]
         fr.run([
@@ -82,6 +81,13 @@ def worker(a):
                 "--max-pages", str(a.contact_max_pages),
                 "--max-bytes", str(a.contact_max_bytes),
             ])
+            fr.run([
+                sys.executable,
+                "tools/promote_contact_ready.py",
+                "--input", str(out / "v6_recovery_enriched.csv"),
+                "--output", str(out / "v6_fast_ready.csv"),
+                "--summary", str(out / "v6_contact_ready_summary.json"),
+            ])
         else:
             fr.run([
                 sys.executable,
@@ -113,6 +119,7 @@ def worker(a):
 
     fast = fr.load_json(out / "v6_fast_summary.json", {})
     recovery = fr.load_json(out / "v6_contact_recovery_summary.json", {})
+    contact_ready = fr.load_json(out / "v6_contact_ready_summary.json", {})
     live = fr.load_json(out / "v6_live_summary.json", {})
     pf_fast = fr.load_json(out / "canonical_prefilter_fast.json", {})
     pf_recovery = fr.load_json(out / "canonical_prefilter_recovery.json", {})
@@ -159,6 +166,8 @@ def worker(a):
         "recovery_candidates": int(fast.get("recovery_candidates") or 0),
         "canonical_prefilter_rejected": canonical_rejected,
         "recovered_public_emails": int(recovery.get("recovered_public_emails") or 0),
+        "contact_ready": int(contact_ready.get("contact_ready") or 0),
+        "social_or_contact_without_email": int(contact_ready.get("social_or_contact_without_email") or 0),
         "fast_ready": int(live.get("input_fast_ready") or fast.get("fast_ready") or 0),
         "live_high": int(live.get("live_high") or 0),
         "live_medium": int(live.get("live_medium") or 0),
