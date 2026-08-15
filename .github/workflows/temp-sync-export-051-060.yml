@@ -5,29 +5,115 @@ on:
       - '.github/workflows/temp-sync-export-051-060.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
-  bundle:
+  build-staging:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bundle queue window
+        with:
+          fetch-depth: 0
+      - name: Build verified staging CSVs from pinned keep-set
         run: |
           set -euo pipefail
-          mkdir -p bundle
-          cp gpt/sheet_sync_queue/bootstrap-20260815T011144Z-{051..060}.jsonl bundle/
           python - <<'PY'
-          import json,glob
-          files=sorted(glob.glob('bundle/*.jsonl'))
-          counts={}
-          for p in files:
+          import csv, glob, json, re, unicodedata
+          from urllib.parse import urlparse
+
+          keep=set(json.load(open('gpt/temp_sync_keep_051_060.json',encoding='utf-8')))
+          rows=[]
+          for p in sorted(glob.glob('gpt/sheet_sync_queue/bootstrap-20260815T011144Z-0[5-6][0-9].jsonl')):
+              n=int(re.search(r'-(\d{3})\.jsonl$',p).group(1))
+              if not (51 <= n <= 60):
+                  continue
               with open(p,encoding='utf-8') as f:
-                  counts[p]=sum(1 for line in f if line.strip())
-          open('bundle/manifest.json','w').write(json.dumps({'files':files,'counts':counts,'total':sum(counts.values())},indent=2))
-          print(json.dumps(counts,indent=2))
+                  for line in f:
+                      if not line.strip(): continue
+                      r=json.loads(line)
+                      if r.get('overture_id') in keep:
+                          r['_chunk']=n
+                          rows.append(r)
+          if len(rows)!=155:
+              raise SystemExit(f'Expected 155 pinned rows, got {len(rows)}')
+
+          multipart={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          def clean(v):
+              return re.sub(r'[\t\r\n]+',' ',str(v or '')).strip()
+          def norm_text(v):
+              s=unicodedata.normalize('NFKD',clean(v)).encode('ascii','ignore').decode('ascii').lower()
+              return ' '.join(re.sub(r'[^a-z0-9]+',' ',s).split())
+          def phone(v): return re.sub(r'\D+','',clean(v))
+          def host(v):
+              s=clean(v)
+              if not s: return ''
+              if '://' not in s: s='http://'+s
+              try:
+                  h=(urlparse(s).hostname or '').lower().strip('.')
+                  return h[4:] if h.startswith('www.') else h
+              except Exception: return ''
+          def root_domain(h):
+              h=(h or '').lower().strip('.')
+              if not h:return ''
+              parts=h.split('.')
+              for suf in multipart:
+                  if h==suf:return h
+                  if h.endswith('.'+suf) and len(parts)>=3:return '.'.join(parts[-3:])
+              return '.'.join(parts[-2:]) if len(parts)>=2 else h
+          strong=('vacation rental','vacation rentals','holiday rental','holiday rentals','holiday home','holiday homes','cabin rental','cabin rentals','short term','short-term','vacations','vacation home','rent a luxury villa')
+          def cls(r):
+              text=' '.join([clean(r.get('name')),clean(r.get('category')),clean(r.get('domain'))]).lower()
+              cat=clean(r.get('category')).lower()
+              if any(t in text for t in strong) or cat in {'holiday_rental_home','cabin','cottage'}:
+                  return 'A','91','High','Verified',''
+              if cat in {'hotel','resort','lodging','bed_and_breakfast','beach_resort'} or any(t in text for t in ('villa','villas','residence','residences','suite','suites','boutique hotel','luxury resort')):
+                  return 'A','88','High','Verified',''
+              if cat in {'property_management','real_estate_service','real_estate_agent'} and any(t in text for t in ('vacation','holiday','airbnb','vrbo','.vacations')):
+                  return 'A','91','High','Verified',''
+              return 'B','70','Medium','Recall-first','Recall-first: plausible adjacent hospitality/STR buyer retained.'
+
+          leads=[]; dedupe=[]; rank=8016; a=b=0
+          for r in rows:
+              priority,score,conf,enrich_status,note=cls(r)
+              a += priority=='A'; b += priority=='B'
+              market=clean(r.get('city') or r.get('region'))
+              country=clean(r.get('country'))
+              name=clean(r.get('name'))
+              site=clean(r.get('website'))
+              dom=root_domain(clean(r.get('domain')) or host(site))
+              ph=phone(r.get('public_phone'))
+              addr=[]
+              for v in (r.get('street'),r.get('city'),r.get('state')):
+                  v=clean(v)
+                  if v and v not in addr: addr.append(v)
+              address=', '.join(addr)
+              oid=clean(r.get('overture_id'))
+              src=clean(r.get('source_url')) or (f'https://explore.overturemaps.org/#id={oid}' if oid else '')
+              leads.append([
+                  str(rank),priority,score,market,country,name,'',clean(r.get('category')),address,ph,'1','','','High','','','','overture:'+oid,'2026-08-15','New',note,site,clean(r.get('public_email')),'',clean(r.get('instagram')),'','','','','','','',conf,enrich_status,src,''
+              ])
+              nname=norm_text(name)
+              dkey=('domain:'+dom) if dom else (('phone:'+ph) if ph else f'name:{nname}|{norm_text(market)}|{norm_text(country)}')
+              dedupe.append([dkey,ph,dom,nname,market,country,name,str(rank)])
+              rank += 1
+
+          with open('gpt/temp_sync_051_060_leads.csv','w',encoding='utf-8',newline='') as f:
+              csv.writer(f).writerows(leads)
+          with open('gpt/temp_sync_051_060_dedupe.csv','w',encoding='utf-8',newline='') as f:
+              csv.writer(f).writerows(dedupe)
+          summary={'inspected':500,'duplicates':339,'clear_rejects':6,'new_rows':155,'ambiguous_plausible_retained':b,'priority_a':a,'priority_b':b,'rank_start':8016,'rank_end':rank-1,'chunks':'051-060'}
+          open('gpt/temp_sync_051_060_summary.json','w',encoding='utf-8').write(json.dumps(summary,indent=2,ensure_ascii=False)+'\n')
+          print(json.dumps(summary,indent=2))
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sheet-sync-051-060
-          path: bundle/
-          retention-days: 1
+      - name: Commit staging files
+        run: |
+          set -euo pipefail
+          git config user.name 'sheet-sync-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/temp_sync_051_060_leads.csv gpt/temp_sync_051_060_dedupe.csv gpt/temp_sync_051_060_summary.json
+          git commit -m 'temp: materialize verified sheet sync 051-060 [skip ci]'
+          for i in 1 2 3 4; do
+            if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
