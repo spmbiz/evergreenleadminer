@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   dispatch_next:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Dispatch next fleet run when no successor already exists
@@ -45,7 +45,7 @@ jobs:
 
           source_id="${PAYLOAD_SOURCE_RUN_ID:-}"
           active=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs?per_page=30" \
-            --jq --arg source "$source_id" '[.workflow_runs[] | select((.status == "queued" or .status == "in_progress") and ((.id|tostring) != $source))] | length')
+            --jq "[.workflow_runs[] | select((.status == \"queued\" or .status == \"in_progress\") and ((.id|tostring) != \"${source_id}\"))] | length")
 
           if [ "$active" -gt 0 ]; then
             echo "$PAYLOAD_WORKLOAD already has successor/parallel run(s): $active; no duplicate dispatch."
