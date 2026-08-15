@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 defaults:
   run:
@@ -17,7 +17,7 @@ defaults:
 jobs:
   export:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,9 +51,32 @@ jobs:
           pathlib.Path('bundle/manifest.json').write_text(json.dumps(out,indent=2)+'\n')
           print(out)
           PY
+      - name: Build deterministic Sheets staging
+        if: ${{ hashFiles('gpt/sheet_sync_queue/*.jsonl') != '' }}
+        run: |
+          set -euo pipefail
+          python tools/build_sheet_sync_staging.py \
+            --queue gpt/sheet_sync_queue \
+            --out staging/sheet_sync_latest \
+            --chunk-rows 500
+          cp staging/sheet_sync_latest/manifest.json bundle/staging-manifest.json
       - uses: actions/upload-artifact@v4
         with:
           name: sheet-sync-queue-snapshot
           path: bundle/
           retention-days: 1
           compression-level: 6
+      - name: Publish staging snapshot for Google Sheets
+        if: ${{ hashFiles('staging/sheet_sync_latest/manifest.json') != '' }}
+        run: |
+          set -euo pipefail
+          git config user.name 'ai-prod-sheet-bridge'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A staging/sheet_sync_latest
+          if git diff --cached --quiet; then
+            echo 'Staging unchanged.'
+            exit 0
+          fi
+          git commit -m 'fleet: publish MASTER Sheet staging [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
