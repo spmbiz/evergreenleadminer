@@ -1,85 +1,62 @@
 {
-  "cycle_id": "20260815T140646Z-github-multilane",
+  "cycle_id": "20260815T141137Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-15T14:09:12.953897Z",
-  "workers_completed": 19,
+  "finished_at": "2026-08-15T14:16:16.296920Z",
+  "workers_completed": 20,
   "workers_failed": 0,
-  "raw_discovered": 89106,
-  "live_ready_before_canonical_dedupe": 515,
-  "new_unique": 512,
-  "changed_existing": 2,
-  "duplicates": 3,
-  "instagram_found": 279,
-  "gpt_review_pending": 93,
+  "raw_discovered": 276163,
+  "live_ready_before_canonical_dedupe": 2282,
+  "new_unique": 2271,
+  "changed_existing": 10,
+  "duplicates": 11,
+  "instagram_found": 1068,
+  "gpt_review_pending": 462,
   "errors": 0,
-  "peak_wall_seconds": 113.82,
-  "new_unique_per_worker_minute": 39.088,
-  "canonical_total": 21044,
+  "peak_wall_seconds": 242.99,
+  "new_unique_per_worker_minute": 96.351,
+  "canonical_total": 23315,
   "health": {
-    "429_rate": 0.00248,
-    "timeout_rate": 0.03713,
-    "error_rate": 0.21906
+    "429_rate": 0.01083,
+    "timeout_rate": 0.03219,
+    "error_rate": 0.18412
   },
   "next_local_http_workers": 32,
   "multichannel_enrichment": {
-    "attempted": 513,
-    "domains_enriched": 302,
-    "instagram_added": 13,
-    "facebook_added": 6,
-    "contact_page_added": 18,
-    "whatsapp_added": 120,
-    "portfolio_url_added": 256,
-    "pages_fetched": 1147,
-    "failed": 61,
-    "incomplete_domains_remaining": 20232,
+    "attempted": 2272,
+    "domains_enriched": 894,
+    "instagram_added": 24,
+    "facebook_added": 15,
+    "contact_page_added": 97,
+    "whatsapp_added": 159,
+    "portfolio_url_added": 772,
+    "pages_fetched": 4133,
+    "failed": 337,
+    "incomplete_domains_remaining": 22454,
     "retry_hours": 72,
-    "elapsed_seconds": 63.07
+    "elapsed_seconds": 194.01
   },
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 16,
+      "workers_completed": 20,
       "workers_failed": 0,
-      "raw_discovered": 89106,
-      "fast_ready": 808,
-      "live_ready": 515,
-      "recovery_candidates": 850,
-      "recovered_public_emails": 212,
-      "contact_ready": 808,
-      "social_or_contact_without_email": 596,
-      "instagram_found": 279,
-      "facebook_found": 292,
+      "raw_discovered": 276163,
+      "fast_ready": 3324,
+      "live_ready": 2282,
+      "recovery_candidates": 3564,
+      "recovered_public_emails": 819,
+      "contact_ready": 3324,
+      "social_or_contact_without_email": 2505,
+      "instagram_found": 1068,
+      "facebook_found": 1179,
       "live_health": {
-        "429_rate": 0.00248,
-        "timeout_rate": 0.03713,
-        "error_rate": 0.21906
+        "429_rate": 0.01083,
+        "timeout_rate": 0.03219,
+        "error_rate": 0.18412
       },
       "contact_health": {
-        "429_rate": 0.00118,
-        "timeout_rate": 0.04,
-        "error_rate": 0.03647
-      }
-    },
-    "fast_email": {
-      "workers_completed": 3,
-      "workers_failed": 0,
-      "raw_discovered": 0,
-      "fast_ready": 0,
-      "live_ready": 0,
-      "recovery_candidates": 0,
-      "recovered_public_emails": 0,
-      "contact_ready": 0,
-      "social_or_contact_without_email": 0,
-      "instagram_found": 0,
-      "facebook_found": 0,
-      "live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
-      },
-      "contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "429_rate": 0.00645,
+        "timeout_rate": 0.03592,
+        "error_rate": 0.02834
       }
     }
   }
