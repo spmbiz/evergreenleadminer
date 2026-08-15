@@ -1,0 +1,59 @@
+name: Hospitality CircleCI Inbox Aggregate
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+\concurrency:
+  group: hospitality-autonomous-fleet
+  cancel-in-progress: false
+
+jobs:
+  aggregate_circleci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Canonicalize durable CircleCI hospitality inboxes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/hospitality_circleci_inbox.py --max-assets 4
+      - name: Persist CircleCI hospitality ingestion state
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "ai-prod-hospitality-circleci-ingest"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            state/hospitality_circleci_inbox.json \
+            state/coverage.json \
+            state/checkpoints.json \
+            state/source_state.json \
+            metrics/latest.json \
+            metrics/history.jsonl \
+            gpt/latest_summary.json \
+            gpt/pending_batches.json
+          if git diff --cached --quiet; then
+            echo "No CircleCI hospitality inbox delta."
+            exit 0
+          fi
+          git commit -m "fleet: ingest CircleCI hospitality inbox ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin "$BRANCH"
+            if git push origin "HEAD:$BRANCH"; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 3))
+          done
+          echo "Failed to persist CircleCI hospitality ingest after retries" >&2
+          exit 1
