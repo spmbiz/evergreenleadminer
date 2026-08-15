@@ -1,0 +1,25 @@
+name: Temp Sync Queue Pack
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-sync-pack.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack oldest 10 queue chunks
+        run: |
+          set -euo pipefail
+          mkdir -p pack
+          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' -printf '%f\n' | sort | head -10 | while read f; do cp "gpt/sheet_sync_queue/$f" pack/; done
+          ls -lh pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-queue-pack
+          path: pack/
+          retention-days: 1
