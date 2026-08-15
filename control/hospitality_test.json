@@ -1,7 +1,7 @@
 {
-  "requested_at": "2026-08-15T00:31:00Z",
+  "requested_at": "2026-08-15T00:42:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "account-wide-capacity-stress",
+  "mode": "production-grid-account-wide-max",
   "force_workers": 20,
-  "note": "Request full GitHub capacity; fleet probe must subtract live GWS/tender jobs and choose only genuinely free slots. Production verifier remains thread/64 for this cloud-scale stress before async promotion."
+  "note": "Production proof after grid-sharded planner rollout. Request 20 GitHub workers; account-wide probe must subtract active GWS/tender work. Use requests/thread verifier at 64 local workers because identical-input async benchmark reduced verification quality."
 }
