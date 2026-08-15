@@ -1,5 +1,5 @@
 {
-  "requested_at": "2026-08-15T13:35:00Z",
-  "case": "hospitality-requests-20-while-tender-has-durable-backlog",
-  "expected": "Tender target >=6 and total planned occupancy <=20"
+  "requested_at": "2026-08-15T13:38:00Z",
+  "case": "hospitality-requests-20-while-tender-active-and-old-lease-matures",
+  "expected": "Tender active+reserved >=6, planned occupancy <=20, mature lease shrinks to outstanding jobs"
 }
