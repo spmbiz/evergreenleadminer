@@ -1,0 +1,281 @@
+name: GWS Legacy 5047 Autonomous Certification v5.2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_v52_trigger.json'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gws-legacy-5047-autonomous-cert-v52
+  cancel-in-progress: true
+
+env:
+  LEGACY_EXPECTED: '5047'
+  SNAPSHOT_DIR: data/gws/legacy_deep/source_snapshot_5047_v5
+  SNAPSHOT_MANIFEST: data/gws/legacy_deep/source_snapshot_5047_v5/manifest_shards.json
+  SNAPSHOT_ID: gws-legacy-5047-v5-sharded
+  GWS_MAX_WORKERS: '10'
+  CERTIFIER: tools/gws_no_website_certifier_v5.py
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      allocated: ${{ steps.capacity.outputs.allocated }}
+      should_run: ${{ steps.capacity.outputs.should_run }}
+      matrix: ${{ steps.capacity.outputs.matrix }}
+      remaining: ${{ steps.capacity.outputs.remaining }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Single-shot GWS capacity decision
+        id: capacity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p plan
+          python tools/gws_legacy_capacity_plan.py \
+            --requested "$GWS_MAX_WORKERS" \
+            --run-id "$GITHUB_RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out plan/capacity.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          b=json.load(open('plan/capacity.json'))
+          n=int(b.get('allocated') or 0); rem=int(b.get('legacy_remaining') or 0)
+          print(f'allocated={n}')
+          print(f'remaining={rem}')
+          print('should_run=' + ('true' if n > 0 and rem > 0 else 'false'))
+          print('matrix=' + json.dumps(list(range(max(1,n))),separators=(',',':')))
+          PY
+          cat plan/capacity.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gws-v52-capacity-${{ github.run_id }}
+          path: plan/capacity.json
+          retention-days: 1
+
+  preflight:
+    needs: plan
+    if: ${{ needs.plan.outputs.should_run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Deterministic certifier regression gates
+        run: |
+          set -euo pipefail
+          python tools/gws_v5_selftest.py
+      - name: Guard exact immutable 5047 snapshot
+        run: |
+          set -euo pipefail
+          python tools/gws_legacy_shard_guard.py \
+            --source-dir "$SNAPSHOT_DIR" \
+            --manifest "$SNAPSHOT_MANIFEST" \
+            --outdir source_queue \
+            --expected "$LEGACY_EXPECTED"
+          python "$CERTIFIER" preflight --queue source_queue --expected "$LEGACY_EXPECTED"
+          cat source_queue/guard_summary.json
+
+  verify:
+    needs: [plan, preflight]
+    if: ${{ needs.plan.outputs.should_run == 'true' && needs.preflight.result == 'success' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        worker_index: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Stage guarded snapshot
+        run: |
+          python tools/gws_legacy_shard_guard.py \
+            --source-dir "$SNAPSHOT_DIR" \
+            --manifest "$SNAPSHOT_MANIFEST" \
+            --outdir source_queue \
+            --expected "$LEGACY_EXPECTED"
+      - name: Install verifier dependencies
+        run: python -m pip install --disable-pip-version-check duckdb aiohttp
+      - name: Two-pass autonomous no-website certification
+        run: |
+          set -euo pipefail
+          i='${{ matrix.worker_index }}'
+          wc='${{ needs.plan.outputs.allocated }}'
+          mkdir -p "results/worker-$i"
+          python "$CERTIFIER" worker \
+            --queue source_queue \
+            --expected "$LEGACY_EXPECTED" \
+            --worker-index "$i" \
+            --worker-count "$wc" \
+            --threads 12 \
+            --http-concurrency 32 \
+            --search-concurrency 2 \
+            --outdir "results/worker-$i"
+          python - <<'PY'
+          import json, os
+          i=int('${{ matrix.worker_index }}'); wc=int('${{ needs.plan.outputs.allocated }}'); n=int(os.environ['LEGACY_EXPECTED'])
+          expected=(n + wc - 1 - i)//wc
+          s=json.load(open(f'results/worker-{i}/summary.json'))
+          assert int(s.get('attempted',-1)) == expected, (i,expected,s)
+          print(json.dumps(s,separators=(',',':')))
+          PY
+      - name: Upload immutable worker partition
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gws-v52-worker-${{ github.run_id }}-${{ matrix.worker_index }}
+          path: results/worker-${{ matrix.worker_index }}/
+          if-no-files-found: error
+          retention-days: 1
+
+  aggregate:
+    needs: [plan, verify]
+    if: ${{ needs.plan.outputs.should_run == 'true' && needs.verify.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gws-v52-worker-${{ github.run_id }}-*
+          path: incoming
+      - name: Canonical aggregate and evidence reconciliation
+        run: |
+          set -euo pipefail
+          python "$CERTIFIER" aggregate \
+            --input-root incoming \
+            --outdir aggregate_out \
+            --expected "$LEGACY_EXPECTED"
+          python - <<'PY'
+          import json, os
+          s=json.load(open('aggregate_out/summary.json'))
+          assert int(s.get('attempted_unique',-1)) == int(os.environ['LEGACY_EXPECTED']), s
+          assert int(s.get('worker_summaries',-1)) == int('${{ needs.plan.outputs.allocated }}'), s
+          assert int(s.get('duplicate_results',-1)) == 0, s
+          print('GWS_V52_AGGREGATE_INTEGRITY_OK')
+          PY
+      - name: Compute useful output per runner-minute and provider health
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import datetime as dt, json, os, pathlib, urllib.request
+          s=json.load(open('aggregate_out/summary.json'))
+          attempts=r429=r403=errors=timeouts=0; productive=0.0
+          for p in pathlib.Path('incoming').rglob('summary.json'):
+              try: productive += float(json.load(open(p)).get('elapsed_seconds') or 0)
+              except Exception: pass
+          for p in pathlib.Path('incoming').rglob('results.jsonl'):
+              for line in p.read_text().splitlines():
+                  if not line.strip(): continue
+                  x=json.loads(line)
+                  for w in (x.get('web_pass1') or {}, x.get('web_pass2') or {}):
+                      health=[]
+                      for q in w.get('search_health') or []: health.extend(q.get('providers') or [])
+                      health.extend(w.get('direct_health') or [])
+                      for h in health:
+                          attempts += 1; st=int(h.get('status') or 0); err=str(h.get('error') or '')
+                          r429 += st==429; r403 += st==403; errors += bool(err); timeouts += 'timeout' in err.lower()
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/jobs?per_page=100"
+          req=urllib.request.Request(url,headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','User-Agent':'gws-v52-yield-meter'})
+          with urllib.request.urlopen(req,timeout=30) as r: jobs=json.load(r).get('jobs') or []
+          runner_seconds=0.0
+          for j in jobs:
+              if not str(j.get('name') or '').startswith('verify'): continue
+              try:
+                  a=dt.datetime.fromisoformat(j['started_at'].replace('Z','+00:00')); b=dt.datetime.fromisoformat(j['completed_at'].replace('Z','+00:00'))
+                  runner_seconds += max(0,(b-a).total_seconds())
+              except Exception: pass
+          rm=runner_seconds/60.0; useful=int(s.get('verified_no_website') or 0)
+          s.update({'runner_minutes':round(rm,3),'productive_seconds_sum':round(productive,3),'setup_overhead_seconds_estimate':round(max(0,runner_seconds-productive),3),'useful_final':useful,'useful_per_runner_minute':round(useful/rm,4) if rm else 0.0,'provider_attempts':attempts,'rate_429':round(r429/attempts,6) if attempts else 0.0,'rate_403':round(r403/attempts,6) if attempts else 0.0,'timeout_rate':round(timeouts/attempts,6) if attempts else 0.0,'provider_error_rate':round(errors/attempts,6) if attempts else 0.0,'brokered_workers':int('${{ needs.plan.outputs.allocated }}'),'snapshot_id':os.environ['SNAPSHOT_ID']})
+          open('aggregate_out/summary.json','w').write(json.dumps(s,indent=2)+'\n')
+          print(json.dumps(s,indent=2))
+          PY
+      - name: Persist immutable evidence and GPT red-team queue in Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=gws-legacy-deep-results
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "GWS legacy deep results" --notes "Immutable per-run GWS verification evidence."
+          mkdir -p release_payload
+          cp aggregate_out/results.jsonl.gz.b64 "release_payload/${GITHUB_RUN_ID}_v52_results.jsonl.gz.b64"
+          cp aggregate_out/exceptions.jsonl "release_payload/${GITHUB_RUN_ID}_v52_exceptions.jsonl"
+          cp aggregate_out/verified_no_website.jsonl "release_payload/${GITHUB_RUN_ID}_v52_verified_no_website.jsonl"
+          cp aggregate_out/owned_site_hits.jsonl "release_payload/${GITHUB_RUN_ID}_v52_owned_site_hits.jsonl"
+          cp aggregate_out/summary.json "release_payload/${GITHUB_RUN_ID}_v52_summary.json"
+          gh release upload "$tag" release_payload/* --clobber
+      - name: Persist compact run pointer and metrics
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p metrics/gws_v52 gpt/gws_v52_redteam
+          cp aggregate_out/summary.json "metrics/gws_v52/${GITHUB_RUN_ID}.json"
+          python - <<'PY'
+          import json, os
+          run=os.environ['GITHUB_RUN_ID']; s=json.load(open('aggregate_out/summary.json'))
+          p={'run_id':run,'release_tag':'gws-legacy-deep-results','verified_no_website':s.get('verified_no_website',0),'challenge_asset':f'{run}_v52_verified_no_website.jsonl','summary_asset':f'{run}_v52_summary.json','full_evidence_asset':f'{run}_v52_results.jsonl.gz.b64'}
+          open(f'gpt/gws_v52_redteam/{run}.json','w').write(json.dumps(p,indent=2)+'\n')
+          PY
+          git config user.name evergreen-gws-v52
+          git config user.email actions@users.noreply.github.com
+          git add "metrics/gws_v52/${GITHUB_RUN_ID}.json" "gpt/gws_v52_redteam/${GITHUB_RUN_ID}.json"
+          git commit -m "[gws-v52] persist autonomous certification metrics ${GITHUB_RUN_ID} [skip ci]" || exit 0
+          for attempt in 1 2 3 4 5; do
+            git push origin "HEAD:$BRANCH" && exit 0
+            git rebase --abort >/dev/null 2>&1 || true
+            git fetch origin "$BRANCH"
+            git rebase "origin/$BRANCH" || { git rebase --abort || true; exit 1; }
+            sleep $((attempt * 2))
+          done
+          exit 1
+
+  finalize:
+    needs: [plan, preflight, verify, aggregate]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release capacity lease and report truthful state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHOULD_RUN: ${{ needs.plan.outputs.should_run }}
+          ALLOCATED: ${{ needs.plan.outputs.allocated }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          AGGREGATE_RESULT: ${{ needs.aggregate.result }}
+        run: |
+          python tools/global_capacity_broker.py release --run-id "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" || true
+          python - <<'PY'
+          import json, os
+          should=os.environ.get('SHOULD_RUN')=='true'
+          state='WAITING_CAPACITY' if not should else 'FAILED'
+          if should and all(os.environ.get(k)=='success' for k in ('PREFLIGHT_RESULT','VERIFY_RESULT','AGGREGATE_RESULT')): state='SUCCESS'
+          print(json.dumps({'state':state,'allocated_workers':int(os.environ.get('ALLOCATED') or 0),'run_id':os.environ['GITHUB_RUN_ID']}))
+          PY
