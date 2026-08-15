@@ -1,4 +1,4 @@
-name: Apply Fair Share Hot Fleet Patch
+name: Validate Fair Share Hot Fleet
 
 on:
   push:
@@ -8,121 +8,86 @@ on:
       - control/apply_fair_share_hot_fleet.json
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 jobs:
-  patch-and-validate:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/fair-share-hot-fleet-v4
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Apply throughput-safe text patches
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          replacements = {
-              '.github/workflows/hospitality-autonomous-fleet.yml': [
-                  ('python tools/global_capacity_broker.py reserve', 'python tools/global_capacity_broker_v3.py reserve'),
-              ],
-              '.github/workflows/gws-autonomous-fleet.yml': [
-                  ('python tools/global_capacity_broker.py reserve', 'python tools/global_capacity_broker_v3.py reserve'),
-              ],
-              '.github/workflows/global-broker-canary.yml': [
-                  ('python tools/global_capacity_broker.py reserve', 'python tools/global_capacity_broker_v3.py reserve'),
-              ],
-              'tools/hospitality_multilane_plan.py': [
-                  ('EXPLORE_SHARE = 0.15', 'EXPLORE_SHARE = 0.30'),
-              ],
-          }
-          for rel, reps in replacements.items():
-              p=Path(rel)
-              s=p.read_text(encoding='utf-8')
-              for old,new in reps:
-                  if old not in s:
-                      raise SystemExit(f'missing expected patch anchor in {rel}: {old}')
-                  s=s.replace(old,new)
-              p.write_text(s,encoding='utf-8')
-
-          # Expand the already-production-safe Geofabrik adapter across small,
-          # high-value Western markets. The planner HEAD-checks every URL/version;
-          # a bad/unavailable source degrades to source_errors and never blocks geo.
-          p=Path('config/osm_geofabrik_sources.json')
-          cfg=json.loads(p.read_text(encoding='utf-8'))
-          cfg['policy']['source_slot_cap_per_cycle']=2
-          existing={x.get('extract_id') for x in cfg.get('extracts',[])}
-          additions=[
-              ('luxembourg','LU','Luxembourg','https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf',88),
-              ('liechtenstein','LI','Liechtenstein','https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf',87),
-              ('malta','MT','Malta','https://download.geofabrik.de/europe/malta-latest.osm.pbf',86),
-              ('andorra','AD','Andorra','https://download.geofabrik.de/europe/andorra-latest.osm.pbf',85),
-              ('iceland','IS','Iceland','https://download.geofabrik.de/europe/iceland-latest.osm.pbf',84),
-          ]
-          for extract_id,iso2,country,url,priority in additions:
-              if extract_id in existing:
-                  continue
-              cfg['extracts'].append({
-                  'extract_id':extract_id,
-                  'iso2':iso2,
-                  'country':country,
-                  'pbf_url':url,
-                  'production_enabled':True,
-                  'priority':priority,
-                  'revisit_hours':168,
-                  'max_download_mb':800,
-                  'canary':{'mode':'planner_http_version_gate_then_production_small_extract'}
-              })
-          p.write_text(json.dumps(cfg,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
-          PY
-
-      - name: Validate Python JSON and workflow YAML
+      - name: Validate code and configuration
         run: |
           set -euo pipefail
           python -m py_compile \
             tools/global_capacity_broker.py \
             tools/global_capacity_broker_v3.py \
             tools/hospitality_multilane_plan.py \
-            tools/hospitality_master_plan.py
+            tools/hospitality_master_plan.py \
+            tools/hospitality_fleet_aggregate.py
           python -m json.tool config/global_fleet.json >/dev/null
           python -m json.tool config/osm_geofabrik_sources.json >/dev/null
-          python -m pip install --disable-pip-version-check pyyaml >/dev/null
           python - <<'PY'
-          import yaml
+          import json
           from pathlib import Path
-          for rel in [
-              '.github/workflows/hospitality-autonomous-fleet.yml',
-              '.github/workflows/gws-autonomous-fleet.yml',
-              '.github/workflows/global-broker-canary.yml',
-              '.github/workflows/hospitality-continuous-controller.yml',
-              '.github/workflows/autonomous-fleet-continuation.yml',
-          ]:
-              yaml.safe_load(Path(rel).read_text(encoding='utf-8'))
-              print('yaml_ok',rel)
+          fleet=json.load(open('config/global_fleet.json'))
+          assert fleet['github']['preemption_policy']=='natural_completion_only'
+          assert fleet['github']['idle_capacity_policy']=='borrow_immediately'
+          assert abs(float(fleet['workloads']['hospitality']['weight'])-.50)<1e-9
+          assert abs(float(fleet['workloads']['gws']['weight'])-.25)<1e-9
+          assert abs(float(fleet['workloads']['tenders']['weight'])-.25)<1e-9
+          src=Path('tools/hospitality_multilane_plan.py').read_text()
+          assert 'EXPLORE_SHARE = 0.30' in src
+          osm=json.load(open('config/osm_geofabrik_sources.json'))
+          ids={x['extract_id'] for x in osm['extracts'] if x.get('production_enabled')}
+          assert {'monaco','luxembourg','liechtenstein','malta','andorra','iceland'} <= ids
+          assert int(osm['policy']['source_slot_cap_per_cycle'])==2
+          print('static_policy_ok', sorted(ids))
           PY
 
-      - name: Commit validated patch to branch
+      - name: Live broker dry-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          git config user.name "ai-prod-fleet-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add \
-            .github/workflows/hospitality-autonomous-fleet.yml \
-            .github/workflows/gws-autonomous-fleet.yml \
-            .github/workflows/global-broker-canary.yml \
-            tools/hospitality_multilane_plan.py \
-            config/osm_geofabrik_sources.json
-          if git diff --cached --quiet; then
-            echo "Patch already represented"
-            exit 0
-          fi
-          git commit -m "fleet: hot-loop fair-share throughput patch"
-          git push origin HEAD:agent/fair-share-hot-fleet-v4
+          mkdir -p /tmp/broker
+          python tools/global_capacity_broker.py reserve \
+            --workload hospitality \
+            --requested 20 \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out /tmp/broker/hospitality.json \
+            --dry-run
+          python tools/global_capacity_broker.py reserve \
+            --workload gws \
+            --requested 10 \
+            --run-id "$RUN_ID-gws" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out /tmp/broker/gws.json \
+            --dry-run
+          python - <<'PY'
+          import json
+          for workload in ('hospitality','gws'):
+              b=json.load(open(f'/tmp/broker/{workload}.json'))
+              assert b.get('broker_version')==3, b
+              assert sum(int(v) for v in (b.get('fair_targets') or {}).values()) <= int(b['capacity'])
+              assert int(b['allocated']) >= 0
+              assert int(b['allocated']) + int(b['external_slots']) + int(b['leased_other_slots']) + int(b['sibling_headroom']) <= int(b['capacity'])
+              print(workload, json.dumps({
+                  'allocated':b['allocated'],
+                  'active_by_workload':b.get('active_by_workload'),
+                  'fair_targets':b.get('fair_targets'),
+                  'sibling_headroom':b.get('sibling_headroom'),
+              }))
+          PY
