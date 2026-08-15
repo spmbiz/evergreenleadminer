@@ -1,19 +1,19 @@
 {
   "profiles": {
     "gws_hub_overture": {
-      "canary_stage": 5,
+      "canary_stage": 6,
       "duckdb_threads": 4,
       "expected_worker_minutes": 1.0,
       "initial_parallel": 8,
       "last_429_rate": 0.0,
-      "last_autoscale_reason": "hold_marginal_throughput",
-      "last_cycle_useful_per_worker_minute": 19.2156,
+      "last_autoscale_reason": "healthy_canary_scale_up",
+      "last_cycle_useful_per_worker_minute": 51.8977,
       "last_error_rate": 0.0,
-      "last_updated": "2026-08-15T00:27:06+00:00",
-      "last_useful_per_minute": 10.4465,
+      "last_updated": "2026-08-15T00:37:58+00:00",
+      "last_useful_per_minute": 39.2433,
       "max_parallel": 30,
       "scale_step": 4,
-      "stable_parallel": 28
+      "stable_parallel": 30
     }
   },
   "schema_version": 1
