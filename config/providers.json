@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-08-15T00:40:00Z",
+  "verified_at": "2026-08-15T01:06:00Z",
   "providers": {
     "github": {
       "enabled": true,
@@ -14,38 +14,15 @@
       "source": "https://docs.github.com/en/actions/reference/limits"
     },
     "circleci": {
-      "enabled": true,
+      "enabled": false,
       "configured": true,
       "verified_eligible": true,
       "compute_connectivity_verified": true,
       "parallel_static_workflow_verified": true,
-      "dynamic_config_verified": false,
-      "dynamic_config_required": false,
       "persistence_ready": false,
-      "persistence_blocker": "FLEET_GH_TOKEN is missing in CircleCI; checkout credentials are read-only",
-      "required_secret": "FLEET_GH_TOKEN",
-      "plan": "Free",
-      "concurrency_limit": 30,
-      "worker_target": 30,
-      "control_reserve": 0,
-      "dependency_serialized_control": true,
-      "open_source_linux_credits_per_month": 400000,
-      "oss_credit_allocation_verified": false,
-      "credit_budget_monthly": 400000,
-      "credit_guard_ratio": 0.95,
+      "disabled_reason": "Operator decision 2026-08-15: ignore CircleCI and keep the autonomous fleet GitHub-only.",
       "auto_purchase": false,
-      "worker_resource_class": "medium",
-      "worker_credits_per_minute": 10,
-      "setup_resource_class": "small",
-      "setup_credits_per_minute": 5,
-      "activation_requirements_remaining": [
-        "Add FLEET_GH_TOKEN in CircleCI Project Settings > Environment Variables or an approved context; token needs write access to walidgdg1-ai/evergreenleadminer contents/releases",
-        "Confirm the project receives the intended public/open-source Linux credit allocation before sustained high-volume CircleCI scheduling",
-        "Create a scheduled CircleCI pipeline with fleet=true once persistence_ready is verified"
-      ],
-      "source": "https://circleci.com/pricing/",
-      "credit_source": "https://circleci.com/docs/guides/plans-pricing/credits/",
-      "resource_rate_source": "https://circleci.com/pricing/price-list/"
+      "worker_target": 0
     }
   }
 }
