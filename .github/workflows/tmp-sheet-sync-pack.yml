@@ -19,7 +19,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p pack
-          for n in $(seq -w 37 46); do
+          for i in $(seq 37 46); do
+            n=$(printf '%03d' "$i")
             cp "gpt/sheet_sync_queue/bootstrap-20260815T011144Z-${n}.jsonl" pack/
           done
           wc -l pack/*.jsonl
