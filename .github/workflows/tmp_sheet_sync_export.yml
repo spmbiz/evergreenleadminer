@@ -1,0 +1,25 @@
+name: tmp-sheet-sync-export
+on:
+  push:
+    paths:
+      - '.github/workflows/tmp_sheet_sync_export.yml'
+  workflow_dispatch:
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage oldest delta chunks
+        run: |
+          mkdir -p /tmp/sheet_sync_queue
+          for n in $(seq -w 2 11); do
+            f="gpt/sheet_sync_queue/delta-github-run-31857086895-0${n}.jsonl"
+            if [ -f "$f" ]; then cp "$f" /tmp/sheet_sync_queue/; fi
+          done
+          ls -lah /tmp/sheet_sync_queue
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-queue-002-011
+          path: /tmp/sheet_sync_queue/*.jsonl
+          if-no-files-found: error
+          retention-days: 1
