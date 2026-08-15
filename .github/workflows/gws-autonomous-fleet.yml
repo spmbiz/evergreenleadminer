@@ -26,6 +26,9 @@ concurrency:
 
 jobs:
   plan:
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     outputs:
       enabled: ${{ steps.plan.outputs.enabled }}
@@ -35,12 +38,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: plan
-        name: Measure account capacity, lease GWS work, snapshot Hub once
+        name: Reserve global capacity, lease GWS work, snapshot Hub once
         env:
+          GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          python tools/gws_fleet_plan.py --provider github --outdir results/fleet_plan
+          mkdir -p results/fleet_plan
+          REQUESTED=$(python - <<'PY'
+          import json
+          try:
+              p=json.load(open('state/gws_source_profiles.json')).get('profiles',{}).get('gws_hub_overture',{})
+              stable=int(p.get('stable_parallel') or p.get('initial_parallel') or 8)
+          except Exception:
+              stable=8
+          try:
+              g=json.load(open('config/global_fleet.json')).get('workloads',{}).get('gws',{})
+              cap=int(g.get('max_slots') or 12)
+          except Exception:
+              cap=12
+          print(max(0,min(stable,cap)))
+          PY
+          )
+          python tools/global_capacity_broker.py reserve \
+            --workload gws \
+            --requested "$REQUESTED" \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out results/fleet_plan/global_broker.json
+          ALLOCATED=$(python -c 'import json; print(int(json.load(open("results/fleet_plan/global_broker.json")).get("allocated") or 0))')
+          echo "global_broker_requested=$REQUESTED allocated=$ALLOCATED"
+          python tools/gws_broker_plan.py --capacity "$ALLOCATED" --outdir results/fleet_plan
       - name: Install discovery dependency
         if: steps.plan.outputs.selected_count != '0'
         run: python -m pip install --disable-pip-version-check duckdb
@@ -203,3 +233,18 @@ jobs:
           done
           echo "Failed to persist GWS fleet state after retries" >&2
           exit 1
+
+  release_capacity_lease:
+    needs: [plan, harvest, aggregate]
+    if: always()
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release account-wide GitHub capacity lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
