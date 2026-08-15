@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import inspect
+
 import gws_no_website_certifier_v53 as prod
+import gws_search_provider_pool_v54 as providers
+import gws_worker_v54 as worker_policy
 
 
 def main():
@@ -41,6 +45,24 @@ def main():
     # Once both rows are strongly resolved to the same Overture entity, they must merge.
     a['place']['resolved'] = True; b['place']['resolved'] = True
     assert prod.canonical_key_hardened(a) == prod.canonical_key_hardened(b) == 'o:weak-shared'
+
+    # Runtime regression: never serialize every search transport behind one global
+    # per-worker semaphore again. DDG stays conservative, while independent
+    # transports may use the configured bounded concurrency.
+    limits = providers.provider_concurrency_plan(2)
+    assert limits == {'bing': 2, 'yahoo': 2, 'ddg': 1}, limits
+    assert providers.provider_family('yahoo') == 'bing'
+    assert providers.provider_family('ddg_lite') == 'ddg'
+
+    # Runtime integrity regression: worker policy must persist durable partial
+    # results/progress before the expensive web stage and after each web batch.
+    src = inspect.getsource(worker_policy.worker)
+    assert 'partial_results.jsonl' in inspect.getsource(worker_policy._checkpoint)
+    assert 'progress.json' in inspect.getsource(worker_policy._checkpoint)
+    assert 'GWS_V54_PROGRESS=' in inspect.getsource(worker_policy._checkpoint)
+    assert 'GWS_WEB_BATCH_SIZE' in src
+    assert 'stage="resolved"' in src
+    assert 'stage="web_batch_complete"' in src
 
     print('GWS_V54_REGRESSION_OK')
 
