@@ -1,0 +1,120 @@
+name: Hospitality Multichannel Postprocess
+
+on:
+  workflow_run:
+    workflows: ["Hospitality Autonomous Fleet 24/7"]
+    types: [completed]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hospitality-multichannel-postprocess.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  enrich_snapshot:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    concurrency:
+      group: hospitality-multichannel-crawl
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal enrichment dependencies
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Restore latest canonical snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot multichannel
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir snapshot \
+            --clobber
+      - name: Crawl missing public multichannel fields into immutable delta
+        run: |
+          set -euo pipefail
+          python tools/hospitality_multichannel_delta_worker.py \
+            --canonical-db snapshot/hospitality-canonical.sqlite \
+            --delta-out multichannel/delta.jsonl.gz \
+            --summary-out multichannel/summary.json \
+            --batch-size 2800 \
+            --workers 64 \
+            --timeout 6 \
+            --max-pages 3 \
+            --max-bytes 750000 \
+            --retry-hours 72
+      - name: Upload immutable enrichment delta
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-multichannel-delta-${{ github.run_id }}-${{ github.run_attempt }}
+          path: multichannel/
+          retention-days: 2
+          compression-level: 6
+
+  merge_delta:
+    needs: enrich_snapshot
+    if: needs.enrich_snapshot.result == 'success'
+    concurrency:
+      group: hospitality-canonical-writer
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MC_CYCLE_ID: post-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download enrichment delta
+        uses: actions/download-artifact@v4
+        with:
+          name: hospitality-multichannel-delta-${{ github.run_id }}-${{ github.run_attempt }}
+          path: multichannel
+      - name: Restore newest canonical under writer lock
+        run: |
+          set -euo pipefail
+          mkdir -p canonical merge_out
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir canonical \
+            --clobber
+      - name: Apply fill-only delta to newest canonical
+        run: |
+          set -euo pipefail
+          python tools/apply_multichannel_delta.py \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --delta multichannel/delta.jsonl.gz \
+            --summary multichannel/summary.json \
+            --cycle-id "$MC_CYCLE_ID" \
+            --out-summary merge_out/merge-summary.json
+      - name: Persist enriched canonical immediately
+        run: |
+          set -euo pipefail
+          python tools/fleet_runtime.py upload \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag harvest-state \
+            --file canonical/hospitality-canonical.sqlite
+      - name: Upload merge audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-multichannel-merge-${{ github.run_id }}-${{ github.run_attempt }}
+          path: merge_out/
+          retention-days: 2
+          compression-level: 6
