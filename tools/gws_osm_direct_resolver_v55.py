@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
 import json
 import re
 import unicodedata
@@ -56,16 +58,14 @@ def names(tags):
     return out
 
 def load_queue(path):
-    # queue is already materialized JSONL by shard guard
     rows=[]
-    for p in sorted(Path(path).glob("queue_*.jsonl")):
-        for line in p.read_text(encoding="utf-8").splitlines():
+    for p in sorted(Path(path).glob("queue_*.jsonl.gz.b64")):
+        compact="".join(p.read_text(encoding="utf-8").split())
+        raw=gzip.decompress(base64.b64decode(compact,validate=True)).decode("utf-8")
+        for line in raw.splitlines():
             if line.strip(): rows.append(json.loads(line))
-    if not rows:
-        for p in sorted(Path(path).glob("*.jsonl")):
-            for line in p.read_text(encoding="utf-8").splitlines():
-                if line.strip(): rows.append(json.loads(line))
-    by={int(x["r"]):x for x in rows}; return [by[k] for k in sorted(by)]
+    by={int(x["r"]):x for x in rows}
+    return [by[k] for k in sorted(by)]
 
 class Collector(osmium.SimpleHandler):
     def __init__(self): super().__init__(); self.rows=[]
