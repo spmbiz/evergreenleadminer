@@ -30,7 +30,6 @@ def main():
     kanoff_hosts={prod.v2.host(u) for u in v4.guesses({'n':'KANOFF LEGAL','em':'','cow':''})}; idcite_hosts={prod.v2.host(u) for u in v4.guesses({'n':'ID.CITE ARCHITECTS','em':'','cow':''})}
     assert 'kanofflegal.com' in kanoff_hosts and 'idcite.be' in idcite_hosts
 
-    # Historical false HIGH: Galerie root 404s but /index.html is the owned site.
     gallery={'r':520,'n':'Galerie Frédéric Schots','p':'1160','a':'Chaussée de Wavre 1737','ph':'+32 2 662 12 44','em':''}
     gallery_hosts={prod.v2.host(u) for u in prod.guesses_hardened(gallery)}
     assert 'galeriefredericschots.com' in gallery_hosts,gallery_hosts
@@ -38,10 +37,16 @@ def main():
     assert 'https://galeriefredericschots.com/index.html' in variants,variants
     assert 'https://www.galeriefredericschots.com/index.html' in variants,variants
 
-    # Business/reference directories can reveal a site but are never owned sites.
     for u in ('https://www.idgarages.com/x','https://fr.mappy.com/x','https://www.autoscout24.be/x','https://www.pagesdor.be/x','https://www.proxibel.be/x'):
         assert ref.is_reference(u),u
         assert prod.v2.platform(u),u
+
+    # Bing /ck/a links carry urlsafe-base64 targets prefixed with a1. The strict
+    # parser must decode them before deciding a SERP has zero external results.
+    synthetic='<a href="https://www.bing.com/ck/a?u=a1aHR0cHM6Ly9leGFtcGxlLWJ1c2luZXNzLmJlLw">x</a>'
+    normal,refs,raw=prod.bing_href_inventory_hardened(synthetic,'https://www.bing.com/search?q=x')
+    assert 'example-business.be' in raw,(normal,refs,raw)
+    assert any('example-business.be' in x for x in normal),(normal,refs,raw)
 
     c={'r':1,'n':'Acme Brussels','p':'1050','a':'Rue Test 1','ph':'02 555 12 12','em':'','cow':''}; pe={'resolved':False,'overture_id':'weak-best-guess','overture_name':'Acme'}
     assert prod.preclassify_hardened(c,None,pe,True) is None
