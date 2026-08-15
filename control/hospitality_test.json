@@ -1,7 +1,10 @@
 {
-  "requested_at": "2026-08-15T14:05:05Z",
+  "requested_at": "2026-08-15T14:09:20Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "five-minute-live-max-throughput",
+  "mode": "five-minute-live-max-throughput-clean",
   "force_workers": 20,
-  "note": "Refill pass inside the same five-minute live benchmark. Baseline canonical_total=19926 at 14:02:13Z; first saturated pass persisted 20520 at 14:05:02Z (+594). Request full 20-slot ceiling again so freed runner capacity is immediately reused."
+  "force_lane": "site_recovery",
+  "baseline_canonical_total": 21044,
+  "benchmark_window_seconds": 300,
+  "note": "Clean max-useful-throughput benchmark after mature phantom-lease repair. Use only site_recovery because recent fast_email exploration produced zero useful output. Request all 20 runner slots while the global broker preserves genuinely occupied capacity. Keep adaptive local concurrency at its measured-safe level."
 }
