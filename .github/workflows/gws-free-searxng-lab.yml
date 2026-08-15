@@ -1,0 +1,101 @@
+name: GWS Free SearXNG Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_free_searxng_lab_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  searxng_probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write private SearXNG settings
+        run: |
+          mkdir -p searxng_cfg searx_lab
+          cat > searxng_cfg/settings.yml <<'YAML'
+          use_default_settings: true
+          server:
+            secret_key: "gws-lab-ephemeral-not-public"
+            bind_address: "0.0.0.0"
+            port: 8080
+          search:
+            safe_search: 0
+            formats:
+              - html
+              - json
+          engines:
+            - name: startpage
+              disabled: false
+            - name: brave
+              disabled: false
+            - name: mojeek
+              disabled: false
+            - name: qwant
+              disabled: false
+            - name: presearch
+              disabled: false
+            - name: mwmbl
+              disabled: false
+            - name: yacy
+              disabled: false
+          YAML
+      - name: Start SearXNG locally
+        run: |
+          set -euo pipefail
+          docker pull searxng/searxng:latest
+          docker run -d --name searxng -p 127.0.0.1:8080:8080 -v "$PWD/searxng_cfg:/etc/searxng:ro" searxng/searxng:latest
+          for i in $(seq 1 45); do
+            if curl -fsS 'http://127.0.0.1:8080/' >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs searxng || true
+          exit 1
+      - name: Probe zero-key engines
+        run: |
+          python - <<'PY'
+          import json, urllib.parse, urllib.request, time
+          engines={'startpage':'sp','brave':'br','mojeek':'mjk','qwant':'qw','presearch':'ps','mwmbl':'mwm','yacy':'ya'}
+          cases=[('KANOFF LEGAL','kanofflegal.com'),('ID.CITE ARCHITECTS','idcite.be')]
+          rows=[]
+          for name,expected in cases:
+            for engine,bang in engines.items():
+              q=f'!{bang} "{name}" Brussels website'
+              url='http://127.0.0.1:8080/search?'+urllib.parse.urlencode({'q':q,'format':'json','language':'fr-BE','safesearch':'0'})
+              rec={'engine':engine,'bang':bang,'name':name,'expected_domain':expected,'query':q}
+              t=time.time()
+              try:
+                with urllib.request.urlopen(url,timeout=25) as r:
+                  body=r.read().decode(errors='ignore')
+                  rec['http_status']=int(r.status); rec['seconds']=round(time.time()-t,2)
+                  rec['found_expected']=expected.lower() in body.lower(); rec['body_bytes']=len(body)
+                  try:
+                    d=json.loads(body); rec['result_count']=len(d.get('results') or []); rec['unresponsive_engines']=d.get('unresponsive_engines')
+                  except Exception as exc: rec['json_error']=type(exc).__name__
+              except Exception as exc:
+                rec['seconds']=round(time.time()-t,2); rec['error']=type(exc).__name__+':'+str(exc)[:180]
+              rows.append(rec)
+              print('SEARXNG_PROBE='+json.dumps(rec,separators=(',',':')),flush=True)
+          open('searx_lab/probe.json','w').write(json.dumps(rows,indent=2)+'\n')
+          summary={}
+          for e in engines:
+            er=[x for x in rows if x['engine']==e]
+            summary[e]={'queries':len(er),'responses':sum('http_status' in x for x in er),'expected_hits':sum(bool(x.get('found_expected')) for x in er),'nonempty':sum(int(x.get('result_count') or 0)>0 for x in er),'errors':sum('error' in x for x in er),'avg_seconds':round(sum(float(x.get('seconds',0)) for x in er)/len(er),2)}
+          open('searx_lab/summary.json','w').write(json.dumps(summary,indent=2)+'\n')
+          print('SEARXNG_SUMMARY='+json.dumps(summary,separators=(',',':')))
+          PY
+      - name: Diagnostics
+        if: always()
+        run: docker logs searxng > searx_lab/container.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-free-searxng-lab-${{ github.run_id }}
+          path: searx_lab/
+          retention-days: 3
