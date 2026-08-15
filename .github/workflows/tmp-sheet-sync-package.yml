@@ -1,0 +1,38 @@
+name: Temporary Sheet Sync Queue Package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_queue_trigger.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+\	jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package oldest ten sheet-sync chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packaged
+          find gpt/sheet_sync_queue -maxdepth 1 -type f -name '*.jsonl' | sort | head -n 10 | while read -r f; do cp "$f" packaged/; done
+          ls -lh packaged
+          python - <<'PY'
+          import glob,json,os
+          files=sorted(glob.glob('packaged/*.jsonl'))
+          meta=[]
+          for f in files:
+              with open(f,encoding='utf-8') as h: n=sum(1 for _ in h)
+              meta.append({'name':os.path.basename(f),'records':n})
+          open('packaged/manifest.json','w').write(json.dumps(meta,indent=2)+'\n')
+          print(meta)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-oldest-ten
+          path: packaged/
+          retention-days: 1
