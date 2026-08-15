@@ -1,49 +1,19 @@
 version: 2.1
-setup: true
-
-parameters:
-  fleet:
-    type: boolean
-    default: false
-  workload:
-    type: string
-    default: "hospitality"
-
-orbs:
-  continuation: circleci/continuation@1.1.0
 
 jobs:
-  setup_fleet:
-    executor: continuation/default
+  token_probe:
+    docker:
+      - image: cimg/python:3.11
     steps:
       - checkout
       - run:
-          name: Build an exact-size provider plan
+          name: Verify GitHub persistence token exists
           command: |
             set -euo pipefail
-            mkdir -p results/fleet_plan
-            workload="<< pipeline.parameters.workload >>"
-            if [ "<< pipeline.parameters.fleet >>" != "true" ]; then
-              selected=0
-            elif [ "$workload" = "gws" ]; then
-              python tools/gws_fleet_plan.py --provider circleci --fixed-capacity 30 --outdir results/fleet_plan
-              selected="$(python -c 'import json; print(json.load(open("results/fleet_plan/plan.json"))["selected_count"])')"
-            elif [ "$workload" = "hospitality" ]; then
-              python tools/fleet_runtime.py plan --provider circleci --capacity 30 --out results/fleet_plan/plan.json
-              selected="$(python -c 'import json; print(len(json.load(open("results/fleet_plan/plan.json")).get("include") or []))')"
-            else
-              echo "Unsupported workload: $workload" >&2
-              exit 2
-            fi
-            python tools/circleci_fleet_continue.py --workload "$workload" --selected-count "$selected" --out /tmp/continue.yml
-      - save_cache:
-          key: fleet-plan-v1-<< pipeline.id >>
-          paths:
-            - results/fleet_plan
-      - continuation/continue:
-          configuration_path: /tmp/continue.yml
+            test -n "${FLEET_GH_TOKEN:-}" || { echo "FLEET_GH_TOKEN missing" >&2; exit 42; }
+            echo "token_present=yes"
 
 workflows:
-  setup_fleet_workflow:
+  token_probe_workflow:
     jobs:
-      - setup_fleet
+      - token_probe
