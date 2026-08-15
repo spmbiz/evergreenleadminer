@@ -19844,13 +19844,13 @@
       "country": "Luxembourg",
       "region": "OSM::luxembourg",
       "bbox": "osm:luxembourg",
-      "release": "2d26cca-6590996579c11|Fri, 14 Aug 2026 22:46:12 GMT|47344842",
+      "release": "2d27965-6591db3c9a740|Sat, 15 Aug 2026 22:46:05 GMT|47348069",
       "status": "complete",
-      "last_attempt": "2026-08-15T19:13:26.294070Z",
-      "last_success": "2026-08-15T19:13:26.294070Z",
+      "last_attempt": "2026-08-15T22:55:33.755108Z",
+      "last_success": "2026-08-15T22:55:33.755108Z",
       "consecutive_failures": 0,
-      "last_live_ready": 62,
-      "last_elapsed_seconds": 115.55
+      "last_live_ready": 1,
+      "last_elapsed_seconds": 79.54
     },
     "47a18163d73c06fe": {
       "name": "OSM::andorra",
@@ -20717,11 +20717,11 @@
       "bbox": "-110.000000,40.000000,-105.000000,45.000000",
       "release": "2026-06-17.0",
       "status": "failed_retryable",
-      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_attempt": "2026-08-15T22:55:33.755108Z",
       "last_success": null,
-      "consecutive_failures": 5,
+      "consecutive_failures": 6,
       "last_live_ready": 0,
-      "last_elapsed_seconds": 33.17
+      "last_elapsed_seconds": 21.52
     },
     "9c5eef2863561934": {
       "name": "atlas-14-33",
@@ -24271,6 +24271,32 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 7.78
+    },
+    "b4e5f9fc9cdb426b": {
+      "name": "atlas-16-39--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::16-39::lane=site-recovery",
+      "bbox": "15.000000,20.000000,20.000000,25.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:55:33.755108Z",
+      "last_success": "2026-08-15T22:55:33.755108Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 3.46
+    },
+    "c47f71b2fa8d0df9": {
+      "name": "atlas-15-45--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::15-45::lane=site-recovery",
+      "bbox": "45.000000,15.000000,50.000000,20.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:55:33.755108Z",
+      "last_success": "2026-08-15T22:55:33.755108Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 4.92
     }
   }
 }
