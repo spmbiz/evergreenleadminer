@@ -22,7 +22,15 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import json
           from pathlib import Path
+          cfgp=Path('control/sheet_sync_materialize.json')
+          cfg=json.loads(cfgp.read_text(encoding='utf-8'))
+          bad='8bc51d53-44c-468f-9b51-d107cd89405e'
+          good='8bc51d53-44c4-468f-9b51-d107cd89405e'
+          for item in cfg.get('excluded',[]):
+              if item.get('id')==bad: item['id']=good
+          cfgp.write_text(json.dumps(cfg,separators=(',',':')),encoding='utf-8')
           text=Path('.github/workflows/sheet-sync-materialize.yml').read_text(encoding='utf-8')
           marker="          python - <<'PY'\n"
           code=text.split(marker,1)[1].split("\n          PY",1)[0]
