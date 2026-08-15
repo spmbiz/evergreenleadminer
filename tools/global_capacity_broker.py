@@ -11,7 +11,9 @@ Important semantics:
 - queued jobs are demand, not occupancy;
 - sibling guarantees reserve only the *missing* part of a floor/weighted target;
 - unused guarantees are borrowable when sibling demand is zero;
-- leases expire automatically and are released at natural workflow completion.
+- leases expire automatically and are released at natural workflow completion;
+- after a short launch grace period, a lease shrinks to its observed live+queued
+  jobs so completed workers do not strand phantom capacity behind one straggler.
 """
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ API = "https://api.github.com"
 STATE_TAG = "global-fleet-broker"
 STATE_ASSET = "global-capacity.json"
 TENDER_REPO = "walidgdg1-ai/tender-engine"
+LEASE_LAUNCH_GRACE_SECONDS = 120
 
 
 def now_utc():
@@ -57,7 +60,7 @@ def token():
 def req(url, method="GET", accept="application/vnd.github+json"):
     r = urllib.request.Request(url, method=method)
     r.add_header("Accept", accept)
-    r.add_header("User-Agent", "ai-prod-global-broker/2.0")
+    r.add_header("User-Agent", "ai-prod-global-broker/2.1")
     r.add_header("X-GitHub-Api-Version", "2022-11-28")
     if token():
         r.add_header("Authorization", f"Bearer {token()}")
@@ -127,13 +130,7 @@ def useful_gws_count():
 
 
 def useful_tender_count():
-    """Read durable Tender controller state without requiring a cross-repo token.
-
-    A pinned usable discovery harvest represents at least one full DCE batch of
-    useful work. Pending DCE candidates are counted directly. Telemetry failure is
-    fail-safe: protect one minimum-sized tender batch rather than silently starving
-    the workload because a public Release read had a transient failure.
-    """
+    """Read durable Tender controller state without requiring a cross-repo token."""
     status = load_release_asset_json(TENDER_REPO, "fleet-state", "fleet-status-latest.json", None)
     if not isinstance(status, dict):
         return 6
@@ -194,7 +191,7 @@ def live_jobs(owner: str):
                     else:
                         r = urllib.request.Request(
                             url,
-                            headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/2.0"},
+                            headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/2.1"},
                         )
                         with urllib.request.urlopen(r, timeout=20) as x:
                             data = json.loads(x.read())
@@ -241,6 +238,47 @@ def prune_leases(state: dict, current_run: str | None = None):
     return keep
 
 
+def effective_lease_accounting(leases: list[dict], jobs: list[dict]):
+    """Shrink mature leases to live outstanding jobs, preserving a launch grace.
+
+    A planner initially reserves N slots before its matrix appears. During the
+    grace period the full reservation is protected. Afterwards, if GitHub reports
+    fewer active+queued jobs for that run, completed worker slots become borrowable
+    immediately instead of remaining stranded until a slow sibling/aggregate ends.
+    """
+    live_by_run = {str(j.get("run_id") or ""): j for j in jobs}
+    now = now_utc()
+    total = 0
+    by_workload = Counter()
+    details = []
+    for lease in leases:
+        rid = str(lease.get("run_id") or "")
+        reserved = max(0, int(lease.get("slots") or 0))
+        created = parse_ts(lease.get("created_at"))
+        age_seconds = max(0.0, (now - created).total_seconds()) if created else 0.0
+        live = live_by_run.get(rid)
+        effective = reserved
+        reason = "full_reservation"
+        if live is not None and age_seconds >= LEASE_LAUNCH_GRACE_SECONDS:
+            outstanding = max(0, int(live.get("active_jobs") or 0) + int(live.get("queued_jobs") or 0))
+            effective = min(reserved, outstanding)
+            reason = "shrunk_to_live_outstanding" if effective < reserved else "live_outstanding_matches_reservation"
+        total += effective
+        workload = str(lease.get("workload") or "")
+        by_workload[workload] += effective
+        details.append({
+            "run_id": rid,
+            "workload": workload,
+            "reserved_slots": reserved,
+            "effective_slots": effective,
+            "age_seconds": round(age_seconds, 1),
+            "observed_active": int((live or {}).get("active_jobs") or 0),
+            "observed_queued": int((live or {}).get("queued_jobs") or 0),
+            "reason": reason,
+        })
+    return total, by_workload, details
+
+
 def reserve(args):
     cfg = fr.load_json(ROOT / "config/global_fleet.json", {})
     gh = cfg.get("github") or {}
@@ -254,21 +292,16 @@ def reserve(args):
     external_jobs = [j for j in jobs if j["run_id"] != str(args.run_id) and j["run_id"] not in lease_run_ids]
     external_slots = sum(int(j.get("active_jobs") or 0) for j in external_jobs)
     external_queued = sum(int(j.get("queued_jobs") or 0) for j in external_jobs)
-    leased_slots = sum(int(l.get("slots") or 0) for l in leases)
+    leased_slots, leased_by_workload, lease_accounting = effective_lease_accounting(leases, jobs)
     active_by_repo = Counter()
     for j in external_jobs:
         active_by_repo[str(j.get("repo") or "")] += int(j.get("active_jobs") or 0)
-    leased_by_workload = Counter()
-    for l in leases:
-        leased_by_workload[str(l.get("workload") or "")] += int(l.get("slots") or 0)
 
     demand = local_demand()
     current_cfg = wc.get(args.workload) or {}
     max_slots = int(current_cfg.get("max_slots") or total)
     free_before_headroom = max(0, total - external_slots - leased_slots)
 
-    # Reserve only the missing part of each demanding sibling's guaranteed or
-    # weighted target. Existing live jobs / leases already satisfy that target.
     sibling_headroom = 0
     sibling_reservations = {}
     for name, scfg in wc.items():
@@ -327,6 +360,7 @@ def reserve(args):
         "external_slots": external_slots,
         "external_queued": external_queued,
         "leased_other_slots": leased_slots,
+        "lease_accounting": lease_accounting,
         "sibling_headroom": sibling_headroom,
         "sibling_reservations": sibling_reservations,
         "demand": demand,
@@ -341,6 +375,7 @@ def reserve(args):
         "external_slots": external_slots,
         "external_queued": external_queued,
         "leased_other_slots": leased_slots,
+        "lease_accounting": lease_accounting,
         "sibling_headroom": sibling_headroom,
         "sibling_reservations": sibling_reservations,
         "demand": demand,
@@ -365,8 +400,10 @@ def release(args):
 def status(args):
     state = load_remote_state(args.repo)
     prune_leases(state)
-    state["live_jobs"] = live_jobs(args.owner)
+    jobs = live_jobs(args.owner)
+    state["live_jobs"] = jobs
     state["demand"] = local_demand()
+    state["effective_lease_accounting"] = effective_lease_accounting(state.get("leases") or [], jobs)[2]
     print(json.dumps(state, indent=2))
 
 
