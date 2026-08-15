@@ -9,6 +9,9 @@ def main():
     ap.add_argument('--plan-json', required=True)
     ap.add_argument('--task-index', type=int, required=True)
     ap.add_argument('--outdir', required=True)
+    ap.add_argument('--verify-engine', choices=('thread', 'async'), default='thread')
+    ap.add_argument('--local-workers', type=int, default=0)
+    ap.add_argument('--per-host', type=int, default=4)
     a = ap.parse_args()
     plan = json.loads(Path(a.plan_json).read_text(encoding='utf-8'))
     arr = plan.get('include') or []
@@ -16,6 +19,7 @@ def main():
         print(json.dumps({'status': 'noop', 'task_index': a.task_index, 'selected_count': len(arr)}))
         return 0
     s = arr[a.task_index]
+    local_workers = a.local_workers or int(s.get('local_workers', 64))
     cmd = [
         sys.executable, 'tools/hospitality_worker.py',
         '--provider', 'circleci',
@@ -26,7 +30,9 @@ def main():
         f"--bbox={s['bbox']}",
         '--release', s.get('release', '2026-06-17.0'),
         '--max-rows', str(s.get('max_rows', 250000)),
-        '--local-workers', str(s.get('local_workers', 64)),
+        '--local-workers', str(local_workers),
+        '--verify-engine', a.verify_engine,
+        '--per-host', str(a.per_host),
         '--outdir', a.outdir,
     ]
     return subprocess.call(cmd)
