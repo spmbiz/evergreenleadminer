@@ -1,0 +1,97 @@
+name: Sheet Sync Bulk Prepare
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_sync_prepare.json'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Prepare oldest ten hospitality queue chunks
+        run: |
+          set -euo pipefail
+          mkdir -p prepared
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          q=Path('gpt/sheet_sync_queue')
+          files=sorted(q.glob('*.jsonl'))[:10]
+          clear_hosp=(
+            'vacation rental','vacation rentals','vacation home','holiday rental','holiday home',
+            'short term rental','short-term rental','short stay','short-stay','serviced apartment',
+            'serviced accommodation','aparthotel','hotel','resort','villa','chalet','cabin','cottage',
+            'guest house','guesthouse','lodging','accommodation','bnb','bed and breakfast','airbnb','vrbo'
+          )
+          clear_nonfit=(
+            'student housing','senior living','assisted living','nursing home','hoa management',
+            'homeowners association','condominium association','property tax','tax appeal',
+            'commercial property only','industrial property','self storage','storage facility'
+          )
+          platform_hosts=('airbnb.com','booking.com','expedia.com','tripadvisor.com','vrbo.com','houfy.com','visitlakeiseo.info','discoverpuertorico.com')
+          def host(u):
+            try:
+              s=str(u or '').strip()
+              if s and '://' not in s: s='https://'+s
+              h=(urlparse(s).hostname or '').lower().strip('.')
+              return h[4:] if h.startswith('www.') else h
+            except Exception:return ''
+          out=[]; stats={'files':[],'inspected':0,'keep_clear':0,'keep_ambiguous':0,'reject_clear':0}
+          for p in files:
+            fs={'name':p.name,'records':0,'keep_clear':0,'keep_ambiguous':0,'reject_clear':0}
+            for line_no,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if not line.strip(): continue
+              r=json.loads(line); fs['records']+=1; stats['inspected']+=1
+              blob=' '.join(str(r.get(k) or '') for k in ('name','category','brand','notes','live_reason')).lower()
+              status=str(r.get('live_status') or '').upper()
+              http=str(r.get('http_status') or '')
+              hh=int(float(r.get('hospitality_hits') or 0)) if str(r.get('hospitality_hits') or '').strip() else 0
+              ih=int(float(r.get('identity_hits') or 0)) if str(r.get('identity_hits') or '').strip() else 0
+              name=str(r.get('name') or '')
+              dom=host(r.get('final_url') or r.get('website') or r.get('domain'))
+              reason=''
+              if status=='REJECT' or (http.isdigit() and int(http)>=400):
+                decision='reject_clear'; reason='live reject/http failure'
+              elif any(x in blob for x in clear_nonfit) and not any(x in blob for x in clear_hosp):
+                decision='reject_clear'; reason='explicit non-hospitality use'
+              elif any(dom==x or dom.endswith('.'+x) for x in platform_hosts) and ih==0 and not any(x in blob for x in clear_hosp):
+                decision='reject_clear'; reason='platform/directory identity mismatch'
+              elif any(x in blob for x in clear_hosp) or hh>=4 or status=='HIGH' and ih>=2:
+                decision='keep_clear'; reason='clear hospitality/identity signal'
+              elif status in {'HIGH','MEDIUM','PERMISSIVE'} or hh>=1 or 'property management' in blob or 'real estate' in blob or 'rental' in blob:
+                decision='keep_ambiguous'; reason='recall-first plausible adjacent candidate'
+              else:
+                decision='reject_clear'; reason='no hospitality/adjacent signal'
+              fs[decision]+=1; stats[decision]+=1
+              # compact only fields needed for sheet mapping/dedupe + evidence
+              keep={k:r.get(k) for k in (
+                'overture_id','country','region','name','category','brand','website','domain','public_email',
+                'public_phone','city','state','street','confidence','operator_score','premium_score','fit_tier',
+                'source_url','live_status','http_status','final_url','hospitality_hits','identity_hits','email_on_homepage',
+                'instagram','instagram_source_url','live_reason','first_seen','last_seen'
+              )}
+              keep.update({'_queue_file':p.name,'_queue_line':line_no,'_decision':decision,'_decision_reason':reason})
+              out.append(keep)
+            stats['files'].append(fs)
+          payload={'schema_version':1,'stats':stats,'records':out}
+          Path('prepared/prepared.json').write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          Path('prepared/summary.json').write_text(json.dumps(stats,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(stats,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sheet-sync-prepared-${{ github.run_id }}
+          path: prepared/
+          retention-days: 1
+          compression-level: 6
