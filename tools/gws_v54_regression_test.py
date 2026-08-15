@@ -12,14 +12,11 @@ import gws_legacy_deep_v4 as v4
 
 
 def main():
-    local = prod.phone_keys('02 521 58 59')
-    e164 = prod.phone_keys('+32 2 521 58 59')
-    intl00 = prod.phone_keys('0032 2 521 58 59')
-    assert local & e164, (local, e164)
-    assert local & intl00, (local, intl00)
-    assert not (prod.phone_keys('0471 11 22 33') & prod.phone_keys('02 11 22 33'))
+    local=prod.phone_keys('02 521 58 59'); e164=prod.phone_keys('+32 2 521 58 59'); intl00=prod.phone_keys('0032 2 521 58 59')
+    assert local&e164 and local&intl00
+    assert not (prod.phone_keys('0471 11 22 33')&prod.phone_keys('02 11 22 33'))
 
-    bad_places = [{'id':'wrong-current','name':'Western Union','phones':['+32 2 527 16 35'],'addresses':[{'freeform':'HEYVAERTSTRAAT 135, 1080 Brussels'}],'websites':[],'operating_status':''}]
+    bad_places=[{'id':'wrong-current','name':'Western Union','phones':['+32 2 527 16 35'],'addresses':[{'freeform':'HEYVAERTSTRAAT 135, 1080 Brussels'}],'websites':[],'operating_status':''}]
     bad_c={'r':90,'n':'Mitra Mercury','p':'1080','a':'HEYVAERTSTRAAT 135','ph':'+32 2 527 16 35'}
     bp,be=identity.resolve(bad_c,bad_places,identity.indexes(bad_places))
     assert bp is None and be['phone_exact'] is True and be['phone_corroborated'] is False,(bp,be)
@@ -29,45 +26,40 @@ def main():
     gp,ge=identity.resolve(good_c,good_places,identity.indexes(good_places))
     assert gp is not None and ge['resolved'] and ge['phone_corroborated'],(gp,ge)
 
-    kanoff_hosts={prod.v2.host(u) for u in v4.guesses({'n':'KANOFF LEGAL','em':'','cow':''})}
-    idcite_hosts={prod.v2.host(u) for u in v4.guesses({'n':'ID.CITE ARCHITECTS','em':'','cow':''})}
-    assert 'kanofflegal.com' in kanoff_hosts,kanoff_hosts
-    assert 'idcite.be' in idcite_hosts,idcite_hosts
+    kanoff_hosts={prod.v2.host(u) for u in v4.guesses({'n':'KANOFF LEGAL','em':'','cow':''})}; idcite_hosts={prod.v2.host(u) for u in v4.guesses({'n':'ID.CITE ARCHITECTS','em':'','cow':''})}
+    assert 'kanofflegal.com' in kanoff_hosts and 'idcite.be' in idcite_hosts
 
-    c={'r':1,'n':'Acme Brussels','p':'1050','a':'Rue Test 1','ph':'02 555 12 12','em':'','cow':''}
-    pe={'resolved':False,'overture_id':'weak-best-guess','overture_name':'Acme'}
+    c={'r':1,'n':'Acme Brussels','p':'1050','a':'Rue Test 1','ph':'02 555 12 12','em':'','cow':''}; pe={'resolved':False,'overture_id':'weak-best-guess','overture_name':'Acme'}
     assert prod.preclassify_hardened(c,None,pe,True) is None
-    w={'healthy_providers':['bing','yep'],'search_queries':2,'search_usable_queries':2,'direct_checked':5,'direct_health':[{'seed':f'https://x{i}.be/','final':f'https://x{i}.be/','status':404,'ok':False,'dns_negative':True} for i in range(5)],'owned':''}
-    cert=prod.v5.certificate(c,pe,w,w)
+
+    # Historical false HIGH: public school can never qualify as independent local business.
+    school={'r':1235,'n':'Centre Scolaire du Souverain Cirquétude','p':'1160','a':'Rue Robert Willame 25, 1160 Auderghem','ph':'02 672 96 74','em':''}
+    assert prod.obvious_non_independent_entity(school)
+    srow=prod.preclassify_hardened(school,None,{'resolved':True},True)
+    assert srow and srow['status']=='REJECT' and srow['reason']=='OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY',srow
+
+    # Two clean-looking queries are no longer enough for HIGH.
+    weak_search={'healthy_providers':['bing','yep'],'search_queries':2,'search_usable_queries':2,'search_resultful_queries':0,'direct_checked':5,'direct_health':[{'seed':f'https://x{i}.be/','final':f'https://x{i}.be/','status':404,'ok':False,'dns_negative':True} for i in range(5)],'owned':''}
+    assert prod.coverage_hardened(weak_search)['ok'] is False
+    robust_search=dict(weak_search,search_queries=3,search_usable_queries=3,search_resultful_queries=1)
+    assert prod.coverage_hardened(robust_search)['ok'] is True
+    cert=prod.v5.certificate(c,pe,robust_search,robust_search)
     assert cert['gates']['current_identity_strong'] is False and cert['verified'] is False
 
-    a={'r':10,'candidate':{'n':'Alpha Architect','p':'1070','a':'Rue A 1','ph':''},'place':{'resolved':False,'overture_id':'weak-shared'}}
-    b={'r':11,'candidate':{'n':'Beta Studio','p':'1070','a':'Rue B 9','ph':''},'place':{'resolved':False,'overture_id':'weak-shared'}}
+    a={'r':10,'candidate':{'n':'Alpha Architect','p':'1070','a':'Rue A 1','ph':''},'place':{'resolved':False,'overture_id':'weak-shared'}}; b={'r':11,'candidate':{'n':'Beta Studio','p':'1070','a':'Rue B 9','ph':''},'place':{'resolved':False,'overture_id':'weak-shared'}}
     assert prod.canonical_key_hardened(a)!=prod.canonical_key_hardened(b)
     a['place']['resolved']=True; b['place']['resolved']=True
     assert prod.canonical_key_hardened(a)==prod.canonical_key_hardened(b)=='o:weak-shared'
 
-    limits=providers.provider_concurrency_plan(2)
-    assert limits=={'bing':2,'yep':2,'ghostery':2},limits
-    assert providers.provider_family('bing')=='bing'
-    assert providers.provider_family('yep')=='yep'
-    assert providers.provider_family('ghostery')=='discovery_only'
+    limits=providers.provider_concurrency_plan(2); assert limits=={'bing':2,'yep':2,'ghostery':2},limits
+    assert providers.provider_family('bing')=='bing' and providers.provider_family('yep')=='yep' and providers.provider_family('ghostery')=='discovery_only'
     psrc=inspect.getsource(providers.webcheck)
-    assert 'EXA_API_KEY' not in psrc
-    assert 'api/v1/web' in psrc
-    assert 'scraper' in psrc and 'yep' in psrc and 'ghostery' in psrc
-    assert '_strict_high_candidate' in psrc
+    assert 'EXA_API_KEY' not in psrc and 'api/v1/web' in psrc and 'yep' in psrc and 'ghostery' in psrc and '_strict_high_candidate' in psrc
+    assert 'search_resultful_queries' in psrc and 'AMBIGUOUS_ZERO_DOMAIN_SERP' in psrc and '[:5 if strict else 3]' in psrc
 
-    src=inspect.getsource(worker_policy.worker)
-    durable_checkpoint_src=inspect.getsource(live_worker._original_checkpoint)
-    live_checkpoint_src=inspect.getsource(live_worker._checkpoint)
-    assert 'partial_results.jsonl' in durable_checkpoint_src
-    assert 'progress.json' in durable_checkpoint_src
-    assert 'GWS_V55_PROGRESS=' in durable_checkpoint_src
-    assert '::notice' in live_checkpoint_src
-    assert 'GWS_WEB_BATCH_SIZE' in src
-    assert 'stage="resolved"' in src and 'stage="web_batch_complete"' in src
-    assert '_strict_high_candidate' in src
+    src=inspect.getsource(worker_policy.worker); durable=inspect.getsource(live_worker._original_checkpoint); live=inspect.getsource(live_worker._checkpoint)
+    assert 'partial_results.jsonl' in durable and 'progress.json' in durable and 'GWS_V55_PROGRESS=' in durable and '::notice' in live
+    assert 'GWS_WEB_BATCH_SIZE' in src and 'stage="resolved"' in src and 'stage="web_batch_complete"' in src and '_strict_high_candidate' in src
     assert 'IDENTITY_RESOLVED_NOT_STRONG_ENOUGH_FOR_HIGH_AFTER_BOUNDED_WEB_CHALLENGE' in src
     print('GWS_V56_REGRESSION_OK')
 
