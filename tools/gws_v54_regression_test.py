@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import gws_no_website_certifier_v53 as prod
+
+
+def main():
+    # Belgian national and E.164 forms of the same full number must intersect.
+    local = prod.phone_keys('02 521 58 59')
+    e164 = prod.phone_keys('+32 2 521 58 59')
+    intl00 = prod.phone_keys('0032 2 521 58 59')
+    assert local & e164, (local, e164)
+    assert local & intl00, (local, intl00)
+    # Never use unsafe suffix-only phone equivalence.
+    assert not (prod.phone_keys('0471 11 22 33') & prod.phone_keys('02 11 22 33'))
+
+    # A complete source candidate that Overture cannot strongly resolve must
+    # continue to web challenge, not terminate before search.
+    c = {'r': 1, 'n': 'Acme Brussels', 'p': '1050', 'a': 'Rue Test 1', 'ph': '02 555 12 12', 'em': '', 'cow': ''}
+    pe = {'resolved': False, 'overture_id': 'weak-best-guess', 'overture_name': 'Acme'}
+    assert prod.preclassify_hardened(c, None, pe, True) is None
+
+    # But unresolved identity can never satisfy the HIGH certificate gate.
+    w = {
+        'healthy_providers': ['bing', 'ddg'], 'search_queries': 2,
+        'search_usable_queries': 2, 'direct_checked': 5,
+        'direct_health': [
+            {'seed': f'https://x{i}.be/', 'final': f'https://x{i}.be/', 'status': 404, 'ok': False, 'dns_negative': True}
+            for i in range(5)
+        ],
+        'owned': '',
+    }
+    cert = prod.v5.certificate(c, pe, w, w)
+    assert cert['gates']['current_identity_strong'] is False
+    assert cert['verified'] is False
+
+    print('GWS_V54_REGRESSION_OK')
+
+
+if __name__ == '__main__':
+    main()
