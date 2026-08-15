@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Bounded multi-provider search for autonomous GWS verification.
+"""Tiered web evidence for autonomous GWS verification.
 
-HIGH semantics stay conservative: Yahoo is Bing-family and DDG HTML/Lite are one
-DDG family. Runtime policy is fail-closed rather than retry-until-timeout: Bing
-and DDG are queried concurrently, same-family transports are fallbacks, and a
-blocked independent provider simply makes coverage fail instead of consuming
-minutes of exponential backoff. Search stops as soon as the certificate's actual
-minimum evidence requirements can be met.
+Broad rows use cheap Bing + deterministic direct-domain checks. Only candidates
+that are already strong-current-identity eligible for HIGH are allowed onto the
+independent-index path. For those rows Exa is the second evidence family; if its
+API key/provider is unavailable, coverage fails closed and HIGH is impossible.
+
+No public DDG/Yahoo dependency is used for strict certification: live GitHub
+calibration showed those transports to be the dominant timeout/error source.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import random
 import urllib.parse
 
@@ -30,10 +33,6 @@ def _parsed(provider: str, body: str) -> bool:
         return True
     if provider == "bing":
         return "b_results" in low or "b_algo" in low
-    if provider == "ddg_html":
-        return "result__a" in low or "result__body" in low or "results_links" in low
-    if provider == "ddg_lite":
-        return "result-link" in low or "result-snippet" in low
     if provider == "yahoo":
         return "comptitle" in low or "searchcentermiddle" in low
     return False
@@ -58,28 +57,26 @@ def _dns_negative(exc: BaseException) -> bool:
 
 def provider_family(provider: str) -> str:
     p = str(provider)
-    if p.startswith("ddg"):
-        return "ddg"
     if p in {"bing", "yahoo"}:
         return "bing"
+    if p == "exa":
+        return "exa"
     return p
 
 
 def provider_concurrency_plan(search_conc: int) -> dict[str, int]:
     c = max(1, int(search_conc))
-    return {"bing": c, "yahoo": c, "ddg": 1}
+    return {"bing": c, "yahoo": c, "exa": c}
 
 
 def _transport_gate(provider: str) -> str:
-    return "ddg" if str(provider).startswith("ddg") else str(provider)
+    return str(provider)
 
 
 def _urls(query: str):
     q = urllib.parse.quote_plus(query)
     return {
         "bing": f"https://www.bing.com/search?count=10&q={q}",
-        "ddg_html": f"https://html.duckduckgo.com/html/?q={q}",
-        "ddg_lite": f"https://lite.duckduckgo.com/lite/?q={q}",
         "yahoo": f"https://search.yahoo.com/search?p={q}",
     }
 
@@ -94,21 +91,18 @@ async def webcheck(rows, conc: int, search_conc: int):
     }
     timeout = aiohttp.ClientTimeout(total=12, connect=4, sock_read=7)
     headers = {"User-Agent": v2.UA, "Accept-Language": "fr-BE,fr;q=0.9,nl;q=0.8,en;q=0.7"}
+    exa_key = os.getenv("EXA_API_KEY", "").strip()
     ans = {}
 
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as sess:
         async def get(url: str, *, is_search: bool = False, provider: str = "", attempts: int = 1):
             last = {}
-            attempts = max(1, int(attempts))
-            for attempt in range(attempts):
+            for attempt in range(max(1, int(attempts))):
                 try:
                     gate = search_sems[_transport_gate(provider)] if is_search else sem
                     async with gate:
                         if is_search:
-                            if _transport_gate(provider) == "ddg":
-                                await asyncio.sleep(random.uniform(.20, .45))
-                            else:
-                                await asyncio.sleep(random.uniform(.05, .15))
+                            await asyncio.sleep(random.uniform(.03, .12))
                         async with sess.get(url, allow_redirects=True, ssl=True) as r:
                             body = (await r.content.read(v2.MAXBODY)).decode(errors="ignore")
                             if _blocked(int(r.status), body):
@@ -119,11 +113,54 @@ async def webcheck(rows, conc: int, search_conc: int):
                     if not is_search and _dns_negative(exc):
                         return {"ok": False, "status": 404, "dns_negative": True, "error": ""}
                     last = {"ok": False, "status": 0, "error": type(exc).__name__, "error_detail": str(exc)[:160]}
-                if attempt + 1 < attempts:
-                    await asyncio.sleep(.20 + random.uniform(.05, .20))
+                if attempt + 1 < max(1, int(attempts)):
+                    await asyncio.sleep(.15 + random.uniform(.03, .12))
             return last or {"ok": False, "status": 0, "error": "UNKNOWN"}
 
-        def parsed_health(provider: str, resp: dict, url: str):
+        async def exa_search(query: str):
+            if not exa_key:
+                return {
+                    "ok": False, "status": 0, "error": "EXA_API_KEY_MISSING",
+                    "parsed": False, "links": [],
+                }
+            payload = {
+                "query": query,
+                "type": "fast",
+                "numResults": 10,
+                "userLocation": "BE",
+            }
+            try:
+                async with search_sems["exa"]:
+                    async with sess.post(
+                        "https://api.exa.ai/search",
+                        headers={"x-api-key": exa_key, "content-type": "application/json", "accept": "application/json"},
+                        json=payload,
+                        ssl=True,
+                    ) as r:
+                        raw = await r.content.read(v2.MAXBODY)
+                        status = int(r.status)
+                        if status != 200:
+                            return {"ok": False, "status": status, "error": f"EXA_HTTP_{status}", "parsed": False, "links": []}
+                        try:
+                            data = json.loads(raw.decode(errors="ignore"))
+                        except Exception as exc:
+                            return {"ok": False, "status": status, "error": type(exc).__name__, "parsed": False, "links": []}
+                        results = data.get("results")
+                        if not isinstance(results, list):
+                            return {"ok": False, "status": status, "error": "EXA_RESULTS_SCHEMA", "parsed": False, "links": []}
+                        links = []
+                        seen = set()
+                        for item in results:
+                            u = str((item or {}).get("url") or "").strip()
+                            h = v2.host(u)
+                            if u.startswith("http") and h and h not in seen and not v2.platform(u):
+                                seen.add(h); links.append(u)
+                        # A valid empty result set is still a parsed negative search observation.
+                        return {"ok": True, "status": status, "error": "", "parsed": True, "links": links}
+            except Exception as exc:
+                return {"ok": False, "status": 0, "error": type(exc).__name__, "parsed": False, "links": []}
+
+        def parsed_html_health(provider: str, resp: dict, url: str):
             http_ok = bool(
                 resp.get("ok") and 200 <= int(resp.get("status") or 999) < 300
                 and not resp.get("blocked")
@@ -142,35 +179,43 @@ async def webcheck(rows, conc: int, search_conc: int):
             }
             return parsed, links, h
 
-        async def search_one_query(sq: str):
+        async def search_one_query(sq: str, strict_high: bool):
             urls = _urls(sq)
-            # Independent families first, concurrently. No exponential retry storm.
-            bing_resp, ddg_resp = await asyncio.gather(
-                get(urls["bing"], is_search=True, provider="bing", attempts=2),
-                get(urls["ddg_html"], is_search=True, provider="ddg_html", attempts=1),
-            )
-            bp, blinks, bh = parsed_health("bing", bing_resp, urls["bing"])
-            dp, dlinks, dh = parsed_health("ddg_html", ddg_resp, urls["ddg_html"])
-            health = [bh, dh]
-            parsed_names = {p for p, ok in (("bing", bp), ("ddg_html", dp)) if ok}
-            links = list(blinks) + list(dlinks)
+            if strict_high:
+                bing_resp, exa_resp = await asyncio.gather(
+                    get(urls["bing"], is_search=True, provider="bing", attempts=2),
+                    exa_search(sq),
+                )
+                bp, blinks, bh = parsed_html_health("bing", bing_resp, urls["bing"])
+                ep = bool(exa_resp.get("parsed"))
+                elinks = list(exa_resp.get("links") or []) if ep else []
+                eh = {
+                    "provider": "exa",
+                    "provider_family": "exa",
+                    "http_ok": bool(exa_resp.get("ok")),
+                    "parsed": ep,
+                    "status": exa_resp.get("status"),
+                    "blocked": False,
+                    "error": exa_resp.get("error"),
+                    "external_domains": len({v2.host(x) for x in elinks if v2.host(x)}),
+                }
+                parsed_names = {p for p, ok in (("bing", bp), ("exa", ep)) if ok}
+                families = {provider_family(p) for p in parsed_names}
+                return parsed_names, families, list(blinks) + elinks, [bh, eh]
 
-            fallback_tasks = []
-            fallback_names = []
+            # HIGH-ineligible rows get a cheap bounded discovery challenge only.
+            bing_resp = await get(urls["bing"], is_search=True, provider="bing", attempts=2)
+            bp, blinks, bh = parsed_html_health("bing", bing_resp, urls["bing"])
+            health = [bh]
+            parsed_names = {"bing"} if bp else set()
+            links = list(blinks)
             if not bp:
-                fallback_names.append("yahoo")
-                fallback_tasks.append(get(urls["yahoo"], is_search=True, provider="yahoo", attempts=1))
-            if not dp:
-                fallback_names.append("ddg_lite")
-                fallback_tasks.append(get(urls["ddg_lite"], is_search=True, provider="ddg_lite", attempts=1))
-            if fallback_tasks:
-                for provider, resp in zip(fallback_names, await asyncio.gather(*fallback_tasks)):
-                    pp, plinks, ph = parsed_health(provider, resp, urls[provider])
-                    health.append(ph)
-                    if pp:
-                        parsed_names.add(provider)
-                        links.extend(plinks)
-
+                yahoo_resp = await get(urls["yahoo"], is_search=True, provider="yahoo", attempts=1)
+                yp, ylinks, yh = parsed_html_health("yahoo", yahoo_resp, urls["yahoo"])
+                health.append(yh)
+                if yp:
+                    parsed_names.add("yahoo")
+                    links.extend(ylinks)
             families = {provider_family(p) for p in parsed_names}
             return parsed_names, families, links, health
 
@@ -179,22 +224,27 @@ async def webcheck(rows, conc: int, search_conc: int):
                 "search_queries": 0, "search_usable_queries": 0, "search_health": [],
                 "search_candidates": [], "healthy_providers": [], "direct_checked": 0,
                 "direct_health": [], "owned": "", "owned_identity": {}, "owned_via": "",
-                "candidate_seeds": [],
+                "candidate_seeds": [], "strict_high_path": bool(c.get("_strict_high_candidate")),
             }
+            strict_high = bool(c.get("_strict_high_candidate"))
             seeds = v4.guesses(c)
             ev["candidate_seeds"] = seeds[:]
             seed_hosts = {v2.host(x) for x in seeds if v2.host(x) and not v2.platform(x)}
             queries = list(v4.search_queries(c))
-            if c.get("_unresolved_challenge"):
-                queries = queries[:3]
+            # Bound cost and runtime deterministically. HIGH requires two usable
+            # formulations per pass, so two is the exact strict minimum.
+            queries = queries[:2] if strict_high else queries[:3]
 
             for sq in queries:
                 ev["search_queries"] += 1
-                parsed_names, families, qlinks, qhealth = await search_one_query(sq)
+                parsed_names, families, qlinks, qhealth = await search_one_query(sq, strict_high)
                 for fam in sorted(families):
                     if fam not in ev["healthy_providers"]:
                         ev["healthy_providers"].append(fam)
-                if len(families) >= 2:
+                if strict_high:
+                    if len(families) >= 2:
+                        ev["search_usable_queries"] += 1
+                elif families:
                     ev["search_usable_queries"] += 1
 
                 qseen = {v2.host(u) for u in qlinks if v2.host(u)}
@@ -212,16 +262,15 @@ async def webcheck(rows, conc: int, search_conc: int):
                         ev["search_candidates"].append(u)
                         existing.add(h)
 
-                # Stop exactly when the downstream certificate can already satisfy
-                # its search + direct-domain minimum. The old >=16 requirement was
-                # expensive over-collection, not a HIGH gate.
                 direct_pool = seed_hosts | existing
-                if ev["search_usable_queries"] >= 2 and len(direct_pool) >= 5:
+                if strict_high and ev["search_usable_queries"] >= 2 and len(direct_pool) >= 5:
+                    break
+                if not strict_high and ev["search_queries"] >= 2 and len(direct_pool) >= 5:
                     break
 
             cand = seeds + ev["search_candidates"]
             seen = set()
-            direct_cap = 12 if c.get("_unresolved_challenge") else 20
+            direct_cap = 20 if strict_high else 12
             for u in cand:
                 h = v2.host(u)
                 if not h or h in seen or v2.platform(u):
