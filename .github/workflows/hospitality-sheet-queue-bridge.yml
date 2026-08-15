@@ -4,6 +4,10 @@ on:
   workflow_run:
     workflows: ["Hospitality Autonomous Fleet 24/7"]
     types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_queue_trigger.json'
   workflow_dispatch:
 
 permissions:
@@ -15,7 +19,7 @@ concurrency:
 
 jobs:
   materialize_queue:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
