@@ -20,28 +20,54 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Compile residential worker and merger
+      - name: Compile residential worker merger and production helpers
         run: |
-          python -m py_compile tools/gws_home_openserp_worker_v55.py tools/gws_home_evidence_merge_v55.py
+          python -m py_compile \
+            tools/gws_home_openserp_worker_v55.py \
+            tools/gws_home_evidence_merge_v55.py \
+            tools/gws_reference_mesh_v57.py \
+            tools/gws_no_website_certifier_v53.py
       - name: Import production stack and verify family policy
         run: |
           python - <<'PY'
           import gws_home_openserp_worker_v55 as h
           import gws_home_evidence_merge_v55 as m
+          import gws_reference_mesh_v57 as ref
           assert h.FAMILY['google']=='google'
           assert h.FAMILY['bing']=='bing'
           assert h.FAMILY['ecosia']=='bing'
           assert h.FAMILY['duckduckgo']=='duckduckgo'
           assert h.FAMILY['yandex']=='yandex'
+          assert 'https://galeriefredericschots.com/index.html' in ref.direct_variants('https://galeriefredericschots.com/')
           print('GWS_HOME_STATIC_IMPORT_OK')
           PY
-      - name: Validate workflow YAML parses as text contract
+      - name: Parse Windows installer scripts with PowerShell
+        shell: pwsh
+        run: |
+          $files = @(
+            'tools/windows/install_gws_home_runner.ps1',
+            'tools/windows/start_openserp_home.ps1'
+          )
+          foreach ($f in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+            }
+          }
+          Write-Host 'GWS_HOME_POWERSHELL_PARSE_OK'
+      - name: Validate workflow contract and canary regressions
         run: |
           python - <<'PY'
           from pathlib import Path
-          p=Path('.github/workflows/gws-home-residential-certify.yml')
-          s=p.read_text()
-          for needle in ('self-hosted','gws-home','gws_home_openserp_worker_v55.py','gws_home_evidence_merge_v55.py','single_writer_ingest'):
+          s=Path('.github/workflows/gws-home-residential-certify.yml').read_text()
+          for needle in (
+              'self-hosted','gws-home','gws_home_openserp_worker_v55.py',
+              'gws_home_evidence_merge_v55.py','single_writer_ingest',
+              'KANOFF LEGAL','ID.CITE ARCHITECTS',"Imagin'Hair",'Galerie Frédéric Schots'
+          ):
               assert needle in s, needle
           print('GWS_HOME_WORKFLOW_CONTRACT_OK')
           PY
