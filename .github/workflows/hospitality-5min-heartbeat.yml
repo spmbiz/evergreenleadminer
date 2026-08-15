@@ -3,6 +3,10 @@ name: Hospitality 5-Minute Heartbeat
 on:
   schedule:
     - cron: '*/5 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hospitality-5min-heartbeat.yml'
   workflow_dispatch:
 
 permissions:
