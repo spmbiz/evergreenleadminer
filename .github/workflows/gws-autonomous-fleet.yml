@@ -145,6 +145,8 @@ jobs:
           set -euo pipefail
           git fetch origin "$BRANCH"
           git reset --hard "origin/$BRANCH"
+      - name: Install aggregate dependency
+        run: python -m pip install --disable-pip-version-check duckdb
       - name: Download plan/source snapshot
         uses: actions/download-artifact@v4
         with:
