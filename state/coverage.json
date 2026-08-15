@@ -20717,11 +20717,11 @@
       "bbox": "-110.000000,40.000000,-105.000000,45.000000",
       "release": "2026-06-17.0",
       "status": "failed_retryable",
-      "last_attempt": "2026-08-15T22:50:25.295395Z",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
       "last_success": null,
-      "consecutive_failures": 4,
+      "consecutive_failures": 5,
       "last_live_ready": 0,
-      "last_elapsed_seconds": 31.86
+      "last_elapsed_seconds": 33.17
     },
     "9c5eef2863561934": {
       "name": "atlas-14-33",
@@ -24180,6 +24180,97 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 3.35
+    },
+    "7ddc1d0285ffb406": {
+      "name": "atlas-08-03",
+      "country": "AUTO",
+      "region": "World-Atlas::pacific-west::08-03",
+      "bbox": "-165.000000,-20.000000,-160.000000,-15.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 4.96
+    },
+    "7ea10d7197a4df8b": {
+      "name": "atlas-17-55",
+      "country": "AUTO",
+      "region": "World-Atlas::asia::17-55",
+      "bbox": "95.000000,25.000000,100.000000,30.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 8.73
+    },
+    "cad6a3040130824b": {
+      "name": "atlas-15-48--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::15-48::lane=site-recovery",
+      "bbox": "60.000000,15.000000,65.000000,20.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 4.93
+    },
+    "c8c35e3e82ac663e": {
+      "name": "atlas-16-34--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::16-34::lane=site-recovery",
+      "bbox": "-10.000000,20.000000,-5.000000,25.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 6.16
+    },
+    "cab14f87e23c834d": {
+      "name": "atlas-17-44--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::17-44::lane=site-recovery",
+      "bbox": "40.000000,25.000000,45.000000,30.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 1,
+      "last_elapsed_seconds": 19.17
+    },
+    "c4b9a561bd13444f": {
+      "name": "atlas-15-34--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::15-34::lane=site-recovery",
+      "bbox": "-10.000000,15.000000,-5.000000,20.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 4.85
+    },
+    "c4c5ca2dfe66662a": {
+      "name": "atlas-17-34--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::gulf-mena::17-34::lane=site-recovery",
+      "bbox": "-10.000000,25.000000,-5.000000,30.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-15T22:52:30.805074Z",
+      "last_success": "2026-08-15T22:52:30.805074Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 7.78
     }
   }
 }
