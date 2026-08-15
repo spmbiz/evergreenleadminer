@@ -2,9 +2,17 @@
 
 This repository treats harvesting as durable desired state rather than a chat-driven action. GPT is a controller/reviewer, not a required worker process.
 
+## Project skill / source of operating doctrine
+
+The reusable project operating skill is:
+
+`skills/autonomous-harvest/SKILL.md`
+
+Treat it as a first-class source before planning, launching, scaling, stopping, debugging, or reporting any high-volume harvester in this project. It captures the persistent 24/7 semantics, incremental coverage, provider-neutral workers, canary autoscaling, single-writer persistence, backpressure, retry/dead-letter rules, and GPT handoff contract.
+
 The current fleet has two workload families:
 
-- **Hospitality / short-stay** via `tools/fleet_runtime.py` and the existing Overture V6 + live verifier.
+- **Hospitality / short-stay** via `tools/fleet_runtime.py`, `tools/hospitality_worker.py`, `tools/hospitality_scheduler.py`, and the existing Overture V6 + live verifier.
 - **GWS Brussels no-website** via `tools/gws_fleet_plan.py`, `tools/gws_fleet_worker.py`, and `tools/gws_fleet_aggregate.py`.
 
 ## Control
@@ -20,13 +28,15 @@ Provider limits and activation gates live in `config/providers.json`.
 
 ## GitHub pool
 
-Verified current Free-plan standard hosted concurrency is **20 jobs**. On this public repository, standard GitHub-hosted runners are free/unlimited.
+The hospitality autonomous workflow is `.github/workflows/hospitality-autonomous-fleet.yml`. It wakes every 15 minutes, uses a durable cloud canary ladder `4 -> 8 -> 12 -> 16 -> 20`, and never cancels productive in-flight work.
 
-The GWS fleet uses a source canary rather than blindly starting at maximum:
+Cloud scaling and local HTTP pressure are intentionally separate. Cloud jobs cover disjoint geographic shards; source/site 429s and timeouts can tune intra-runner concurrency without unnecessarily idling unrelated cloud shards.
 
-`8 -> 12 -> 16 -> 20` on GitHub (and potentially higher on a larger provider) when net-new post-dedupe review yield remains healthy and errors/429s stay low.
+The GWS fleet uses its own measured source canary rather than blindly starting at maximum:
 
-The planner subtracts visible active/queued work from this repository and configured peer repositories. Planner and aggregator are dependency-serialized with the worker phase, so they do not require two permanently idle slots; when the account is genuinely free the configured worker target is 20.
+`8 -> 12 -> 16 -> 20` when net-new post-dedupe review yield remains healthy and errors/429s stay low.
+
+The planner subtracts visible active/queued work from this repository and configured peer repositories. Planner and aggregator are dependency-serialized with the worker phase, so they do not require permanently idle slots.
 
 `.github/workflows/gws-autonomous-fleet.yml` wakes every 15 minutes (offset from the hour), uses `queue: max` and never cancels productive in-flight work.
 
@@ -74,46 +84,29 @@ Unchanged duplicates do not bloat observation files and do not cause the autosca
 
 ## Hospitality persistence
 
-The hospitality runtime keeps large durable state in GitHub Release assets under `harvest-state` (canonical SQLite + immutable partitions/review bundles) and small checkpoint/coverage/GPT state in Git. CircleCI uploads immutable provider bundles to `harvest-inbox` rather than acting as a second canonical writer.
+The hospitality runtime keeps large durable state in GitHub Release assets under `harvest-state` (canonical SQLite) and daily `harvest-history-*` cycle bundles (canonical delta, observations, GPT review, metrics). Small checkpoint/coverage/GPT state is committed to Git.
+
+The final commercial hospitality canonical remains the Google Sheet `Enriched Leads`; CI acquisition state is intentionally separate until a trusted Sheet credential or explicit sync step is configured.
 
 ## CircleCI second pool
 
-Current CircleCI Free plan reference points are:
-
-- **30 concurrent cloud jobs**;
-- up to **400,000 Linux open-source credits/month** for a public project on the Free plan;
-- Docker `medium`: **10 credits/minute** (current price list).
-
-The fleet is configured for a potential **30-worker burst**, not 28. There is no permanent two-slot reserve because the inbox/control job runs after the parallel worker job completes.
-
-The CircleCI config is dynamic (`setup: true`): it plans first and continues with exactly the selected parallelism. It does **not** start 30 empty containers when only 8 useful tasks exist.
+CircleCI is prepared as a secondary provider using the same provider-neutral worker code, but remains disabled until the real organization/project eligibility, free allocation and authentication are verified.
 
 Credit policy:
 
 - `auto_purchase=false`;
-- budget = 400,000 OSS Linux credits/month;
-- guard = 95% of that budget;
-- runtime estimation is persisted because CircleCI documents that the OSS credit allocation is not exposed like a normal balance.
+- no paid compute is authorized implicitly;
+- if the verified free allocation is exhausted, CircleCI pauses while GitHub remains correct.
 
-CircleCI remains disabled until the real organization/project is verified. Activation requires:
-
-1. connect `walidgdg1-ai/evergreenleadminer` to the intended CircleCI Free organization;
-2. confirm the public repo receives the OSS allocation;
-3. enable Dynamic Config / setup workflows in CircleCI project settings;
-4. set `FLEET_GH_TOKEN` so CircleCI can persist its immutable inbox before containers disappear;
-5. create an explicit scheduled/API pipeline with `fleet=true` and workload `hospitality` or `gws`.
-
-Normal VCS pushes have `fleet=false`, preventing recursive harvest loops from state commits.
-
-CircleCI is deliberately **not a canonical writer**. Each CircleCI GWS wave uploads one immutable `circleci-gws-inbox-*.tar.gz` bundle to the `harvest-inbox` GitHub Release. `.github/workflows/gws-circleci-inbox-aggregate.yml` serializes with the GitHub GWS writer, ingests those bundles, performs the same deterministic dedupe/change detection/GPT handoff, then deletes the temporary inbox asset only after successful canonical persistence.
+CircleCI is deliberately **not a canonical writer**. Provider bundles must converge through the single canonicalization path.
 
 ## Backpressure / self-healing
 
-- GWS tasks are incremental by territory/category and refresh watermark.
-- retryable failures remain eligible for a later cycle.
-- missing/failed workers do not erase prior progress.
-- review-queue soft/hard limits throttle discovery before GPT becomes the bottleneck.
-- source-specific concurrency scales down on errors/429s rather than shrinking unrelated workloads.
+- hospitality and GWS tasks are incremental by territory/source coverage and refresh watermark;
+- retryable failures remain eligible for a later cycle;
+- missing/failed workers do not erase prior progress;
+- review-queue soft/hard limits throttle discovery before GPT becomes the bottleneck;
+- source-specific concurrency scales down on errors/429s rather than shrinking unrelated workloads;
 - temporary CI artifacts are one-day transport only; useful data is persisted before they expire.
 
 ## GPT handoff
