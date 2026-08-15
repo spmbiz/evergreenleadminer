@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "description": "Generated global land-market atlas for autonomous hospitality harvesting. Legacy premium shards remain the P0 overlay; this atlas supplies durable first-pass and revisit backlog without GPT intervention.",
+  "cell_degrees": 5.0,
+  "min_lat": -60.0,
+  "max_lat": 75.0,
+  "max_rows_per_cell": 125000,
+  "default_priority": 40,
+  "default_tier": "P3",
+  "default_revisit_hours": 720,
+  "macro_masks": [
+    {"name":"north-america","bbox":"-170,5,-50,75"},
+    {"name":"south-america","bbox":"-85,-60,-30,15"},
+    {"name":"europe-north-africa","bbox":"-30,25,50,75"},
+    {"name":"africa","bbox":"-20,-40,55,38"},
+    {"name":"asia","bbox":"25,-15,180,75"},
+    {"name":"oceania","bbox":"110,-50,180,-5"},
+    {"name":"pacific-west","bbox":"-180,-30,-145,30"}
+  ],
+  "priority_overlays": [
+    {"name":"western-europe","bbox":"-25,34,35,72","priority":95,"tier":"P1","revisit_hours":336},
+    {"name":"mediterranean-premium","bbox":"-10,30,40,48","priority":99,"tier":"P0","revisit_hours":240},
+    {"name":"north-america-core","bbox":"-170,15,-50,72","priority":92,"tier":"P1","revisit_hours":336},
+    {"name":"usa-mexico-caribbean-premium","bbox":"-125,5,-55,38","priority":98,"tier":"P0","revisit_hours":240},
+    {"name":"australia-new-zealand","bbox":"110,-50,180,-5","priority":94,"tier":"P1","revisit_hours":336},
+    {"name":"gulf-mena","bbox":"-15,15,65,38","priority":72,"tier":"P2","revisit_hours":504},
+    {"name":"southern-africa-islands","bbox":"10,-40,65,-10","priority":70,"tier":"P2","revisit_hours":504},
+    {"name":"southeast-asia-islands","bbox":"90,-15,145,25","priority":68,"tier":"P2","revisit_hours":504},
+    {"name":"japan-korea","bbox":"125,24,150,47","priority":62,"tier":"P2","revisit_hours":504},
+    {"name":"south-america-coasts","bbox":"-82,-56,-34,13","priority":58,"tier":"P2","revisit_hours":600}
+  ],
+  "ranking": {
+    "legacy_premium_priority": 100,
+    "legacy_revisit_hours": 168,
+    "unseen_bonus": 1000000000,
+    "priority_multiplier": 1000000,
+    "overdue_multiplier": 10000,
+    "yield_bonus_cap": 50000,
+    "failure_penalty": 100000
+  }
+}
