@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.28205,
+    "recent_error_rate": 0.0,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-15T22:43:35.523712Z"
+    "last_updated": "2026-08-15T22:45:56.949805Z"
   },
   "hospitality_lanes": {
     "fast_email": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 699,
-      "last_fast_ready": 17,
-      "last_live_ready": 13,
+      "last_raw_discovered": 1,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.23529
+        "error_rate": 0.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -71,26 +71,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 10,
-      "last_workers_failed": 0,
-      "last_raw_discovered": 715,
-      "last_fast_ready": 22,
-      "last_live_ready": 13,
-      "last_recovery_candidates": 22,
-      "last_recovered_public_emails": 5,
+      "last_workers_completed": 8,
+      "last_workers_failed": 1,
+      "last_raw_discovered": 2272,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
+      "last_recovery_candidates": 89,
+      "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.31818
+        "error_rate": 0.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.04546
+        "error_rate": 0.0
       },
-      "recommended_contact_workers": 16,
-      "last_contact_ready": 22,
-      "last_social_or_contact_without_email": 17
+      "recommended_contact_workers": 24,
+      "last_contact_ready": 0,
+      "last_social_or_contact_without_email": 0
     }
   }
 }
