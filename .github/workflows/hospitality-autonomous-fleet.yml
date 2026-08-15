@@ -14,7 +14,7 @@ on:
         required: false
         default: '0'
       force_lane:
-        description: 'Optional lane override: fast_email or site_recovery'
+        description: 'Optional lane override: fast_email, site_recovery, or atp'
         required: false
         default: ''
 
@@ -50,7 +50,7 @@ jobs:
         run: |
           mkdir -p planner
           python tools/fleet_runtime.py init
-      - name: Reserve account-wide GitHub slots and plan multi-lane world cells
+      - name: Reserve account-wide slots and plan world + approved source tasks
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
@@ -104,7 +104,7 @@ jobs:
           if [ -n "${DISPATCH_LANE:-}" ]; then
             ARGS+=(--force-lane "$DISPATCH_LANE")
           fi
-          python tools/hospitality_multilane_plan.py "${ARGS[@]}"
+          python tools/hospitality_master_plan.py "${ARGS[@]}"
       - name: Build read-only canonical domain snapshot
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,33 +170,45 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install minimal worker dependencies
-        run: python -m pip install --disable-pip-version-check duckdb requests
+        run: python -m pip install --disable-pip-version-check duckdb requests ijson
       - name: Download read-only canonical snapshot
         uses: actions/download-artifact@v4
         with:
           name: hospitality-plan-${{ needs.plan.outputs.cycle_id }}
           path: planner_input
-      - name: Harvest and live-verify multi-lane cell
+      - name: Harvest and live-verify task
         run: |
+          set -euo pipefail
           mkdir -p "results/${{ matrix.key }}"
-          python tools/hospitality_worker.py \
-            --provider github \
-            --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
-            --name "${{ matrix.name }}" \
-            --country "${{ matrix.country }}" \
-            --region "${{ matrix.region }}" \
-            --bbox="${{ matrix.bbox }}" \
-            --release "${{ matrix.release }}" \
-            --max-rows "${{ matrix.max_rows }}" \
-            --lane "${{ matrix.lane }}" \
-            --canonical-domains "planner_input/canonical-domains.txt.gz" \
-            --local-workers "${{ matrix.local_workers }}" \
-            --contact-workers "${{ matrix.contact_workers }}" \
-            --contact-timeout "${{ matrix.contact_timeout }}" \
-            --contact-max-pages "${{ matrix.contact_max_pages }}" \
-            --contact-max-bytes "${{ matrix.contact_max_bytes }}" \
-            --verify-engine thread \
-            --outdir "results/${{ matrix.key }}"
+          if [ "${{ matrix.task_type }}" = "atp_spider" ]; then
+            python tools/hospitality_atp_worker.py \
+              --provider github \
+              --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
+              --spider "${{ matrix.spider }}" \
+              --expected-release "${{ matrix.release }}" \
+              --canonical-domains "planner_input/canonical-domains.txt.gz" \
+              --local-workers "${{ matrix.local_workers }}" \
+              --outdir "results/${{ matrix.key }}"
+          else
+            python tools/hospitality_worker.py \
+              --provider github \
+              --cycle-id "${{ needs.plan.outputs.cycle_id }}" \
+              --name "${{ matrix.name }}" \
+              --country "${{ matrix.country }}" \
+              --region "${{ matrix.region }}" \
+              --bbox="${{ matrix.bbox }}" \
+              --release "${{ matrix.release }}" \
+              --max-rows "${{ matrix.max_rows }}" \
+              --lane "${{ matrix.lane }}" \
+              --canonical-domains "planner_input/canonical-domains.txt.gz" \
+              --local-workers "${{ matrix.local_workers }}" \
+              --contact-workers "${{ matrix.contact_workers }}" \
+              --contact-timeout "${{ matrix.contact_timeout }}" \
+              --contact-max-pages "${{ matrix.contact_max_pages }}" \
+              --contact-max-bytes "${{ matrix.contact_max_bytes }}" \
+              --verify-engine thread \
+              --outdir "results/${{ matrix.key }}"
+          fi
       - name: Upload transport artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -295,7 +307,7 @@ jobs:
             echo "No small-state changes to commit"
             exit 0
           fi
-          git commit -m "fleet: hospitality multi-lane checkpoint ${CYCLE_ID} [skip ci]"
+          git commit -m "fleet: hospitality unified checkpoint ${CYCLE_ID} [skip ci]"
           for attempt in 1 2 3 4; do
             if git pull --rebase origin main && git push origin HEAD:main; then
               exit 0
@@ -326,5 +338,4 @@ jobs:
     if: needs.plan.outputs.enabled != 'true' || needs.plan.outputs.worker_count == '0'
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo "Hospitality fleet idle: enabled=${{ needs.plan.outputs.enabled }}, workers=${{ needs.plan.outputs.worker_count }}"
+      - run: echo "Hospitality fleet idle: enabled=${{ needs.plan.outputs.enabled }}, workers=${{ needs.plan.outputs.worker_count }}"
