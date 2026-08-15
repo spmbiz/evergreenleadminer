@@ -1,0 +1,89 @@
+name: GWS Free SERP Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_free_serp_lab_trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  openserp_probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start OpenSERP locally
+        run: |
+          set -euo pipefail
+          docker pull karust/openserp:latest
+          docker run -d --name openserp --shm-size=1g -p 127.0.0.1:7000:7000 karust/openserp:latest serve -a 0.0.0.0 -p 7000
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:7000/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs openserp || true
+          exit 1
+      - name: Probe engines on known Brussels owned sites
+        run: |
+          set -euo pipefail
+          mkdir -p serp_lab
+          python - <<'PY'
+          import json, urllib.parse, urllib.request, time
+          engines=['google','bing','duckduckgo','ecosia','yandex']
+          cases=[
+            ('KANOFF LEGAL','kanofflegal.com'),
+            ('ID.CITE ARCHITECTS','idcite.be'),
+          ]
+          rows=[]
+          for name,expected in cases:
+            q=f'"{name}" Brussels website'
+            for engine in engines:
+              url=f'http://127.0.0.1:7000/{engine}/search?'+urllib.parse.urlencode({'text':q,'limit':'10','format':'json','lang':'FR','region':'BE'})
+              rec={'engine':engine,'name':name,'expected_domain':expected,'query':q}
+              t=time.time()
+              try:
+                req=urllib.request.Request(url,headers={'Accept':'application/json'})
+                with urllib.request.urlopen(req,timeout=35) as r:
+                  body=r.read().decode(errors='ignore')
+                  rec['http_status']=int(r.status)
+                  rec['seconds']=round(time.time()-t,2)
+                  rec['body_bytes']=len(body)
+                  rec['found_expected']=expected.lower() in body.lower()
+                  try:
+                    data=json.loads(body)
+                    rec['result_count']=len(data.get('results') or []) if isinstance(data,dict) else None
+                    rec['error_field']=data.get('error') if isinstance(data,dict) else None
+                  except Exception:
+                    rec['json_ok']=False
+              except Exception as exc:
+                rec['seconds']=round(time.time()-t,2)
+                rec['error']=type(exc).__name__+':'+str(exc)[:180]
+              rows.append(rec)
+              print('OPEN_SERP_PROBE='+json.dumps(rec,separators=(',',':')),flush=True)
+          open('serp_lab/openserp_probe.json','w').write(json.dumps(rows,indent=2)+'\n')
+          summary={}
+          for e in engines:
+            er=[x for x in rows if x['engine']==e]
+            summary[e]={
+              'queries':len(er),
+              'responses':sum('http_status' in x for x in er),
+              'expected_hits':sum(bool(x.get('found_expected')) for x in er),
+              'errors':sum('error' in x or x.get('error_field') for x in er),
+              'avg_seconds':round(sum(float(x.get('seconds',0)) for x in er)/max(1,len(er)),2),
+            }
+          open('serp_lab/summary.json','w').write(json.dumps(summary,indent=2)+'\n')
+          print('OPEN_SERP_SUMMARY='+json.dumps(summary,separators=(',',':')))
+          PY
+      - name: Container diagnostics
+        if: always()
+        run: docker logs openserp > serp_lab/openserp_container.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-free-serp-lab-${{ github.run_id }}
+          path: serp_lab/
+          retention-days: 3
