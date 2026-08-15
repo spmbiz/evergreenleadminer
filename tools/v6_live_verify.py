@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Fast current-web verifier for V6 hospitality candidates.
 
-Verifies current first-party hospitality identity. Generic long-term property
-management / real-estate services are not hospitality: they must show explicit
-short-stay/vacation/holiday accommodation evidence on the current website.
-Strong hospitality names may only bypass a missing textual brand match when a
-first-party email/domain match independently supports the identity.
+Recall-first policy: missing a plausible hospitality buyer is considered more
+costly than admitting a small amount of noise. Candidates that already passed
+the bulk hospitality cheap-screen and have a reachable non-parked business site
+are therefore kept as PERMISSIVE when current-page evidence is ambiguous.
+Only clear negatives (parked/closed/broken HTTP) are excluded from live-ready.
+Nothing is inferred or invented.
 """
 from __future__ import annotations
 import argparse,csv,html as htmlmod,re,time
@@ -18,7 +19,7 @@ HOSP=("vacation rental","vacation rentals","vacation home","holiday rental","hol
 STR_PROOF=("vacation rental","vacation rentals","vacation home","vacation homes","holiday rental","holiday rentals","holiday home","holiday homes","short-term rental","short term rental","short stay","nightly rental","airbnb","vrbo","serviced apartment","serviced apartments","serviced accommodation","aparthotel","villa rental","villa rentals","cabin rental","cabin rentals","chalet rental","chalet rentals")
 PARKED=("domain is for sale","this domain is for sale","buy this domain","domain may be for sale","expired domain","website is for sale","parked free","sedo domain parking","hugedomains","afternic","dan.com","coming soon")
 CLOSED=("permanently closed","ceased operations","we have closed","no longer operating","business has closed","closed our doors")
-UA="Mozilla/5.0 (compatible; AIProdLeadVerifier/1.3; public-business-research)"
+UA="Mozilla/5.0 (compatible; AIProdLeadVerifier/1.4; public-business-research)"
 BAD_IG_PREFIXES=("p/","reel/","reels/","stories/","explore/","accounts/","direct/","about/","legal/","developer/")
 
 def norm(x): return re.sub(r"\s+"," ",str(x or "")).strip()
@@ -57,20 +58,26 @@ def verify(row,timeout):
         generic_pm=("property management" in identity or "property manager" in identity) and not any(x in identity for x in STR_PROOF)
         generic_real_estate=("real estate" in identity or "real_estate" in identity) and not any(x in identity for x in STR_PROOF)
         explicit_str=any(x in text for x in STR_PROOF)
-        if generic_pm and not explicit_str:
-            out["live_status"]="REJECT";out["live_reason"]="GENERIC_PROPERTY_MANAGEMENT_NOT_SHORT_STAY";return out
-        if generic_real_estate and not explicit_str:
-            out["live_status"]="REJECT";out["live_reason"]="GENERIC_REAL_ESTATE_NOT_SHORT_STAY";return out
         hh=sum(1 for x in HOSP if x in text);it=sum(1 for x in tokens(name) if x in text)
         out["hospitality_hits"]=str(hh);out["identity_hits"]=str(it);out["email_on_homepage"]="YES" if email and email.lower() in text else "NO"
         strong_name=any(x in identity for x in ("vacation rental","vacation rentals","holiday rental","short-term rental","short term rental","cabin rental","cabin rentals","chalet rental","villa rental","serviced apartment","aparthotel"))
         email_match=str(row.get("email_domain_match") or "").strip().lower() in {"yes","true","1","match","matched"}
         identity_ok=it>=1 or (strong_name and email_match)
-        if hh>=2 and identity_ok: out["live_status"]="HIGH";out["live_reason"]="CURRENT_HOSPITALITY_IDENTITY"
-        elif hh>=1 and identity_ok: out["live_status"]="MEDIUM";out["live_reason"]="CURRENT_WEAK_HOSPITALITY_IDENTITY"
+        if hh>=2 and identity_ok:
+            out["live_status"]="HIGH";out["live_reason"]="CURRENT_HOSPITALITY_IDENTITY"
+        elif hh>=1 and identity_ok:
+            out["live_status"]="MEDIUM";out["live_reason"]="CURRENT_WEAK_HOSPITALITY_IDENTITY"
+        elif generic_pm and not explicit_str:
+            out["live_status"]="PERMISSIVE";out["live_reason"]="PLAUSIBLE_PROPERTY_MANAGER_NO_EXPLICIT_STR_PROOF"
+        elif generic_real_estate and not explicit_str:
+            out["live_status"]="PERMISSIVE";out["live_reason"]="PLAUSIBLE_REAL_ESTATE_ADJACENT_NO_EXPLICIT_STR_PROOF"
         elif strong_name and it==0 and not email_match:
-            out["live_status"]="REJECT";out["live_reason"]="STRONG_NAME_WITHOUT_FIRST_PARTY_IDENTITY_PROOF"
-        else: out["live_status"]="UNCERTAIN";out["live_reason"]="INSUFFICIENT_CURRENT_IDENTITY_PROOF"
+            out["live_status"]="PERMISSIVE";out["live_reason"]="STRONG_HOSPITALITY_NAME_IDENTITY_AMBIGUOUS"
+        else:
+            # Reached a live, non-parked site after already passing the bulk
+            # hospitality/operator screen. Keep it for recall; downstream
+            # scoring can rank it below HIGH/MEDIUM rather than discard it.
+            out["live_status"]="PERMISSIVE";out["live_reason"]="REACHABLE_CHEAP_SCREEN_HOSPITALITY_CANDIDATE"
         return out
     except requests.RequestException as e: out["live_reason"]="NETWORK_"+type(e).__name__.upper();return out
 
@@ -81,14 +88,14 @@ def main():
     verified=[]
     with ThreadPoolExecutor(max_workers=a.workers) as ex:
         for fut in as_completed([ex.submit(verify,r,a.timeout) for r in rows]): verified.append(fut.result())
-    verified.sort(key=lambda r:(r.get("live_status")!="HIGH",r.get("live_status")!="MEDIUM",-(int(r.get("operator_score") or 0)),-(int(r.get("premium_score") or 0)),r.get("name","").lower()))
+    verified.sort(key=lambda r:(r.get("live_status")!="HIGH",r.get("live_status")!="MEDIUM",r.get("live_status")!="PERMISSIVE",-(int(r.get("operator_score") or 0)),-(int(r.get("premium_score") or 0)),r.get("name","").lower()))
     fields=list(verified[0].keys()) if verified else []
     with (out/"v6_live_verified.csv").open("w",encoding="utf-8",newline="") as f:
         w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(verified)
-    keep=[r for r in verified if r["live_status"] in ("HIGH","MEDIUM")]
+    keep=[r for r in verified if r["live_status"] in ("HIGH","MEDIUM","PERMISSIVE")]
     with (out/"v6_live_ready.csv").open("w",encoding="utf-8",newline="") as f:
         w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(keep)
     import json
-    summary={"input_fast_ready":len(rows),"live_high":sum(r['live_status']=='HIGH' for r in verified),"live_medium":sum(r['live_status']=='MEDIUM' for r in verified),"live_reject":sum(r['live_status']=='REJECT' for r in verified),"live_uncertain":sum(r['live_status']=='UNCERTAIN' for r in verified),"live_ready":len(keep),"instagram_found":sum(bool(r.get('instagram')) for r in keep),"elapsed_seconds":round(time.time()-t0,2)}
+    summary={"input_fast_ready":len(rows),"live_high":sum(r['live_status']=='HIGH' for r in verified),"live_medium":sum(r['live_status']=='MEDIUM' for r in verified),"live_permissive":sum(r['live_status']=='PERMISSIVE' for r in verified),"live_reject":sum(r['live_status']=='REJECT' for r in verified),"live_uncertain":sum(r['live_status']=='UNCERTAIN' for r in verified),"live_ready":len(keep),"instagram_found":sum(bool(r.get('instagram')) for r in keep),"elapsed_seconds":round(time.time()-t0,2)}
     (out/"v6_live_summary.json").write_text(json.dumps(summary,indent=2),encoding="utf-8");print(json.dumps(summary,indent=2))
 if __name__=="__main__":main()
