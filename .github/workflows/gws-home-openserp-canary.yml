@@ -1,0 +1,62 @@
+name: GWS Home OpenSERP Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: false
+        default: 'KANOFF LEGAL Brussels website'
+      engines:
+        description: 'Comma-separated OpenSERP engines'
+        required: false
+        default: 'google,bing,duckduckgo,ecosia,yandex'
+
+permissions:
+  contents: read
+
+jobs:
+  home_serp:
+    # Register the user's Windows PC as a repository self-hosted runner and add
+    # the custom label `gws-home`. This keeps all SERP egress on the home IP.
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure persistent localhost OpenSERP
+        shell: powershell
+        run: .\tools\windows\start_openserp_home.ps1 -Port 7000
+
+      - name: Show egress IP
+        shell: powershell
+        run: |
+          try {
+            $ip = (Invoke-RestMethod -TimeoutSec 10 'https://api.ipify.org?format=json').ip
+            Write-Host "GWS_HOME_EGRESS_IP=$ip"
+          } catch {
+            Write-Host "GWS_HOME_EGRESS_IP=UNAVAILABLE"
+          }
+
+      - name: Query OpenSERP from residential runner
+        shell: powershell
+        env:
+          QUERY: ${{ inputs.query }}
+          ENGINES: ${{ inputs.engines }}
+        run: |
+          $encoded = [uri]::EscapeDataString($env:QUERY)
+          $engines = [uri]::EscapeDataString($env:ENGINES)
+          $url = "http://127.0.0.1:7000/mega/search?text=$encoded&engines=$engines&mode=balanced&dedupe=true&merge=true&limit=10"
+          $out = Invoke-RestMethod -TimeoutSec 90 $url
+          $out | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 openserp_canary.json
+          $meta = $out.meta | ConvertTo-Json -Compress
+          Write-Host "GWS_HOME_OPENSERP_META=$meta"
+          Write-Host "GWS_HOME_OPENSERP_RESULTS=$($out.results.Count)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-openserp-canary-${{ github.run_id }}
+          path: openserp_canary.json
+          if-no-files-found: warn
+          retention-days: 3
