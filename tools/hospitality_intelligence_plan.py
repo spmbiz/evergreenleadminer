@@ -42,6 +42,26 @@ def main() -> None:
     rows = list(ccon.execute('SELECT * FROM leads ORDER BY last_seen DESC'))
     ccon.close()
 
+    # Never let the additive intelligence lane normalize a catastrophically
+    # truncated canonical snapshot into the durable state. The classic harvester
+    # has tens of thousands of accounts; a tiny snapshot means restore/race
+    # damage, not a legitimate business delta.
+    safety_floor = int(cfg.get('canonical_safety_floor') or 0)
+    if safety_floor > 0 and len(rows) < safety_floor:
+        plan = {
+            'enabled': False,
+            'accounts_planned': 0,
+            'worker_count': 0,
+            'include': [],
+            'reason': 'canonical_below_safety_floor',
+            'counts': {'canonical_total': len(rows)},
+            'config': {'canonical_safety_floor': safety_floor},
+        }
+        (out / 'plan.json').write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        print(json.dumps(plan, ensure_ascii=False))
+        icon.close()
+        return
+
     retry_hours = int(cfg.get('retry_hours') or 48)
     refresh_days = int(cfg.get('refresh_days') or 30)
     configured_max_accounts = int(cfg.get('max_accounts_per_pass') or 10000)
@@ -125,6 +145,7 @@ def main() -> None:
             'shard_size': shard_size,
             'retry_hours': retry_hours,
             'refresh_days': refresh_days,
+            'canonical_safety_floor': safety_floor,
             'smoke_override': bool(int(a.max_accounts or 0) > 0 or int(a.max_workers or 0) > 0),
         },
     }
