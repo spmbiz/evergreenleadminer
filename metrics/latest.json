@@ -1,66 +1,43 @@
 {
-  "cycle_id": "20260816T171634Z-github-multilane",
+  "cycle_id": "20260816T172201Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T17:18:23.853352Z",
-  "workers_completed": 6,
+  "finished_at": "2026-08-16T17:23:05.145724Z",
+  "workers_completed": 5,
   "workers_failed": 0,
-  "raw_discovered": 334,
+  "raw_discovered": 1483,
   "live_ready_before_canonical_dedupe": 3,
   "new_unique": 3,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 3,
-  "gpt_review_pending": 0,
+  "instagram_found": 2,
+  "gpt_review_pending": 1,
   "errors": 0,
-  "peak_wall_seconds": 60.39,
-  "new_unique_per_worker_minute": 1.278,
-  "canonical_total": 31753,
+  "peak_wall_seconds": 16.7,
+  "new_unique_per_worker_minute": 4.188,
+  "canonical_total": 31756,
   "health": {
     "429_rate": 0.0,
     "timeout_rate": 0.0,
-    "error_rate": 0.11111
+    "error_rate": 0.33333
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
-    "fresh_search": {
-      "workers_completed": 2,
-      "workers_failed": 0,
-      "raw_discovered": 183,
-      "fast_ready": 4,
-      "live_ready": 1,
-      "recovery_candidates": 16,
-      "recovered_public_emails": 4,
-      "contact_ready": 4,
-      "social_or_contact_without_email": 0,
-      "instagram_found": 2,
-      "facebook_found": 2,
-      "live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
-      },
-      "contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
-      }
-    },
     "site_recovery": {
-      "workers_completed": 4,
+      "workers_completed": 5,
       "workers_failed": 0,
-      "raw_discovered": 151,
-      "fast_ready": 5,
-      "live_ready": 2,
-      "recovery_candidates": 5,
-      "recovered_public_emails": 0,
-      "contact_ready": 5,
+      "raw_discovered": 1483,
+      "fast_ready": 6,
+      "live_ready": 3,
+      "recovery_candidates": 6,
+      "recovered_public_emails": 1,
+      "contact_ready": 6,
       "social_or_contact_without_email": 5,
-      "instagram_found": 1,
-      "facebook_found": 1,
+      "instagram_found": 2,
+      "facebook_found": 3,
       "live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.2
+        "error_rate": 0.33333
       },
       "contact_health": {
         "429_rate": 0.0,
