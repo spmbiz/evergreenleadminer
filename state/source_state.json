@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.28066,
-    "recent_429_rate": 0.00272,
-    "recent_timeout_rate": 0.14442,
+    "recent_error_rate": 0.2,
+    "recent_429_rate": 0.0,
+    "recent_timeout_rate": 0.04,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T01:13:52.372543Z"
+    "last_updated": "2026-08-16T01:17:04.247065Z"
   },
   "hospitality_lanes": {
     "fast_email": {
-      "last_workers_completed": 4,
+      "last_workers_completed": 3,
       "last_workers_failed": 0,
-      "last_raw_discovered": 1783,
-      "last_fast_ready": 33,
-      "last_live_ready": 20,
+      "last_raw_discovered": 0,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0303,
-        "error_rate": 0.36364
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -71,26 +71,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 10,
+      "last_workers_completed": 6,
       "last_workers_failed": 0,
-      "last_raw_discovered": 31893,
-      "last_fast_ready": 334,
-      "last_live_ready": 200,
-      "last_recovery_candidates": 366,
-      "last_recovered_public_emails": 27,
+      "last_raw_discovered": 19654,
+      "last_fast_ready": 50,
+      "last_live_ready": 33,
+      "last_recovery_candidates": 52,
+      "last_recovered_public_emails": 4,
       "last_live_health": {
-        "429_rate": 0.00299,
-        "timeout_rate": 0.15569,
-        "error_rate": 0.27246
+        "429_rate": 0.0,
+        "timeout_rate": 0.04,
+        "error_rate": 0.2
       },
       "last_contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.1694,
-        "error_rate": 0.01366
+        "timeout_rate": 0.05769,
+        "error_rate": 0.03846
       },
       "recommended_contact_workers": 40,
-      "last_contact_ready": 334,
-      "last_social_or_contact_without_email": 307
+      "last_contact_ready": 50,
+      "last_social_or_contact_without_email": 46
     }
   }
 }
