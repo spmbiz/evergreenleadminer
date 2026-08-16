@@ -37,16 +37,16 @@
       "mode": "trusted_directory_contact",
       "priority": 98,
       "revisit_hours": 168,
-      "reason": "Read-only canary candidate: ATP sample exposes hotel-like member records with explicit public emails. Directory domain remains provenance only; member email domains must pass live verification."
+      "reason": "Canary: 25 canonical-unseen business domains, 19 live-ready, 14 Instagram. Useful but lower-confidence/permissive-heavy; keep canary-only for now."
     },
     {
       "spider": "akzent_hotels_de",
       "enabled_for_canary": true,
-      "production_enabled": false,
+      "production_enabled": true,
       "mode": "trusted_directory_contact",
-      "priority": 97,
+      "priority": 110,
       "revisit_hours": 168,
-      "reason": "Read-only canary candidate: ATP sample exposes hotel-like member records with explicit public emails. Directory domain remains provenance only; member email domains must pass live verification."
+      "reason": "GREEN canary: 71 public member contacts, 70 canonical-unseen, 65 live-ready (14 HIGH, 49 MEDIUM, 2 PERMISSIVE), 37 Instagram; directory domain remains provenance only and member business-email domains passed live verification."
     },
     {
       "spider": "lhw",
