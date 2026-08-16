@@ -8,6 +8,8 @@ Supported lanes:
   bounded first-party public contact recovery, then the same live gate. Any
   explicit public outreach route (email/phone/Instagram/Facebook/contact page)
   may advance to the gate; email is no longer mandatory.
+- fresh_search: canonical-unseen premium/operator discovery through the existing
+  SearchFabric, followed by the same V1 contact recovery and permissive live gate.
 - batch64:<payload> bbox: runner-local queue of ordinary geo cells, processed
   sequentially to amortize VM startup while preserving per-shard artifacts.
 
@@ -51,6 +53,25 @@ def worker(a):
             "--cycle-id", a.cycle_id,
             "--cells-b64", payload,
             "--canonical-domains", a.canonical_domains,
+            "--outdir", str(out),
+        ])
+        return
+
+    if a.lane == "fresh_search" or str(a.bbox).startswith("fresh-search:"):
+        try:
+            cursor = int(str(a.bbox).split(":", 1)[1])
+        except Exception:
+            cursor = 0
+        fr.run([
+            sys.executable,
+            "tools/hospitality_fresh_search_worker.py",
+            "--provider", a.provider,
+            "--cycle-id", a.cycle_id,
+            "--cursor", str(cursor),
+            "--max-queries", str(max(1, int(a.max_rows or 30))),
+            "--canonical-domains", a.canonical_domains,
+            "--local-workers", str(a.local_workers),
+            "--contact-workers", str(a.contact_workers),
             "--outdir", str(out),
         ])
         return
@@ -200,7 +221,7 @@ def main():
     ap.add_argument("--bbox", required=True)
     ap.add_argument("--release", default="2026-06-17.0")
     ap.add_argument("--max-rows", type=int, default=250000)
-    ap.add_argument("--lane", choices=("fast_email", "site_recovery"), default="fast_email")
+    ap.add_argument("--lane", choices=("fast_email", "site_recovery", "fresh_search"), default="fast_email")
     ap.add_argument("--canonical-domains", default="")
     ap.add_argument("--local-workers", type=int, default=64)
     ap.add_argument("--contact-workers", type=int, default=48)
