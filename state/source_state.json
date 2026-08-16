@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 96,
-    "recent_error_rate": 0.0,
+    "recent_error_rate": 0.00917,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T19:39:00.595678Z"
+    "last_updated": "2026-08-16T19:41:36.090400Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -71,17 +71,17 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 1,
+      "last_workers_completed": 6,
       "last_workers_failed": 0,
-      "last_raw_discovered": 11,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
-      "last_recovered_public_emails": 0,
+      "last_raw_discovered": 257,
+      "last_fast_ready": 3,
+      "last_live_ready": 1,
+      "last_recovery_candidates": 3,
+      "last_recovered_public_emails": 1,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.33333
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -89,8 +89,8 @@
         "error_rate": 0.0
       },
       "recommended_contact_workers": 24,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0
+      "last_contact_ready": 3,
+      "last_social_or_contact_without_email": 2
     },
     "fresh_search": {
       "last_workers_completed": 4,
@@ -117,12 +117,12 @@
       "last_workers_completed": 1,
       "last_workers_failed": 0,
       "last_raw_discovered": 300,
-      "last_fast_ready": 115,
-      "last_live_ready": 113,
-      "last_recovery_candidates": 196,
-      "last_recovered_public_emails": 53,
-      "last_contact_ready": 115,
-      "last_social_or_contact_without_email": 62,
+      "last_fast_ready": 106,
+      "last_live_ready": 104,
+      "last_recovery_candidates": 172,
+      "last_recovered_public_emails": 55,
+      "last_contact_ready": 106,
+      "last_social_or_contact_without_email": 51,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
