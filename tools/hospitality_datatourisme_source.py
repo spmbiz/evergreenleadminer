@@ -148,6 +148,7 @@ def main() -> None:
     policy = cfg.get("policy") or {}
     max_candidates = int(a.max_candidates or policy.get("max_candidates") or 1500)
     strict_categories = [norm_key(x) for x in (cfg.get("strict_accommodation_category_keywords") or []) if x]
+    excluded_categories = [norm_key(x) for x in (cfg.get("excluded_category_keywords") or []) if x]
     if not strict_categories:
         raise RuntimeError("DATAtourisme strict accommodation category allowlist is empty")
     preferred = list(cfg.get("preferred_resource_names") or [])
@@ -173,7 +174,7 @@ def main() -> None:
         raise RuntimeError("Chosen DATAtourisme resource has no URL or id")
 
     raw_rows = hospitality_rows = no_site = canonical_rejected = duplicate_domain = 0
-    taxonomy_rejected = 0
+    taxonomy_rejected = taxonomy_excluded = 0
     rows_by_domain: dict[str, dict] = {}
     observed_types: dict[str, int] = {}
 
@@ -196,8 +197,13 @@ def main() -> None:
                         token = token.strip()
                         if token:
                             observed_types[token] = observed_types.get(token, 0) + 1
-                # Quality gate: category taxonomy must explicitly identify lodging/accommodation.
-                # Never admit a POI only because its name contains "Hotel" (e.g. Hotel-Dieu museum).
+                # Positive accommodation taxonomy is mandatory, and explicit
+                # negative types win. This prevents multi-tagged campgrounds or
+                # museums from entering simply because they also carry a generic
+                # rental/accommodation class.
+                if excluded_categories and any(k in type_norm for k in excluded_categories):
+                    taxonomy_excluded += 1
+                    continue
                 if not any(k in type_norm for k in strict_categories):
                     taxonomy_rejected += 1
                     continue
@@ -245,7 +251,7 @@ def main() -> None:
                     "operator_score": str(operator), "premium_score": str(premium),
                     "fit_tier": "A" if premium >= 75 or operator >= 65 else "B",
                     "source_url": item_id or str(cfg["dataset_api"]), "overture_id": "",
-                    "notes": "Official DATAtourisme inventory; explicit accommodation taxonomy plus public first-party URL.",
+                    "notes": "Official DATAtourisme inventory; explicit commercial accommodation taxonomy plus public first-party URL.",
                     "instagram": "", "facebook": "",
                 }
                 if len(rows_by_domain) >= max_candidates:
@@ -264,6 +270,7 @@ def main() -> None:
         "bytes_downloaded": bytes_downloaded,
         "raw_rows_scanned": raw_rows,
         "taxonomy_rejected": taxonomy_rejected,
+        "taxonomy_excluded": taxonomy_excluded,
         "hospitality_rows": hospitality_rows,
         "no_public_site": no_site,
         "canonical_known_rejected_early": canonical_rejected,
