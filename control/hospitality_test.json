@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T14:43:00Z",
+  "requested_at": "2026-08-16T15:28:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "discovery-demand-broker-fix-validation",
-  "force_workers": 0,
+  "mode": "fresh-search-production-validation",
+  "force_workers": 6,
   "force_lane": "",
-  "note": "Validate that V1 multi-lane useful_backlog drives Hospitality broker demand and receives real workers before normal Intelligence V2. No canonical reset or destructive mutation."
+  "note": "Validate the promoted fresh-search source in the normal autonomous V1 pipeline. Planner may allocate at most 2 fresh-search source slots and must preserve Overture/ATP/OSM plus canonical single-writer safety."
 }
