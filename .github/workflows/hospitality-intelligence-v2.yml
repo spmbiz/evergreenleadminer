@@ -1,0 +1,340 @@
+name: Hospitality Intelligence V2
+
+on:
+  schedule:
+    - cron: '11 1,9,17 * * *'
+  workflow_dispatch:
+    inputs:
+      force_reclassify:
+        description: 'Reclassify current canonical accounts even if unchanged (normally false)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: hospitality-intelligence-v2
+  cancel-in-progress: false
+
+env:
+  INTEL_CONFIG: config/hospitality_intelligence_v2.json
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    outputs:
+      enabled: ${{ steps.emit.outputs.enabled }}
+      matrix: ${{ steps.emit.outputs.matrix }}
+      worker_count: ${{ steps.emit.outputs.worker_count }}
+      accounts_planned: ${{ steps.emit.outputs.accounts_planned }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore canonical and intelligence ledgers
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot intelligence_plan
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir snapshot \
+            --clobber
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-intelligence.sqlite' \
+            --dir snapshot \
+            --clobber || true
+      - name: Build NEW / CHANGED / unresolved semantic queue
+        env:
+          FORCE: ${{ github.event.inputs.force_reclassify || 'false' }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --canonical-db snapshot/hospitality-canonical.sqlite
+            --intelligence-db snapshot/hospitality-intelligence.sqlite
+            --config "$INTEL_CONFIG"
+            --outdir intelligence_plan
+          )
+          if [ "${FORCE,,}" = "true" ]; then ARGS+=(--force); fi
+          python tools/hospitality_intelligence_plan.py "${ARGS[@]}"
+      - id: emit
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('intelligence_plan/plan.json'))
+          print('enabled='+str(bool(p.get('enabled'))).lower())
+          print('matrix='+json.dumps({'include':p.get('include') or []},separators=(',',':')))
+          print('worker_count='+str(int(p.get('worker_count') or 0)))
+          print('accounts_planned='+str(int(p.get('accounts_planned') or 0)))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-intelligence-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: intelligence_plan/
+          retention-days: 1
+          compression-level: 6
+
+  prepare_model:
+    needs: plan
+    if: needs.plan.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read pinned Qwen model config
+        id: model
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          q=json.load(open('config/hospitality_intelligence_v2.json'))['qwen']
+          print('repo='+q['model_repo'])
+          print('revision='+q['model_revision'])
+          print('file='+q['model_file'])
+          PY
+      - uses: actions/cache@v4
+        id: model-cache
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-${{ steps.model.outputs.revision }}
+      - name: Download pinned official Qwen GGUF once per cache generation
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        env:
+          MODEL_REPO: ${{ steps.model.outputs.repo }}
+          MODEL_REVISION: ${{ steps.model.outputs.revision }}
+          MODEL_FILE: ${{ steps.model.outputs.file }}
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'huggingface_hub>=0.34,<2'
+          mkdir -p model_cache
+          python - <<'PY'
+          import os
+          from huggingface_hub import hf_hub_download
+          p=hf_hub_download(
+              repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'],
+              revision=os.environ['MODEL_REVISION'], local_dir='model_cache'
+          )
+          print(p)
+          PY
+          test -s "model_cache/$MODEL_FILE"
+      - name: Validate cached model exists
+        env:
+          MODEL_FILE: ${{ steps.model.outputs.file }}
+        run: |
+          set -euo pipefail
+          test -s "model_cache/$MODEL_FILE"
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          p=Path('model_cache')/os.environ['MODEL_FILE']
+          size=p.stat().st_size
+          if size < 1_000_000_000:
+              raise SystemExit(f'model file unexpectedly small: {size}')
+          print({'model':str(p),'bytes':size})
+          PY
+
+  classify:
+    needs: [plan, prepare_model]
+    if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install worker dependencies
+        run: python -m pip install --disable-pip-version-check requests 'ddgs>=9,<10' 'huggingface_hub>=0.34,<2'
+      - name: Restore shared Qwen model cache
+        uses: actions/cache@v4
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-bc640142c66e1fdd12af0bd68f40445458f3869b
+      - name: Verify or recover worker model cache
+        env:
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+        run: |
+          set -euo pipefail
+          FILE=$(python -c "import json; print(json.load(open('$INTEL_CONFIG'))['qwen']['model_file'])")
+          if [ ! -s "model_cache/$FILE" ]; then
+            REPO=$(python -c "import json; print(json.load(open('$INTEL_CONFIG'))['qwen']['model_repo'])")
+            REV=$(python -c "import json; print(json.load(open('$INTEL_CONFIG'))['qwen']['model_revision'])")
+            mkdir -p model_cache
+            MODEL_REPO="$REPO" MODEL_REVISION="$REV" MODEL_FILE="$FILE" python - <<'PY'
+          import os
+          from huggingface_hub import hf_hub_download
+          hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')
+          PY
+          fi
+          test -s "model_cache/$FILE"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hospitality-intelligence-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: intelligence_plan
+      - name: Start local Qwen 4B server (fail-open)
+        run: |
+          set +e
+          IMAGE=$(python -c "import json; print(json.load(open('$INTEL_CONFIG'))['qwen']['llama_cpp_image'])")
+          FILE=$(python -c "import json; print(json.load(open('$INTEL_CONFIG'))['qwen']['model_file'])")
+          LLAMA_CPP_IMAGE="$IMAGE" bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$FILE"
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo 'QWEN_URL=http://127.0.0.1:8080' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=ready' >> "$GITHUB_ENV"
+          else
+            echo 'QWEN_URL=http://127.0.0.1:65534' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=unavailable' >> "$GITHUB_ENV"
+            echo "Qwen startup failed rc=$rc; preserving records as QWEN_UNAVAILABLE"
+          fi
+          exit 0
+      - name: Start local OpenSERP search resolver (fail-open to DDGS)
+        run: |
+          set +e
+          ENABLED=$(python -c "import json; print(str(json.load(open('$INTEL_CONFIG'))['search'].get('openserp_ci_enabled',True)).lower())")
+          if [ "$ENABLED" = "true" ] && bash tools/start_openserp_ci.sh; then
+            echo 'OPENSERP_URL=http://127.0.0.1:7000' >> "$GITHUB_ENV"
+            echo 'OPENSERP_RUNTIME=ready' >> "$GITHUB_ENV"
+          else
+            echo 'OPENSERP_URL=' >> "$GITHUB_ENV"
+            echo 'OPENSERP_RUNTIME=unavailable_ddgs_fallback' >> "$GITHUB_ENV"
+          fi
+          exit 0
+      - name: Process account shard
+        run: |
+          set -euo pipefail
+          mkdir -p "worker_out/${{ matrix.shard }}"
+          python tools/hospitality_intelligence_worker.py \
+            --input "intelligence_plan/${{ matrix.path }}" \
+            --config "$INTEL_CONFIG" \
+            --qwen-url "$QWEN_URL" \
+            --shard "${{ matrix.shard }}" \
+            --outdir "worker_out/${{ matrix.shard }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hospitality-intelligence-worker-${{ github.run_id }}-${{ matrix.shard }}
+          path: worker_out/${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 2
+          compression-level: 6
+
+  aggregate_intelligence:
+    needs: [plan, classify]
+    if: always() && needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
+    concurrency:
+      group: hospitality-intelligence-ledger-writer
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hospitality-intelligence-worker-${{ github.run_id }}-*
+          path: worker_results
+      - name: Restore latest intelligence ledger if present
+        run: |
+          mkdir -p intelligence aggregate_out
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-intelligence.sqlite' \
+            --dir intelligence \
+            --clobber || true
+      - name: Merge worker partitions into durable account/asset ledger
+        run: |
+          set -euo pipefail
+          python tools/hospitality_intelligence_aggregate.py \
+            --results-root worker_results \
+            --intelligence-db intelligence/hospitality-intelligence.sqlite \
+            --run-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --outdir aggregate_out
+      - name: Persist intelligence SQLite and immutable review bundle
+        run: |
+          set -euo pipefail
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file intelligence/hospitality-intelligence.sqlite
+          BUNDLE="aggregate_out/hospitality-intelligence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+          tar -czf "$BUNDLE" -C aggregate_out summary.json gpt-review.jsonl canonical-intelligence-delta.jsonl.gz
+          TAG="harvest-history-$(date -u +%F)"
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag "$TAG" --file "$BUNDLE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-intelligence-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aggregate_out/
+          retention-days: 2
+          compression-level: 6
+
+  merge_canonical_fill_only:
+    needs: [plan, aggregate_intelligence]
+    if: needs.aggregate_intelligence.result == 'success'
+    concurrency:
+      group: hospitality-canonical-writer
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: hospitality-intelligence-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aggregate_out
+      - name: Restore newest canonical under writer lock
+        run: |
+          set -euo pipefail
+          mkdir -p canonical merge_out
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir canonical \
+            --clobber
+      - name: Apply first-party fill-only intelligence delta
+        run: |
+          set -euo pipefail
+          python tools/apply_hospitality_intelligence_delta.py \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --delta aggregate_out/canonical-intelligence-delta.jsonl.gz \
+            --out-summary merge_out/summary.json
+      - name: Persist enriched canonical
+        run: |
+          set -euo pipefail
+          python tools/fleet_runtime.py upload \
+            --repo "$GITHUB_REPOSITORY" --tag harvest-state \
+            --file canonical/hospitality-canonical.sqlite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-intelligence-canonical-merge-${{ github.run_id }}
+          path: merge_out/
+          retention-days: 2
