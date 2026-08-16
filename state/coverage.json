@@ -31806,11 +31806,11 @@
       "bbox": "fresh-search:0",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T15:45:12.172976Z",
-      "last_success": "2026-08-16T15:45:12.172976Z",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
       "consecutive_failures": 0,
-      "last_live_ready": 9,
-      "last_elapsed_seconds": 76.89
+      "last_live_ready": 3,
+      "last_elapsed_seconds": 62.74
     },
     "9264cb45112059e4": {
       "name": "FRESH_SEARCH::60",
@@ -31832,11 +31832,11 @@
       "bbox": "fresh-search:30",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T15:45:12.172976Z",
-      "last_success": "2026-08-16T15:45:12.172976Z",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
       "consecutive_failures": 0,
-      "last_live_ready": 1,
-      "last_elapsed_seconds": 60.48
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 41.43
     },
     "79b996efb119f732": {
       "name": "FRESH_SEARCH::90",
@@ -31954,6 +31954,84 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 11.75
+    },
+    "29ce616e6a89be75": {
+      "name": "atlas-06-25--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::south-america-coasts::06-25::lane=site-recovery",
+      "bbox": "-55.000000,-30.000000,-50.000000,-25.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 5,
+      "last_elapsed_seconds": 33.04
+    },
+    "2e2bf18a7ceb6ac4": {
+      "name": "atlas-10-23--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::south-america-coasts::10-23::lane=site-recovery",
+      "bbox": "-65.000000,-10.000000,-60.000000,-5.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 6.13
+    },
+    "2a3d987680d9ee7c": {
+      "name": "atlas-03-26--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::south-america-coasts::03-26::lane=site-recovery",
+      "bbox": "-50.000000,-45.000000,-45.000000,-40.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 4.22
+    },
+    "24ba31378ef02484": {
+      "name": "atlas-11-28--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::south-america-coasts::11-28::lane=site-recovery",
+      "bbox": "-40.000000,-5.000000,-35.000000,0.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 4,
+      "last_elapsed_seconds": 28.36
+    },
+    "2fd42b669df57376": {
+      "name": "atlas-08-25--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::south-america-coasts::08-25::lane=site-recovery",
+      "bbox": "-55.000000,-20.000000,-50.000000,-15.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 8.24
+    },
+    "30dcb3a61c802a1c": {
+      "name": "atlas-12-25--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::south-america-coasts::12-25::lane=site-recovery",
+      "bbox": "-55.000000,0.000000,-50.000000,5.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T15:48:11.443771Z",
+      "last_success": "2026-08-16T15:48:11.443771Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 5.72
     }
   }
 }
