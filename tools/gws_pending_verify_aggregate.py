@@ -6,6 +6,8 @@ import datetime as dt
 import json
 from pathlib import Path
 
+import gws_ownership_gate as ownership
+
 
 def load(path,default):
     try: return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -24,13 +26,57 @@ def now(): return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isofor
 def worker_dirs(root): return sorted({p.parent for p in Path(root).rglob("records.jsonl")})
 
 
+def ownership_pass_for(row):
+    reason=str(row.get("reason") or "")
+    if "PASS2" in reason: return row.get("web_pass2") or {}
+    return row.get("web_pass1") or row.get("web_pass2") or {}
+
+
+def quarantine_unproven_reject(row):
+    r=dict(row)
+    if r.get("outcome") != "REJECT" or "OWNED_SITE" not in str(r.get("reason") or ""):
+        return r, False
+    assessment=ownership.assess(r, ownership_pass_for(r))
+    r["aggregate_ownership_assessment"]=assessment
+    if assessment.get("confident"):
+        r["ownership_guard_passed"]=True
+        return r, False
+
+    # The page may mention the business, but the host was not proven first-party.
+    # Preserve the evidence for Qwen/GPT review while refusing a terminal REJECT.
+    previous={
+        "outcome":r.get("outcome"), "reason":r.get("reason"),
+        "owned_website":r.get("owned_website"), "verification_status":r.get("verification_status"),
+    }
+    r["outcome"]="UNCERTAIN"
+    r["reason"]="OWNERSHIP_REJECT_QUARANTINED"
+    r["verification_status"]="UNCERTAIN"
+    r["needs_gpt_review"]=True
+    r["ownership_guard_passed"]=False
+    r["ownership_quarantine_previous"]=previous
+    r["ownership_ambiguous_candidates"]=[assessment]
+    r["owned_website"]=""
+    cert=dict(r.get("certificate") or {})
+    cert["verified"]=False
+    cert["ownership_quarantined"]=True
+    r["certificate"]=cert
+    r["certificate_digest"]=""
+    return r, True
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--root",default="results/gws_verify_shards"); a=ap.parse_args()
     index=load("state/gws_verify_index.json",{"schema_version":1,"records":{}}); records=index.setdefault("records",{})
-    rows=[]
+    raw_rows=[]
     for d in worker_dirs(a.root):
         for line in (d/"records.jsonl").read_text(encoding="utf-8").splitlines():
-            if line.strip(): rows.append(json.loads(line))
+            if line.strip(): raw_rows.append(json.loads(line))
+
+    rows=[]; quarantined=0
+    for raw in raw_rows:
+        clean, q=quarantine_unproven_reject(raw)
+        rows.append(clean); quarantined += int(q)
+
     ts=now(); date=ts[:10]; ready=[]; highs=[]; retryable=0; rejects=0
     for r in rows:
         key=str(r.get("record_key") or "")
@@ -70,7 +116,7 @@ def main():
         total_remaining+=remaining
     pending["pending_records"]=total_remaining; dump("gpt/gws_pending_batches.json",pending)
     dump("state/gws_verify_index.json",index)
-    metrics={"schema_version":1,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),"strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"retryable":retryable,"remaining_source_backlog":total_remaining,"canonical_high_persisted_here":0,"note":"HIGH is pre-canonical. Canonical MASTER dedupe/persist/readback remains downstream."}
+    metrics={"schema_version":2,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),"strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"ownership_rejects_quarantined":quarantined,"retryable":retryable,"remaining_source_backlog":total_remaining,"canonical_high_persisted_here":0,"note":"HIGH is pre-canonical. Owned-site REJECTs require first-party ownership confidence; ambiguous pages are quarantined for semantic review."}
     dump("metrics/gws_verify_latest.json",metrics); append("metrics/gws_verify_history.jsonl",[metrics]); print("GWS_PENDING_VERIFY_AGG="+json.dumps(metrics,separators=(",",":")))
 
 if __name__=="__main__": main()
