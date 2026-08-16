@@ -4,29 +4,30 @@
     "eligible_live": 521
   },
   "last_run": {
-    "benchmark_passed": 4,
+    "benchmark_passed": 5,
     "benchmark_total": 6,
-    "classified": 4,
+    "classified": 5,
     "decisions": {
       "UNCERTAIN": 6
     },
-    "errors": 2,
+    "errors": 1,
     "hallucinated_contact_count": 0,
     "processed": 6,
-    "schema_valid_rate": 0.6667,
+    "resolution_queued": 0,
+    "resolution_routes": {},
+    "schema_valid_rate": 0.8333,
     "selected": 6,
-    "trusted_agreement": 0.6667,
+    "trusted_agreement": 0.8333,
     "website_states": {
-      "ANCIENT_SITE": 1,
       "DIRECTORY_ONLY": 1,
-      "UNCERTAIN": 4
+      "UNCERTAIN": 5
     }
   },
   "model": "qwen3-4b-q4_k_m",
   "previous_stage": "benchmark",
   "prompt_version": "gws-semantic-v1-shadow-ownership-2",
-  "reason": "benchmark_gate_not_met",
+  "reason": "benchmark_gate_not_met_live_shadow_continues",
   "schema_version": 1,
   "stage": "benchmark_waiting",
-  "updated_at": "2026-08-16T03:52:51+00:00"
+  "updated_at": "2026-08-16T04:03:02+00:00"
 }
