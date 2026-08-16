@@ -3,29 +3,29 @@
   "sources": {
     "hub_brussels": {
       "api_total": 7174,
-      "last_changed": "2026-08-15T00:42:36+00:00",
-      "last_seen": "2026-08-15T00:42:36+00:00",
+      "last_changed": "2026-08-16T22:28:37+00:00",
+      "last_seen": "2026-08-16T22:28:37+00:00",
       "materialized": 7174,
-      "persisted_snapshot": "data/gws/source/hub_brussels_20260815T004236Z_2edd45e113db.jsonl.gz",
-      "sha256": "2edd45e113db0899e5ffc2d5a5267b378202de5918cb2ecb0b6293b3bb0f65d8"
+      "persisted_snapshot": "data/gws/source/hub_brussels_20260816T222837Z_ddbaa8df3e94.jsonl.gz",
+      "sha256": "ddbaa8df3e9414e1484744c1b93c0693116c33b0159146f9935fd1582f42295b"
     },
     "osm_brussels": {
       "cross_source_duplicates": 0,
       "error": "",
       "last_changed": "2026-08-14T23:57:53+00:00",
-      "last_fetched": "2026-08-14T23:57:16+00:00",
-      "last_seen": "2026-08-15T00:42:35+00:00",
+      "last_fetched": "2026-08-16T22:26:06+00:00",
+      "last_seen": "2026-08-16T22:28:36+00:00",
       "materialized": 0,
       "osm_unique_after_hub_dedupe": 0,
       "persisted_snapshot": "data/gws/source/osm_brussels_20260814T235753Z_e3b0c44298fc.jsonl.gz",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "status": "cache"
+      "status": "fresh"
     },
     "overture_direct": {
       "error": "",
       "last_changed": "2026-08-15T00:16:49+00:00",
-      "last_fetched": "2026-08-15T00:41:57+00:00",
-      "last_seen": "2026-08-15T00:42:36+00:00",
+      "last_fetched": "2026-08-16T22:26:11+00:00",
+      "last_seen": "2026-08-16T22:28:36+00:00",
       "materialized": 1256,
       "overture_unique_after_cross_dedupe": 1197,
       "persisted_snapshot": "data/gws/source/overture_direct_20260815T001649Z_f08b518d35ad.jsonl.gz",
