@@ -1,0 +1,38 @@
+name: GWS Semantic To Strict Handoff
+
+on:
+  workflow_run:
+    workflows: ["GWS Qwen Semantic Fleet"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gws-semantic-strict-handoff
+  cancel-in-progress: true
+
+jobs:
+  handoff:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-slim
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Refresh latest durable semantic state
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+      - name: Wake strict verifier only when semantic produced live routes
+        run: |
+          WAKE=$(python -c "import json; m=json.load(open('metrics/gws_semantic_latest.json')); print(1 if int(m.get('resolution_queued') or 0)>0 else 0)")
+          if [ "$WAKE" = "1" ]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=gws_verify_refill
+            echo 'GWS_STRICT_WAKE=1'
+          else
+            echo 'GWS_STRICT_WAKE=0'
+          fi
