@@ -18,20 +18,25 @@ SYSTEM_PROMPT='''You are the semantic ambiguity resolver for a high-recall local
 You receive ONLY compact public/deterministic evidence already collected by other workers.
 
 CRITICAL OWNERSHIP SEMANTICS:
-- MATCH or PROBABLE means candidate_url is a FIRST-PARTY web property controlled by the named business.
+- The input may include candidate_set: a bounded set of URLs found by targeted current-web search before you run.
+- Compare ALL candidate_set entries. candidate_url in your output MUST be either one exact URL from candidate_set / the supplied legacy candidate_url, or an empty string. Never invent a URL.
+- MATCH or PROBABLE means the selected candidate_url is a FIRST-PARTY web property controlled by the named business.
+- If no supplied candidate has positive first-party evidence, output candidate_url="" and prefer UNCERTAIN or WRONG rather than selecting the least-bad URL.
+- candidate_set.host_class=KNOWN_THIRD_PARTY is not owned. candidate_set.ownership_assessment.confident=true is strong deterministic first-party evidence.
+- candidate_set.probe.matched proves entity identity on the probed page, NOT automatically domain ownership.
 - A page that accurately mentions the business is NOT automatically owned by the business.
 - direct_identity_evidence.matched proves only that the page content matches the entity. It does NOT prove domain ownership or control.
 - match_mode=legacy_identity is especially weak and NEVER proves first-party ownership by itself.
 - A domain-name or business-name resemblance alone NEVER proves ownership.
-- If candidate_host_class is KNOWN_THIRD_PARTY or EDITORIAL_OR_PROFILE_PAGE, candidate_url is not an owned site: use decision WRONG and website_state DIRECTORY_ONLY unless supplied deterministic evidence explicitly proves the business controls that domain.
+- If candidate_host_class is KNOWN_THIRD_PARTY or EDITORIAL_OR_PROFILE_PAGE, the legacy candidate_url is not an owned site unless stronger deterministic evidence explicitly proves control.
 - Directories, marketplaces, booking/lead aggregators, editorial pages, author/profile pages, salon locators, social networks and listing pages are third-party even when name/address/postcode/phone match exactly.
 - Examples of non-owned evidence patterns include Infobel, idGarages, Cybo, Foursquare, Yelp, TripAdvisor, Booking, Pagesdor/Goudengids, Information-Bruxelles, TopCoiffeur, LocalServices, OpeningsurenGids, L'Oréal salon locator and URL shapes such as /author/, /profile/, /listing/ on unrelated domains.
-- If the candidate domain belongs to an unrelated foreign company, institution, product page, dictionary, media site or business in a different geography, use WRONG even if a weak text token or legacy matcher fired.
+- If a candidate domain belongs to an unrelated foreign company, institution, product page, dictionary, media site or business in a different geography, use WRONG for that candidate even if a weak text token or legacy matcher fired.
 - PROBABLE requires positive evidence of first-party control. Lack of a contradiction is NOT positive ownership evidence.
-- If deterministic ownership_assessments say the candidate is third-party, host-not-branded, identity-not-strong-enough, or otherwise not confident, do not promote it to MATCH/PROBABLE without stronger supplied first-party evidence.
+- If deterministic ownership_assessments say a candidate is third-party, host-not-branded, identity-not-strong-enough, or otherwise not confident, do not promote it to MATCH/PROBABLE without stronger supplied first-party evidence.
 
 Rules:
-- Decide whether candidate_url is a first-party owned site of the named business: MATCH, PROBABLE, WRONG, or UNCERTAIN.
+- Select the best supplied candidate, if any, then decide whether it is a first-party owned site of the named business: MATCH, PROBABLE, WRONG, or UNCERTAIN.
 - Classify website_state only from supplied evidence.
 - Search absence NEVER proves NO_SITE. If there is no positive website evidence, prefer UNCERTAIN unless supplied deterministic page evidence supports another state.
 - Facebook, Instagram, directories, booking aggregators and listing pages are not owned websites.
@@ -57,14 +62,31 @@ def strip_thinking(text:str)->str:
     return x
 
 
-def validate_item(item:dict[str,Any], expected:dict[str,str])->dict[str,Any]|None:
+def _allowed_urls(record:dict[str,Any])->set[str]:
+    out=set()
+    legacy=str(record.get("candidate_url") or "").strip()
+    if legacy: out.add(legacy)
+    for item in record.get("candidate_set") or []:
+        if isinstance(item,dict):
+            u=str(item.get("url") or "").strip()
+            if u: out.add(u)
+    return out
+
+
+def validate_item(item:dict[str,Any], expected:dict[str,set[str]])->dict[str,Any]|None:
     bid=str(item.get("business_id") or "")
     if bid not in expected: return None
     decision=str(item.get("decision") or "UNCERTAIN").upper()
     state=str(item.get("website_state") or "UNCERTAIN").upper()
     if decision not in DECISIONS: decision="UNCERTAIN"
     if state not in WEBSITE_STATES: state="UNCERTAIN"
-    candidate_url=expected[bid]
+    candidate_url=str(item.get("candidate_url") or "").strip()
+    if candidate_url and candidate_url not in expected[bid]:
+        candidate_url=""
+        decision="UNCERTAIN"
+        state="UNCERTAIN"
+    if decision in {"MATCH","PROBABLE"} and not candidate_url:
+        decision="UNCERTAIN"
     try: conf=max(0.0,min(1.0,float(item.get("confidence") or 0.0)))
     except Exception: conf=0.0
     return {
@@ -78,7 +100,7 @@ def validate_item(item:dict[str,Any], expected:dict[str,str])->dict[str,Any]|Non
 
 def fallback(records:list[dict[str,Any]], error:str)->list[dict[str,Any]]:
     return [{
-        "business_id":str(r.get("business_id") or ""),"candidate_url":str(r.get("candidate_url") or ""),
+        "business_id":str(r.get("business_id") or ""),"candidate_url":"",
         "decision":"UNCERTAIN","confidence":0.0,"matching_evidence":[],"contradictions":[],
         "website_state":"UNCERTAIN","needs_gpt_review":True,
         "reason":f"Classifier unavailable or invalid: {error}"[:700],"_classifier_error":error,
@@ -93,20 +115,20 @@ def health(base_url:str, timeout:float=3)->bool:
 def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, timeout:float=150)->list[dict[str,Any]]:
     if not records: return []
     if not base_url or not health(base_url): return fallback(records,"QWEN_UNAVAILABLE")
-    expected={str(r.get("business_id") or ""):str(r.get("candidate_url") or "") for r in records}
+    expected={str(r.get("business_id") or ""):_allowed_urls(r) for r in records}
     payload=[]
     for r in records:
         payload.append({k:r.get(k) for k in (
             "business_id","name","address","postcode","public_phone_present","candidate_url","candidate_host","candidate_host_class",
-            "overture_name","overture_resolved","name_similarity","address_overlap","postcode_match","phone_exact",
+            "candidate_set","targeted_search","overture_name","overture_resolved","name_similarity","address_overlap","postcode_match","phone_exact",
             "search_candidates","direct_identity_evidence","ownership_assessments","unresolved_plausible_domains","platform_only_signals"
         )})
-    user="/no_think\nResolve these ambiguous GWS business/site cases. Use only supplied evidence. Treat identity presence separately from first-party ownership.\nINPUT="+json.dumps(payload,ensure_ascii=False,separators=(",",":"))
+    user="/no_think\nResolve these ambiguous GWS business/site cases. Compare every supplied candidate_set URL, select only from that set, and separate identity presence from first-party ownership.\nINPUT="+json.dumps(payload,ensure_ascii=False,separators=(",",":"))
     body={
         "model":model_label,
         "messages":[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user}],
-        "temperature":0.2,"top_p":0.8,
-        "max_tokens":max(700,min(2800,280*len(records))),
+        "temperature":0.15,"top_p":0.8,
+        "max_tokens":max(800,min(3200,320*len(records))),
         "response_format":{"type":"json_object"},
         "chat_template_kwargs":{"enable_thinking":False},
     }
@@ -127,6 +149,6 @@ def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, t
             return [valid.get(str(r.get("business_id") or "")) or fallback([r],"MISSING_ITEM")[0] for r in records]
         except Exception as exc:
             last=f"{type(exc).__name__}:{str(exc)[:160]}"
-            body["messages"][1]["content"]="/no_think\nReturn only valid JSON. "+user
-            body["max_tokens"]=min(int(body["max_tokens"]),2000)
+            body["messages"][1]["content"]="/no_think\nReturn only valid JSON. Do not invent candidate URLs. "+user
+            body["max_tokens"]=min(int(body["max_tokens"]),2400)
     return fallback(records,last)
