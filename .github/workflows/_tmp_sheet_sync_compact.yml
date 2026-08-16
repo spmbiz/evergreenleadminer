@@ -1,0 +1,51 @@
+name: tmp-sheet-sync-compact
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_sheet_sync_compact.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build compact per-chunk TSVs
+        shell: python
+        run: |
+          import csv, json, pathlib, shutil
+          q=pathlib.Path('gpt/sheet_sync_queue')
+          files=sorted(q.glob('*.jsonl'), key=lambda p:p.name)[:10]
+          outdir=pathlib.Path('gpt/_tmp_sync_compact')
+          if outdir.exists(): shutil.rmtree(outdir)
+          outdir.mkdir(parents=True)
+          fields=['queue_file','overture_id','country','name','category','website','domain','public_email','public_phone','city','state','street','confidence','operator_score','premium_score','fit_tier','source_url','live_status','final_url','hospitality_hits','identity_hits','contact_page','instagram','facebook','whatsapp','portfolio_url','_sheet_sync_kind']
+          manifest=[]
+          for idx,p in enumerate(files):
+            rows=[]
+            with p.open(encoding='utf-8') as f:
+              for line in f:
+                line=line.strip()
+                if not line: continue
+                r=json.loads(line)
+                row=[]
+                for k in fields:
+                  v=p.name if k=='queue_file' else r.get(k,'')
+                  if v is None: v=''
+                  v=str(v).replace('\t',' ').replace('\r',' ').replace('\n',' ')
+                  row.append(v)
+                rows.append(row)
+            op=outdir/f'{idx:02d}_{p.stem}.tsv'
+            with op.open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f,delimiter='\t',lineterminator='\n',quoting=csv.QUOTE_MINIMAL)
+              w.writerows(rows)
+            manifest.append({'index':idx,'file':p.name,'staging':str(op),'records':len(rows)})
+          (outdir/'manifest.json').write_text(json.dumps({'fields':fields,'chunks':manifest},indent=2),encoding='utf-8')
+      - name: Commit compact staging
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gpt/_tmp_sync_compact
+          git commit -m 'chore: stage compact hospitality sync chunks [skip ci]' || exit 0
+          git push
