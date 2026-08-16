@@ -2,7 +2,7 @@ name: Hospitality Intelligence V2 CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, hospitality-intelligence-v2]
     paths:
       - 'config/hospitality_intelligence_v2.json'
       - 'tools/hospitality_intelligence_*.py'
