@@ -12,7 +12,6 @@ import gws_ownership_gate as ownership
 def load(path,default):
     try: return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception: return default
-
 def dump(path,obj):
     p=Path(path); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(obj,ensure_ascii=False,indent=2,sort_keys=True)+"\n",encoding="utf-8")
 def append(path,rows):
@@ -42,8 +41,6 @@ def quarantine_unproven_reject(row):
         r["ownership_guard_passed"]=True
         return r, False
 
-    # The page may mention the business, but the host was not proven first-party.
-    # Preserve the evidence for Qwen/GPT review while refusing a terminal REJECT.
     previous={
         "outcome":r.get("outcome"), "reason":r.get("reason"),
         "owned_website":r.get("owned_website"), "verification_status":r.get("verification_status"),
@@ -67,6 +64,7 @@ def quarantine_unproven_reject(row):
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--root",default="results/gws_verify_shards"); a=ap.parse_args()
     index=load("state/gws_verify_index.json",{"schema_version":1,"records":{}}); records=index.setdefault("records",{})
+    semantic_index=load("state/gws_semantic_index.json",{"schema_version":1,"records":{}}); semantic_records=semantic_index.setdefault("records",{})
     raw_rows=[]
     for d in worker_dirs(a.root):
         for line in (d/"records.jsonl").read_text(encoding="utf-8").splitlines():
@@ -78,12 +76,49 @@ def main():
         rows.append(clean); quarantined += int(q)
 
     ts=now(); date=ts[:10]; ready=[]; highs=[]; retryable=0; rejects=0
+    semantic_attempted=0; semantic_resolved=0; semantic_hard=[]; semantic_retryable=0
     for r in rows:
         key=str(r.get("record_key") or "")
         if not key: continue
         status=str(r.get("verification_status") or r.get("outcome") or "")
-        entry={"source_fingerprint":str(r.get("fingerprint") or ""),"verification_status":status,"outcome":r.get("outcome"),"reason":r.get("reason"),"verification_provider":r.get("verification_provider"),"certificate_digest":r.get("certificate_digest"),"owned_website":r.get("owned_website"),"last_verified":ts,"source_batch":r.get("source_batch")}
+        sem_fp=str(r.get("semantic_resolution_fingerprint") or "")
+        sem_attempt=int(r.get("semantic_resolution_attempt") or 0)
+        sem_route=str(r.get("semantic_resolution_route") or "")
+        entry={
+            "source_fingerprint":str(r.get("fingerprint") or ""),"verification_status":status,"outcome":r.get("outcome"),
+            "reason":r.get("reason"),"verification_provider":r.get("verification_provider"),"certificate_digest":r.get("certificate_digest"),
+            "owned_website":r.get("owned_website"),"last_verified":ts,"source_batch":r.get("source_batch"),
+            "semantic_resolution_fingerprint":sem_fp,"semantic_resolution_attempt":sem_attempt,"semantic_resolution_route":sem_route,
+        }
         records[key]=entry
+
+        if r.get("semantic_resolution"):
+            semantic_attempted+=1
+            sem=semantic_records.setdefault(key,{})
+            sem["strict_resolution_attempted_at"]=ts
+            sem["strict_resolution_fingerprint"]=sem_fp
+            sem["strict_resolution_attempt"]=sem_attempt
+            sem["strict_resolution_route"]=sem_route
+            sem["strict_resolution_outcome"]=r.get("outcome")
+            sem["strict_resolution_reason"]=r.get("reason")
+            if status in {"HIGH","REJECT","DUPLICATE"}:
+                sem["resolution_status"]="RESOLVED_STRICT"
+                sem["resolution_final_status"]=status
+                semantic_resolved+=1
+            elif status in {"ERROR_RETRYABLE","SEARCH_INCOMPLETE"}:
+                sem["resolution_status"]="STRICT_RETRYABLE"
+                semantic_retryable+=1
+            elif status in {"MEDIUM","UNCERTAIN"}:
+                # Do not loop the same expensive evidence indefinitely and do not
+                # force a verdict. Persist a hard-case handoff for GPT/web or future
+                # genuinely new evidence.
+                sem["resolution_status"]="HARD_REVIEW_REQUIRED"
+                sem["resolution_final_status"]="UNCERTAIN"
+                hard=dict(r)
+                hard["hard_review_reason"]="SEMANTIC_GUIDED_STRICT_RECHECK_INCONCLUSIVE"
+                hard["hard_review_queued_at"]=ts
+                semantic_hard.append(hard)
+
         if status=="ERROR_RETRYABLE": retryable+=1; continue
         if r.get("outcome")=="REJECT": rejects+=1; continue
         ready.append(r)
@@ -91,6 +126,9 @@ def main():
     append(Path("data/gws/verification")/f"{date}.jsonl",rows)
 
     stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    if semantic_hard:
+        append(Path("gpt/gws_semantic_hard_review")/f"{stamp}.jsonl",semantic_hard)
+
     verified_pending=load("gpt/gws_verified_pending.json",{"schema_version":1,"batches":[],"pending_records":0})
     if ready:
         path=Path("gpt/gws_verified_review")/f"{stamp}.jsonl"; append(path,ready)
@@ -116,7 +154,15 @@ def main():
         total_remaining+=remaining
     pending["pending_records"]=total_remaining; dump("gpt/gws_pending_batches.json",pending)
     dump("state/gws_verify_index.json",index)
-    metrics={"schema_version":2,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),"strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"ownership_rejects_quarantined":quarantined,"retryable":retryable,"remaining_source_backlog":total_remaining,"canonical_high_persisted_here":0,"note":"HIGH is pre-canonical. Owned-site REJECTs require first-party ownership confidence; ambiguous pages are quarantined for semantic review."}
+    dump("state/gws_semantic_index.json",semantic_index)
+    metrics={
+        "schema_version":3,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),
+        "strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"ownership_rejects_quarantined":quarantined,
+        "retryable":retryable,"remaining_source_backlog":total_remaining,"canonical_high_persisted_here":0,
+        "semantic_resolution_attempted":semantic_attempted,"semantic_resolution_resolved":semantic_resolved,
+        "semantic_resolution_retryable":semantic_retryable,"semantic_hard_review_added":len(semantic_hard),
+        "note":"HIGH is pre-canonical. Semantic/Qwen is shadow-only; soft cases may authorize a bounded strict recheck but never force HIGH/REJECT. Inconclusive rechecks are preserved for hard GPT/web review."
+    }
     dump("metrics/gws_verify_latest.json",metrics); append("metrics/gws_verify_history.jsonl",[metrics]); print("GWS_PENDING_VERIFY_AGG="+json.dumps(metrics,separators=(",",":")))
 
 if __name__=="__main__": main()
