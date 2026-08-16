@@ -7,30 +7,29 @@
     "exploit_share": 0.70,
     "explore_share": 0.30,
     "idle_capacity_policy": "borrow_immediately",
-    "preemption_policy": "natural_completion_only",
-    "temporary_allocation_note": "Overnight fair-share requested 2026-08-16: Hospitality 7 / Tenders 7 / GWS 6. Morning target is NOT 50/25/25: use 25/25/25 base shares and leave the remaining 25% elastic/borrowable by current demand and useful yield."
+    "preemption_policy": "natural_completion_only"
   },
   "workloads": {
     "hospitality": {
       "enabled": true,
-      "weight": 0.35,
-      "min_slots_when_demanding": 7,
-      "max_slots": 7,
+      "weight": 0.25,
+      "min_slots_when_demanding": 5,
+      "max_slots": 20,
       "repo": "walidgdg1-ai/evergreenleadminer"
     },
     "tenders": {
       "enabled": true,
       "mode": "remote-demand",
-      "weight": 0.35,
-      "min_slots_when_demanding": 7,
-      "max_slots": 7,
+      "weight": 0.25,
+      "min_slots_when_demanding": 5,
+      "max_slots": 20,
       "repo": "walidgdg1-ai/tender-engine"
     },
     "gws": {
       "enabled": true,
-      "weight": 0.30,
-      "min_slots_when_demanding": 6,
-      "max_slots": 6,
+      "weight": 0.25,
+      "min_slots_when_demanding": 5,
+      "max_slots": 20,
       "repo": "walidgdg1-ai/evergreenleadminer"
     }
   }
