@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T17:21:00Z",
+  "requested_at": "2026-08-16T17:23:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "fresh-search-long-tail-v3-live-validation",
+  "mode": "fresh-search-long-tail-v3-inflight-refill-validation",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Live validation of V3 rotating long-tail fresh_search. Use normal broker/autoscaler. Expect max 2 fresh-search workers, remaining Hospitality slots on existing V1 lanes, single-writer canonical only."
+  "note": "Validate V3 rotating long-tail catalog plus capped-source in-flight replacement. Normal broker/autoscaler, max 2 fresh slots, canonical single-writer only."
 }
