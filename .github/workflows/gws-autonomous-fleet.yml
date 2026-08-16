@@ -25,7 +25,6 @@ permissions:
 
 concurrency:
   group: autonomous-harvest-fleet
-  queue: max
   cancel-in-progress: true
 
 jobs:
