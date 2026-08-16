@@ -18,6 +18,7 @@ THIRD_PARTY_SUFFIXES = {
     "facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "youtube.com",
     "booking.com", "mapstr.com", "waze.com", "google.com", "bing.com", "duckduckgo.com",
     "amazon.com", "walmart.com", "target.com", "fandom.com", "wikipedia.org",
+    "ivof.com",
 }
 
 GENERIC_NAME_TOKENS = {
