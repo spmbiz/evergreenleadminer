@@ -1,48 +1,48 @@
 {
-  "cycle_id": "20260816T160233Z-github-multilane",
+  "cycle_id": "20260816T162507Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T16:03:36.660576Z",
+  "finished_at": "2026-08-16T16:28:03.923231Z",
   "workers_completed": 12,
   "workers_failed": 0,
-  "raw_discovered": 24,
-  "live_ready_before_canonical_dedupe": 0,
-  "new_unique": 0,
+  "raw_discovered": 301,
+  "live_ready_before_canonical_dedupe": 3,
+  "new_unique": 3,
   "changed_existing": 0,
   "duplicates": 0,
   "instagram_found": 0,
   "gpt_review_pending": 0,
   "errors": 0,
-  "peak_wall_seconds": 12.89,
-  "new_unique_per_worker_minute": 0.0,
-  "canonical_total": 31635,
+  "peak_wall_seconds": 118.64,
+  "new_unique_per_worker_minute": 0.959,
+  "canonical_total": 31638,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.0,
-    "error_rate": 0.0
+    "timeout_rate": 0.09091,
+    "error_rate": 0.72727
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
       "workers_completed": 12,
       "workers_failed": 0,
-      "raw_discovered": 24,
-      "fast_ready": 0,
-      "live_ready": 0,
-      "recovery_candidates": 0,
+      "raw_discovered": 301,
+      "fast_ready": 11,
+      "live_ready": 3,
+      "recovery_candidates": 13,
       "recovered_public_emails": 0,
-      "contact_ready": 0,
-      "social_or_contact_without_email": 0,
+      "contact_ready": 11,
+      "social_or_contact_without_email": 11,
       "instagram_found": 0,
       "facebook_found": 0,
       "live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.09091,
+        "error_rate": 0.72727
       },
       "contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.07692,
+        "error_rate": 0.15385
       }
     }
   },
