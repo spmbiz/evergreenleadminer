@@ -105,6 +105,13 @@ def classify_one(index: int, original: dict[str, Any], search_cfg: dict[str, Any
         return index, row
 
 
+def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    # Atomic checkpoint: preserve every completed candidate if GitHub cancels a long shard.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True, default=str) + "\n" for r in rows), encoding="utf-8")
+    tmp.replace(path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--shard-dir", required=True)
@@ -114,6 +121,7 @@ def main() -> int:
     shard = Path(args.shard_dir)
     records_path = shard / "records.jsonl"
     metrics_path = shard / "metrics.json"
+    progress_path = shard / "search_verify_progress.json"
     cfg = base.load_json(Path(args.config), {})
     if not cfg.get("enabled", True) or not records_path.exists():
         print(json.dumps({"status": "noop", "reason": "disabled_or_no_records"}))
@@ -126,6 +134,7 @@ def main() -> int:
     max_candidates = max(0, int(cfg.get("max_candidates_per_shard") or 0))
     max_queries = max(1, int(search_cfg.get("max_queries_per_candidate") or 5))
     concurrency = max(1, min(8, int(search_cfg.get("candidate_concurrency") or 4)))
+    checkpoint_every = max(1, int(search_cfg.get("checkpoint_every") or 1))
 
     selected: list[tuple[int, dict[str, Any]]] = []
     attempted = 0
@@ -146,17 +155,37 @@ def main() -> int:
         selected.append((idx, row))
 
     started = time.time()
+    completed = 0
+
+    def checkpoint() -> None:
+        write_rows(records_path, rows)
+        elapsed = time.time() - started
+        progress_path.write_text(json.dumps({
+            "attempted": attempted,
+            "completed": completed,
+            "candidate_concurrency": concurrency,
+            "elapsed_seconds": round(elapsed, 2),
+            "candidates_per_second": round(completed / elapsed, 4) if elapsed > 0 else 0,
+        }, indent=2) + "\n", encoding="utf-8")
+
     if concurrency == 1:
         for idx, row in selected:
             out_idx, out_row = classify_one(idx, row, search_cfg, max_queries, openserp_ready)
             rows[out_idx] = out_row
+            completed += 1
+            if completed % checkpoint_every == 0:
+                checkpoint()
     else:
         with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="gwsverify") as pool:
             futures = [pool.submit(classify_one, idx, row, search_cfg, max_queries, openserp_ready) for idx, row in selected]
             for fut in as_completed(futures):
                 out_idx, out_row = fut.result()
                 rows[out_idx] = out_row
+                completed += 1
+                if completed % checkpoint_every == 0:
+                    checkpoint()
 
+    checkpoint()
     elapsed = time.time() - started
     counts = Counter()
     outcomes = Counter(str(r.get("outcome") or "") for r in rows)
@@ -167,7 +196,6 @@ def main() -> int:
     pass2_skipped = sum(1 for r in rows if isinstance(r.get("web_pass2"), dict) and r["web_pass2"].get("skipped"))
     review = sum(1 for r in rows if r.get("needs_gpt_review") and r.get("outcome") != "REJECT")
 
-    records_path.write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True, default=str) + "\n" for r in rows), encoding="utf-8")
     metrics = base.load_json(metrics_path, {})
     metrics.update({
         "review_candidates": review,
@@ -175,14 +203,16 @@ def main() -> int:
         "owned_site_or_chain_rejects": int(outcomes.get("REJECT", 0)),
         "strict_high_precertified": int(outcomes.get("HIGH", 0)),
         "search_verification_attempted": attempted,
+        "search_verification_completed": completed,
         "search_verification_statuses": dict(counts),
         "search_verification_providers": dict(providers),
         "openserp_ready": bool(openserp_ready),
         "fallback_no_high_guard": True,
         "candidate_concurrency": concurrency,
         "search_elapsed_seconds": round(elapsed, 2),
-        "search_candidates_per_second": round(attempted / elapsed, 4) if elapsed > 0 else 0,
+        "search_candidates_per_second": round(completed / elapsed, 4) if elapsed > 0 else 0,
         "pass2_skipped_owned": pass2_skipped,
+        "checkpoint_every": checkpoint_every,
     })
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -190,6 +220,7 @@ def main() -> int:
         "status": "ok",
         "records": len(rows),
         "attempted": attempted,
+        "completed": completed,
         "openserp_ready": openserp_ready,
         "candidate_concurrency": concurrency,
         "elapsed_seconds": round(elapsed, 2),
