@@ -1,0 +1,50 @@
+name: GWS Search Verify CI
+
+on:
+  pull_request:
+    paths:
+      - 'config/gws_search_verify.json'
+      - 'tools/gws_search_fabric.py'
+      - 'tools/gws_search_verify.py'
+      - 'tools/gws_fleet_worker_search_ready.py'
+      - 'tools/test_gws_search_verify.py'
+      - '.github/workflows/gws-autonomous-fleet.yml'
+      - '.github/workflows/gws-search-verify-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install import dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - name: Compile GWS search verifier
+        run: |
+          python -m py_compile \
+            tools/gws_search_fabric.py \
+            tools/gws_search_verify.py \
+            tools/gws_fleet_worker_search_ready.py \
+            tools/test_gws_search_verify.py
+      - name: Assert fallback never promotes HIGH
+        env:
+          PYTHONPATH: tools
+        run: python -m unittest tools/test_gws_search_verify.py -v
+      - name: Validate config invariants
+        run: |
+          python - <<'PY'
+          import json
+          c=json.load(open('config/gws_search_verify.json'))
+          assert c['strict']['search_absence_is_negative_proof'] is False
+          assert c['strict']['fallback_can_certify_high'] is False
+          assert c['strict']['openserp_two_pass_required_for_high'] is True
+          assert c['residential']['public_repo_direct_self_hosted'] is False
+          print('GWS_SEARCH_VERIFY_GUARDS_OK=1')
+          PY
