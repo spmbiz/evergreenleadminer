@@ -1,27 +1,19 @@
 {
-  "at": "2026-08-16T05:08:57+00:00",
+  "at": "2026-08-16T06:09:00+00:00",
   "benchmark_passed": 0,
   "benchmark_total": 0,
   "canonical_high_mutations": 0,
-  "decisions": {
-    "PROBABLE": 25,
-    "UNCERTAIN": 35,
-    "WRONG": 20
-  },
-  "gpt_review_added": 80,
+  "decisions": {},
+  "gpt_review_added": 0,
   "hallucinated_contact_count": 0,
   "next_stage": "benchmark_waiting",
-  "processed": 80,
-  "qwen_classified": 74,
-  "qwen_unavailable_or_invalid": 6,
-  "resolution_queued": 80,
-  "resolution_routes": {
-    "GPT_SEARCH_REVIEW": 24,
-    "STRICT_NO_SITE_RECHECK": 38,
-    "TARGETED_OWNERSHIP_RECHECK": 18
-  },
+  "processed": 0,
+  "qwen_classified": 0,
+  "qwen_unavailable_or_invalid": 0,
+  "resolution_queued": 0,
+  "resolution_routes": {},
   "rollout_reason": "benchmark_gate_not_met_live_shadow_continues",
-  "schema_valid_rate": 0.925,
+  "schema_valid_rate": 0.0,
   "schema_version": 2,
   "stage": "benchmark",
   "strict_high_overrides": 0,
@@ -31,10 +23,5 @@
   "targeted_search_errors": 0,
   "targeted_search_records": 0,
   "trusted_agreement": 0.0,
-  "website_states": {
-    "ANCIENT_SITE": 5,
-    "DIRECTORY_ONLY": 33,
-    "GOOD_SITE": 20,
-    "UNCERTAIN": 22
-  }
+  "website_states": {}
 }
