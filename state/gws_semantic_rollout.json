@@ -4,30 +4,40 @@
     "eligible_live": 715
   },
   "last_run": {
-    "benchmark_passed": 0,
-    "benchmark_total": 0,
-    "classified": 0,
-    "decisions": {},
+    "benchmark_passed": 6,
+    "benchmark_total": 6,
+    "classified": 40,
+    "decisions": {
+      "UNCERTAIN": 18,
+      "WRONG": 22
+    },
     "errors": 0,
     "hallucinated_contact_count": 0,
-    "processed": 0,
-    "resolution_queued": 0,
-    "resolution_routes": {},
-    "schema_valid_rate": 0.0,
+    "processed": 40,
+    "resolution_queued": 34,
+    "resolution_routes": {
+      "GPT_SEARCH_REVIEW": 12,
+      "STRICT_NO_SITE_RECHECK": 22
+    },
+    "schema_valid_rate": 1.0,
     "selected": 250,
     "targeted_candidates": 0,
     "targeted_first_party_confirmed": 0,
     "targeted_probes": 0,
-    "targeted_search_errors": 0,
-    "targeted_search_records": 0,
-    "trusted_agreement": 0.0,
-    "website_states": {}
+    "targeted_search_errors": 34,
+    "targeted_search_records": 34,
+    "trusted_agreement": 1.0,
+    "website_states": {
+      "DIRECTORY_ONLY": 20,
+      "PARKED_DOMAIN": 2,
+      "UNCERTAIN": 18
+    }
   },
   "model": "qwen3-4b-q4_k_m",
   "previous_stage": "benchmark",
-  "prompt_version": "gws-semantic-v1-shadow-ownership-4-targeted-search",
+  "prompt_version": "gws-semantic-v1-shadow-ownership-5-fast-checkpointed-search",
   "reason": "benchmark_gate_not_met_live_shadow_continues",
   "schema_version": 1,
   "stage": "benchmark_waiting",
-  "updated_at": "2026-08-16T10:09:37+00:00"
+  "updated_at": "2026-08-16T10:33:18+00:00"
 }
