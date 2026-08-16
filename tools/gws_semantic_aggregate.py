@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 
-def load(path,default):
+def load(path, default):
     try:return json.loads(Path(path).read_text(encoding='utf-8'))
     except Exception:return default
 def dump(path,obj):
@@ -39,7 +39,6 @@ def selected_candidate_host_class(sem,row):
     if selected==str(row.get('candidate_url') or '').strip():
         return str(row.get('candidate_host_class') or '').upper()
     return ''
-
 def resolution_route(sem,row):
     decision=str(sem.get('decision') or 'UNCERTAIN').upper()
     state=str(sem.get('website_state') or 'UNCERTAIN').upper()
@@ -50,9 +49,6 @@ def resolution_route(sem,row):
     targeted=row.get('targeted_search') or {}
     if targeted.get('first_party_confirmed'):
         return 'TARGETED_OWNERSHIP_RECHECK'
-    # Hard deterministic semantics outrank model confidence. A directory/profile,
-    # dead/ancient/parked domain or explicit WRONG decision can never be routed as
-    # probable first-party ownership merely because the model also emitted PROBABLE.
     if (
         host_class in {'KNOWN_THIRD_PARTY','EDITORIAL_OR_PROFILE_PAGE'}
         or decision=='WRONG'
@@ -65,6 +61,14 @@ def resolution_route(sem,row):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--root',required=True);ap.add_argument('--plan',required=True);ap.add_argument('--config',default='config/gws_semantic_v1.json');a=ap.parse_args()
     cfg=load(a.config,{});plan=load(a.plan,{});stage=str(plan.get('stage') or 'smoke');rows=list(worker_records(a.root));summ=list(worker_summaries(a.root));ts=now();date=ts[:10]
+
+    if not rows and int(plan.get('selected') or 0)>0:
+        print('GWS_SEMANTIC_AGG_SKIPPED='+json.dumps({
+            'status':'NO_WORKER_RECORDS','selected':int(plan.get('selected') or 0),
+            'worker_summaries':len(summ),'preserved_previous_state':True,'at':ts
+        },separators=(',',':')))
+        return
+
     index=load('state/gws_semantic_index.json',{'schema_version':1,'records':{}});records=index.setdefault('records',{})
     review=[];decisions=Counter();states=Counter();routes=Counter();classified=errors=0;bench_total=bench_passed=0
     live_out=set(cfg.get('selection',{}).get('live_outcomes') or []); live_st=set(cfg.get('selection',{}).get('live_statuses') or [])
@@ -88,9 +92,6 @@ def main():
             'targeted_search_first_party_confirmed':len(target.get('first_party_confirmed') or []),
             'resolution_status':'QUEUED' if is_live else 'BENCHMARK_ONLY','resolution_route':route,
         }
-        # Every live MEDIUM/UNCERTAIN case must leave the semantic stage with an
-        # explicit next action. Qwen is shadow-only: a confident model answer is
-        # useful triage, not a terminal disposition.
         if is_live:
             handoff=dict(r)
             handoff['semantic_selected_candidate_url']=selected
