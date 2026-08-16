@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.2,
+    "recent_error_rate": 0.73333,
     "recent_429_rate": 0.0,
-    "recent_timeout_rate": 0.0,
+    "recent_timeout_rate": 0.1,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T02:33:19.719446Z"
+    "last_updated": "2026-08-16T02:37:54.797214Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -50,17 +50,17 @@
       }
     },
     "osm_geofabrik": {
-      "last_workers_completed": 1,
+      "last_workers_completed": 2,
       "last_workers_failed": 0,
-      "last_raw_discovered": 77,
-      "last_fast_ready": 4,
-      "last_live_ready": 1,
+      "last_raw_discovered": 292,
+      "last_fast_ready": 30,
+      "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 1,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.5
+        "timeout_rate": 0.1,
+        "error_rate": 0.73333
       },
       "last_contact_health": {
         "429_rate": 0.0,
