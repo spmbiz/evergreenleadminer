@@ -55,11 +55,19 @@ jobs:
           pathlib.Path('control/queue_sync_probe_manifest.json').write_text(json.dumps({'files':counts,'records':len(out)},indent=2),encoding='utf-8')
           print(json.dumps({'files':counts,'records':len(out)},indent=2))
           PY
-      - name: Commit probe outputs
+      - name: Commit probe outputs safely
         run: |
+          set -e
           git config user.name 'queue-sync-probe[bot]'
           git config user.email 'queue-sync-probe[bot]@users.noreply.github.com'
           git add control/queue_sync_probe.csv control/queue_sync_probe_manifest.json
           git diff --cached --quiet && exit 0
           git commit -m 'chore: temporary queue sync probe output'
-          git push
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep 2
+          done
+          exit 1
