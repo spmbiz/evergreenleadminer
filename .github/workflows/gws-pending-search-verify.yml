@@ -193,12 +193,6 @@ jobs:
             done
             test "$pushed" = 1
           fi
-      - name: Hot-refill unfinished strict source backlog
-        run: |
-          REFILL=$(python -c "import json; m=json.load(open('metrics/gws_verify_latest.json')); print(1 if int(m.get('remaining_source_backlog') or 0)>0 else 0)")
-          if [ "$REFILL" = "1" ]; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=gws_verify_refill
-          fi
 
   release_capacity:
     needs: [plan, verify, aggregate]
