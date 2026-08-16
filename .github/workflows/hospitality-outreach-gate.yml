@@ -38,6 +38,7 @@ jobs:
           fetch-depth: 2
       - id: resolve
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id || '' }}
           WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
@@ -48,7 +49,6 @@ jobs:
           SOURCE=''
           if [ "$EVENT_NAME" = 'workflow_run' ]; then
             SOURCE="$WORKFLOW_RUN_ID"
-            if [ "$WORKFLOW_RUN_CONCLUSION" != 'success' ]; then ENABLED=false; fi
           elif [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
             SOURCE="$DISPATCH_RUN_ID"
           elif [ "$EVENT_NAME" = 'push' ]; then
@@ -59,10 +59,33 @@ jobs:
             fi
             SOURCE=$(python -c "import json; print(int(json.load(open('$TRIGGER')).get('source_run_id') or 0))")
           fi
-          if ! [[ "$SOURCE" =~ ^[0-9]+$ ]] || [ "$SOURCE" -le 0 ]; then ENABLED=false; fi
+          if ! [[ "$SOURCE" =~ ^[0-9]+$ ]] || [ "$SOURCE" -le 0 ]; then
+            ENABLED=false
+          fi
+
+          # Business completion is proven by durable V2 artifacts, not by the
+          # workflow's global conclusion. A cleanup-only cancellation must not
+          # discard a fully aggregated and canonically merged batch.
+          if [ "$ENABLED" = true ]; then
+            artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE/artifacts?per_page=100" --jq '.artifacts[].name' || true)"
+            merge_name="hospitality-intelligence-canonical-merge-$SOURCE"
+            if ! grep -Fxq "$merge_name" <<< "$artifacts"; then
+              echo "No canonical merge proof for source run $SOURCE (workflow conclusion=$WORKFLOW_RUN_CONCLUSION); gate disabled."
+              ENABLED=false
+            fi
+            if ! grep -E -q "^hospitality-intelligence-aggregate-${SOURCE}-" <<< "$artifacts"; then
+              echo "No aggregate proof for source run $SOURCE; gate disabled."
+              ENABLED=false
+            fi
+            if ! grep -E -q "^hospitality-intelligence-worker-${SOURCE}-" <<< "$artifacts"; then
+              echo "No worker evidence for source run $SOURCE; gate disabled."
+              ENABLED=false
+            fi
+          fi
+
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
           echo "source_run_id=$SOURCE" >> "$GITHUB_OUTPUT"
-          echo "premium gate source_run_id=$SOURCE enabled=$ENABLED"
+          echo "premium gate source_run_id=$SOURCE enabled=$ENABLED workflow_conclusion=$WORKFLOW_RUN_CONCLUSION proof=aggregate+canonical_merge"
 
   gate:
     needs: resolve
@@ -77,6 +100,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Re-assert canonical merge proof before commercial scoring
+        run: |
+          set -euo pipefail
+          names="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" --jq '.artifacts[].name')"
+          grep -Fxq "hospitality-intelligence-canonical-merge-$SOURCE_RUN_ID" <<< "$names"
+          grep -E -q "^hospitality-intelligence-aggregate-${SOURCE_RUN_ID}-" <<< "$names"
       - name: Download V2 plan evidence
         uses: actions/download-artifact@v4
         with:
@@ -111,6 +140,7 @@ jobs:
           p='gate_out/outreach-summary.json'
           d=json.load(open(p))
           d['source_run_id']=int(os.environ['SOURCE_RUN_ID'])
+          d['business_completion_proof']='aggregate+canonical_merge_artifacts'
           open(p,'w').write(json.dumps(d,indent=2)+'\n')
           print(json.dumps(d))
           PY
