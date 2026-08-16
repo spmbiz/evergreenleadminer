@@ -33,6 +33,8 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: false
+      - name: Compile-check canary helper
+        run: python -m py_compile tools/gws_httpx_canary.py
       - name: Install pinned ProjectDiscovery httpx and baseline dependency
         shell: bash
         run: |
