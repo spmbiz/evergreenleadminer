@@ -66,8 +66,13 @@ def compact(row,model,prompt):
             ide=d.get('identity') or {}; direct.append({'url':d.get('final') or d.get('seed'),'status':d.get('status'),'matched':bool(ide.get('matched')),'match_mode':ide.get('match_mode'),'dns_negative':bool(d.get('dns_negative'))})
         for u in w.get('search_candidates') or []:
             if candidate_host_class(u)!='UNKNOWN': platforms.append(u)
+    assessments=[]
+    for key in ('ownership_assessment_pass1','ownership_assessment_pass2','aggregate_ownership_assessment'):
+        value=row.get(key)
+        if isinstance(value,dict) and value:
+            assessments.append({k:value.get(k) for k in ('url','confident','reason','third_party','brand_relation','phone_exact','address_overlap') if k in value})
     cert=row.get('certificate') or {}
-    rec={'business_id':str(row.get('record_key') or ''),'name':row.get('hub_name') or '','address':row.get('hub_address') or '','postcode':row.get('hub_postalcode') or '','public_phone_present':bool(row.get('hub_phone') or row.get('overture_phone')),'candidate_url':candidate,'candidate_host':host(candidate),'candidate_host_class':candidate_host_class(candidate),'overture_name':row.get('overture_name') or '','overture_resolved':bool(row.get('overture_resolved') or row.get('overture_id')),'name_similarity':row.get('name_similarity') or 0,'address_overlap':row.get('address_overlap') or 0,'postcode_match':bool(row.get('postcode_match')),'phone_exact':bool(row.get('phone_exact')),'search_candidates':urls[:8],'direct_identity_evidence':direct[:12],'unresolved_plausible_domains':cert.get('unresolved_plausible_domains') or [],'platform_only_signals':platforms[:8],'semantic_fingerprint':semantic_fp(row,model,prompt),'source_outcome':row.get('outcome'),'source_reason':row.get('reason'),'source_verification_status':row.get('verification_status'),'source_verification_provider':row.get('verification_provider'),'territory':row.get('territory') or '','source_fingerprint':row.get('fingerprint') or '','certificate_digest':row.get('certificate_digest') or '','source':row}
+    rec={'business_id':str(row.get('record_key') or ''),'name':row.get('hub_name') or '','address':row.get('hub_address') or '','postcode':row.get('hub_postalcode') or '','public_phone_present':bool(row.get('hub_phone') or row.get('overture_phone')),'candidate_url':candidate,'candidate_host':host(candidate),'candidate_host_class':candidate_host_class(candidate),'overture_name':row.get('overture_name') or '','overture_resolved':bool(row.get('overture_resolved') or row.get('overture_id')),'name_similarity':row.get('name_similarity') or 0,'address_overlap':row.get('address_overlap') or 0,'postcode_match':bool(row.get('postcode_match')),'phone_exact':bool(row.get('phone_exact')),'search_candidates':urls[:8],'direct_identity_evidence':direct[:12],'ownership_assessments':assessments[:3],'unresolved_plausible_domains':cert.get('unresolved_plausible_domains') or [],'platform_only_signals':platforms[:8],'semantic_fingerprint':semantic_fp(row,model,prompt),'source_outcome':row.get('outcome'),'source_reason':row.get('reason'),'source_verification_status':row.get('verification_status'),'source_verification_provider':row.get('verification_provider'),'territory':row.get('territory') or '','source_fingerprint':row.get('fingerprint') or '','certificate_digest':row.get('certificate_digest') or '','source':row}
     if row.get('outcome')=='REJECT' and row.get('owned_website'):
         rec['benchmark_kind']='OWNED_SITE_POSITIVE'; rec['benchmark_expected']='OWNED_MATCH'
     elif strict_high:
@@ -105,10 +110,6 @@ def prepare(args):
     if stage=='smoke':
         n=int(rcfg.get('smoke_records') or 32); bsel,_,_=balanced_benchmark(bench,max(2,n//4)); selected=(live[:max(1,n-len(bsel))]+bsel)[:n]; desired=1; stage_shard_size=n
     elif stage in {'benchmark','benchmark_waiting'}:
-        # Benchmark is a safety/calibration gate only. Qwen is shadow-only, so a
-        # shortage of trusted HIGH/REJECT examples must never freeze live
-        # MEDIUM/UNCERTAIN resolution. Take every available benchmark example,
-        # then fill the remaining batch with live unresolved cases.
         n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=max(1,int(rcfg.get('benchmark_shard_size') or 20))
         bsel,_,_=balanced_benchmark(bench,n)
         selected=(bsel+live[:max(0,n-len(bsel))])[:n]
