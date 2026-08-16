@@ -1,30 +1,35 @@
 {
   "backlog": {
-    "eligible_benchmark": 8,
+    "eligible_benchmark": 0,
     "eligible_live": 727
   },
   "last_run": {
-    "benchmark_passed": 8,
-    "benchmark_total": 8,
+    "benchmark_passed": 0,
+    "benchmark_total": 0,
     "classified": 8,
     "decisions": {
-      "UNCERTAIN": 8
+      "PROBABLE": 5,
+      "WRONG": 3
     },
     "errors": 0,
     "hallucinated_contact_count": 0,
     "processed": 8,
-    "resolution_queued": 0,
-    "resolution_routes": {},
+    "resolution_queued": 8,
+    "resolution_routes": {
+      "GPT_SEARCH_REVIEW": 5,
+      "STRICT_NO_SITE_RECHECK": 3
+    },
     "schema_valid_rate": 1.0,
     "selected": 250,
-    "targeted_candidates": 0,
+    "targeted_candidates": 96,
     "targeted_first_party_confirmed": 0,
-    "targeted_probes": 0,
+    "targeted_probes": 24,
     "targeted_search_errors": 0,
-    "targeted_search_records": 0,
-    "trusted_agreement": 1.0,
+    "targeted_search_records": 8,
+    "trusted_agreement": 0.0,
     "website_states": {
-      "UNCERTAIN": 8
+      "GOOD_SITE": 5,
+      "NO_SITE": 3
     }
   },
   "model": "qwen3-4b-q4_k_m",
@@ -33,5 +38,5 @@
   "reason": "benchmark_gate_not_met_live_shadow_continues",
   "schema_version": 1,
   "stage": "benchmark_waiting",
-  "updated_at": "2026-08-16T14:37:40+00:00"
+  "updated_at": "2026-08-16T15:02:59+00:00"
 }
