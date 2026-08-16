@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Production-compatible wrapper for fresh SearchFabric Hospitality discovery.
+"""Production wrapper for fresh SearchFabric Hospitality discovery.
 
-The planner cannot schedule this source while config production_enabled=false.
-It reuses the exact V1 public-contact recovery and permissive live gate, and the
-canonical aggregate remains the only writer.
+This source reuses the exact V1 public-contact recovery and permissive live gate.
+The canonical aggregate remains the only writer. DDGS is installed only inside
+a fresh-search worker so ordinary Overture/ATP/OSM workers keep their startup
+cost unchanged.
 """
 from __future__ import annotations
 
@@ -23,6 +24,15 @@ def run(cmd):
     p = subprocess.run(cmd, cwd=ROOT, text=True)
     if p.returncode:
         raise RuntimeError(f"exit {p.returncode}: {' '.join(cmd)}")
+
+
+def ensure_ddgs():
+    try:
+        import ddgs  # noqa: F401
+        return
+    except Exception:
+        pass
+    run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "ddgs"])
 
 
 def main():
@@ -45,6 +55,7 @@ def main():
     t0 = time.time()
     status, error = "success", ""
     try:
+        ensure_ddgs()
         run([
             sys.executable, "tools/hospitality_fresh_search_source.py",
             "--canonical-domains", a.canonical_domains,
