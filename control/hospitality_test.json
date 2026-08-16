@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T19:32:00Z",
+  "requested_at": "2026-08-16T20:40:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "validate-hardened-wikidata-plus-intra-worker-parallelism",
+  "mode": "validate-bounded-akzent-production-slot",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Normal broker/autoscaler. Validate max one wikidata_hospitality source task after chunked retry/backoff hardening; fresh workers remain bounded 4-way intra-worker query parallel. Canonical remains single-writer."
+  "note": "Normal broker/autoscaler only. Validate one due ATP member-network task can receive a bounded source slot without increasing total workers; FreshSearch, Wikidata and canonical single-writer safety remain unchanged."
 }
