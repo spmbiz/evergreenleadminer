@@ -1,0 +1,85 @@
+name: Temp Build Sync Multichannel
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/sheet_sync_exclusions.json'
+      - '.github/workflows/_temp_build_sync_multichannel.yml'
+permissions:
+  contents: write
+concurrency:
+  group: temp-build-sync-multichannel
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build raw multichannel TSV
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,json,re
+          from pathlib import Path
+          from urllib.parse import urlparse
+          cfg=json.load(open('control/sheet_sync_exclusions.json',encoding='utf-8'))
+          files=cfg['files'][:10]
+          MULTIPART={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
+          GENERIC={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','linktr.ee','wixsite.com','wordpress.com'}
+          def host(u):
+            try:
+              s=str(u or '').strip()
+              if not s:return ''
+              if '://' not in s:s='http://'+s
+              h=(urlparse(s).hostname or '').lower().strip('.')
+              return h[4:] if h.startswith('www.') else h
+            except:return ''
+          def root(h):
+            h=(h or '').lower().strip('.')
+            if not h:return ''
+            p=h.split('.')
+            for s in MULTIPART:
+              if h==s:return h
+              if h.endswith('.'+s):return '.'.join(p[-3:]) if len(p)>=3 else h
+            return '.'.join(p[-2:]) if len(p)>=2 else h
+          def nt(x):return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',str(x or '').lower())).strip()
+          def phone(x):return re.sub(r'\D','',str(x or ''))
+          def market(r):
+            c=str(r.get('city') or '').strip()
+            return c or str(r.get('region') or '').split('::',1)[0].replace('-',' ').strip()
+          rows=[]
+          for fn in files:
+            p=Path('gpt/sheet_sync_queue')/fn
+            if not p.exists(): raise SystemExit(f'missing {p}')
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if not line.strip(): continue
+              r=json.loads(line)
+              m=market(r); c=str(r.get('country') or '').strip(); pp=phone(r.get('public_phone'))
+              d=root(str(r.get('domain') or '') or host(r.get('website')))
+              if d in GENERIC:d=''
+              nn=nt(r.get('name'))
+              key=('domain:'+d) if d else (('phone:'+pp) if pp else f'name:{nn}|market:{nt(m)}|country:{nt(c)}')
+              addr=', '.join([x for x in [str(r.get('street') or '').strip(),str(r.get('city') or '').strip(),str(r.get('state') or '').strip()] if x])
+              rows.append([fn,n,key,d,pp,nn,m,c,str(r.get('name') or '').strip(),str(r.get('category') or '').strip(),addr,str(r.get('website') or '').strip(),str(r.get('public_email') or '').strip(),str(r.get('public_phone') or '').strip(),str(r.get('contact_page') or '').strip(),str(r.get('instagram') or '').strip(),str(r.get('facebook') or '').strip(),str(r.get('whatsapp') or '').strip(),str(r.get('portfolio_url') or '').strip(),str(r.get('source_url') or '').strip(),str(r.get('overture_id') or '').strip(),str(r.get('fit') or '').strip(),str(r.get('operator_score') or '').strip(),str(r.get('premium_score') or '').strip(),str(r.get('live_status') or '').strip(),str(r.get('record_type') or r.get('delta_type') or '').strip()])
+          out=Path('gpt/sheet_sync_staging/raw_multichannel.tsv')
+          with out.open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f,delimiter='\t',lineterminator='\n')
+            w.writerow(['file','line','dedupe_key','domain','phone_norm','name_norm','market','country','name','category','address','website','public_email','public_phone','contact_page','instagram','facebook','whatsapp','portfolio_url','source_url','overture_id','fit','operator_score','premium_score','live_status','record_type'])
+            w.writerows(rows)
+          Path('gpt/sheet_sync_staging/raw_multichannel_summary.json').write_text(json.dumps({'files':files,'records':len(rows)},indent=2)+'\n',encoding='utf-8')
+          PY
+      - name: Commit output
+        run: |
+          set -euo pipefail
+          git config user.name 'sheet-sync-multichannel-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/sheet_sync_staging/raw_multichannel.tsv gpt/sheet_sync_staging/raw_multichannel_summary.json
+          git commit -m 'sync: build multichannel staging [skip ci]' || exit 0
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            git rebase --abort || true
+            sleep $((attempt*2))
+          done
+          exit 1
