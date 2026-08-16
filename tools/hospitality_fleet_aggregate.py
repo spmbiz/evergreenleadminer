@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 from pathlib import Path
 
 import fleet_runtime as fr
@@ -48,26 +51,83 @@ def registrable_domain(host: str) -> str:
     return last2
 
 
-def canonical_count(canonical_db: str) -> int:
+def canonical_health(canonical_db: str) -> tuple[int, str]:
     db = Path(canonical_db)
     if not db.exists() or db.stat().st_size == 0:
-        return 0
-    con = sqlite3.connect(db)
+        return 0, "missing"
     try:
+        con = sqlite3.connect(db)
         exists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='leads'").fetchone()
         if not exists:
-            return 0
-        return int(con.execute("SELECT COUNT(*) FROM leads").fetchone()[0])
-    finally:
+            con.close()
+            return 0, "missing_leads_table"
+        count = int(con.execute("SELECT COUNT(*) FROM leads").fetchone()[0])
+        integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
         con.close()
+        return count, integrity
+    except Exception as exc:
+        return 0, f"sqlite_error:{type(exc).__name__}"
+
+
+def canonical_count(canonical_db: str) -> int:
+    return canonical_health(canonical_db)[0]
+
+
+def restore_lkg_if_needed(canonical_db: str) -> tuple[int, str, bool]:
+    count, integrity = canonical_health(canonical_db)
+    if count >= CANONICAL_SAFETY_FLOOR and integrity == "ok":
+        return count, integrity, False
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repo:
+        return count, integrity, False
+
+    with tempfile.TemporaryDirectory(prefix="hospitality-lkg-") as td:
+        cmd = [
+            "gh", "release", "download", "harvest-state-backup",
+            "--repo", repo,
+            "--pattern", "hospitality-canonical-lkg.sqlite",
+            "--dir", td,
+            "--clobber",
+        ]
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        if proc.returncode != 0:
+            print(json.dumps({
+                "canonical_self_heal": "lkg_download_failed",
+                "primary_rows": count,
+                "primary_integrity": integrity,
+                "stderr": (proc.stderr or "")[-500:],
+            }))
+            return count, integrity, False
+        lkg = Path(td) / "hospitality-canonical-lkg.sqlite"
+        lkg_count, lkg_integrity = canonical_health(str(lkg))
+        if lkg_count < CANONICAL_SAFETY_FLOOR or lkg_integrity != "ok":
+            print(json.dumps({
+                "canonical_self_heal": "lkg_invalid",
+                "primary_rows": count,
+                "lkg_rows": lkg_count,
+                "lkg_integrity": lkg_integrity,
+            }))
+            return count, integrity, False
+        dest = Path(canonical_db)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(lkg, dest)
+        healed_count, healed_integrity = canonical_health(canonical_db)
+        print(json.dumps({
+            "canonical_self_heal": "restored_from_lkg",
+            "primary_rows_before": count,
+            "rows_after": healed_count,
+            "integrity_after": healed_integrity,
+        }))
+        return healed_count, healed_integrity, True
 
 
 def require_healthy_canonical(canonical_db: str) -> int:
-    count = canonical_count(canonical_db)
-    if count < CANONICAL_SAFETY_FLOOR:
+    count, integrity, healed = restore_lkg_if_needed(canonical_db)
+    if count < CANONICAL_SAFETY_FLOOR or integrity != "ok":
         raise RuntimeError(
-            f"Refusing Hospitality canonical aggregate: restored rows={count} "
-            f"below safety floor={CANONICAL_SAFETY_FLOOR}. Restore durable state first."
+            f"Refusing Hospitality canonical aggregate: rows={count} integrity={integrity} "
+            f"below safety requirements floor={CANONICAL_SAFETY_FLOOR}. LKG healed={healed}."
         )
     return count
 
@@ -215,16 +275,18 @@ def main() -> None:
     prior_enrichment = snapshot_monotonic_fields(a.canonical_db)
     fr.aggregate(a)
     after_count = canonical_count(a.canonical_db)
-    if after_count < prior_count or after_count < CANONICAL_SAFETY_FLOOR:
+    after_integrity = canonical_health(a.canonical_db)[1]
+    if after_count < prior_count or after_count < CANONICAL_SAFETY_FLOOR or after_integrity != "ok":
         raise RuntimeError(
             f"Refusing Hospitality canonical persistence: before={prior_count} after={after_count} "
-            f"floor={CANONICAL_SAFETY_FLOOR}. Canonical aggregation must be monotonic."
+            f"integrity={after_integrity} floor={CANONICAL_SAFETY_FLOOR}. Canonical aggregation must be monotonic."
         )
     restored = restore_monotonic_fields(a.canonical_db, prior_enrichment)
-    final_count = canonical_count(a.canonical_db)
+    final_count, final_integrity = canonical_health(a.canonical_db)
     print(json.dumps({
         "canonical_rows_before": prior_count,
         "canonical_rows_after": final_count,
+        "canonical_integrity": final_integrity,
         "monotonic_raw_rows_restored": restored,
         "multichannel_inline": False,
     }))
