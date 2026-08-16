@@ -2,7 +2,7 @@
 """Read-only DATAtourisme hospitality discovery adapter.
 
 Resolves the current stable resource from the official data.gouv.fr dataset API,
-streams the CSV, keeps accommodation-like POIs with an explicit public website,
+streams the CSV, keeps explicit accommodation-category POIs with a public website,
 and rejects canonical-known domains before expensive contact enrichment.
 
 No canonical mutation happens here.
@@ -87,7 +87,6 @@ def choose_resource(resources: list[dict], preferred: list[str]) -> dict:
         for r in resources:
             if w in hay(r):
                 return r
-    # Safe fallback: national PLACE export only; never fall back to FMA/event data.
     for r in resources:
         h = hay(r)
         if "place.csv" in h or ("datatourisme" in h and "place" in h and "csv" in h):
@@ -126,7 +125,6 @@ def urls_from_row(row: dict) -> list[str]:
     ):
         v = get_value(row, *aliases)
         preferred.extend(URL_RE.findall(v))
-    # Contacts_du_POI is the authoritative URL container in current simplified exports.
     out, seen = [], set()
     for raw in preferred:
         url = raw.rstrip(".,;:)\]")
@@ -149,7 +147,9 @@ def main() -> None:
     cfg = json.loads(CFG.read_text(encoding="utf-8"))
     policy = cfg.get("policy") or {}
     max_candidates = int(a.max_candidates or policy.get("max_candidates") or 1500)
-    keywords = [norm_key(x) for x in (cfg.get("hospitality_type_keywords") or []) if x]
+    strict_categories = [norm_key(x) for x in (cfg.get("strict_accommodation_category_keywords") or []) if x]
+    if not strict_categories:
+        raise RuntimeError("DATAtourisme strict accommodation category allowlist is empty")
     preferred = list(cfg.get("preferred_resource_names") or [])
     if a.resource_name:
         preferred = [a.resource_name] + preferred
@@ -173,6 +173,7 @@ def main() -> None:
         raise RuntimeError("Chosen DATAtourisme resource has no URL or id")
 
     raw_rows = hospitality_rows = no_site = canonical_rejected = duplicate_domain = 0
+    taxonomy_rejected = 0
     rows_by_domain: dict[str, dict] = {}
     observed_types: dict[str, int] = {}
 
@@ -195,11 +196,13 @@ def main() -> None:
                         token = token.strip()
                         if token:
                             observed_types[token] = observed_types.get(token, 0) + 1
-                label = get_value(row, "label", "nom", "name", "titre", "nom_du_poi", "nomdupoi")
-                label_norm = norm_key(label)
-                if not any(k in type_norm or k in label_norm for k in keywords):
+                # Quality gate: category taxonomy must explicitly identify lodging/accommodation.
+                # Never admit a POI only because its name contains "Hotel" (e.g. Hotel-Dieu museum).
+                if not any(k in type_norm for k in strict_categories):
+                    taxonomy_rejected += 1
                     continue
                 hospitality_rows += 1
+                label = get_value(row, "label", "nom", "name", "titre", "nom_du_poi", "nomdupoi")
                 urls = urls_from_row(row)
                 if not urls:
                     no_site += 1
@@ -238,11 +241,11 @@ def main() -> None:
                     "website": website, "domain": domain,
                     "public_email": "", "email_domain": "", "email_domain_match": "", "public_phone": "",
                     "city": city[:120], "state": "", "street": street[:220],
-                    "confidence": "DATATOURISME_OFFICIAL_PUBLIC_URL",
+                    "confidence": "DATATOURISME_EXPLICIT_ACCOMMODATION_TAXONOMY",
                     "operator_score": str(operator), "premium_score": str(premium),
                     "fit_tier": "A" if premium >= 75 or operator >= 65 else "B",
                     "source_url": item_id or str(cfg["dataset_api"]), "overture_id": "",
-                    "notes": "Official DATAtourisme institutional tourism inventory; explicit public URL from simplified export.",
+                    "notes": "Official DATAtourisme inventory; explicit accommodation taxonomy plus public first-party URL.",
                     "instagram": "", "facebook": "",
                 }
                 if len(rows_by_domain) >= max_candidates:
@@ -260,6 +263,7 @@ def main() -> None:
         "resource_url": resource_url,
         "bytes_downloaded": bytes_downloaded,
         "raw_rows_scanned": raw_rows,
+        "taxonomy_rejected": taxonomy_rejected,
         "hospitality_rows": hospitality_rows,
         "no_public_site": no_site,
         "canonical_known_rejected_early": canonical_rejected,
