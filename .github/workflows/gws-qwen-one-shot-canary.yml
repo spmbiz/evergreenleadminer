@@ -1,4 +1,4 @@
-# ownership-v2 rerun
+# ownership-v2 + deterministic-third-party bypass canary
 name: GWS Qwen One-Shot Canary
 
 on:
@@ -6,6 +6,11 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/gws-qwen-one-shot-canary.yml'
+      - 'tools/gws_semantic_worker.py'
+      - 'tools/gws_semantic_plan.py'
+      - 'tools/gws_qwen_semantic.py'
+      - 'tools/gws_residential_semantic_adapter.py'
+      - 'config/gws_semantic_v1.json'
 
 permissions:
   contents: read
