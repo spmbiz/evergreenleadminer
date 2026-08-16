@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 96,
-    "recent_error_rate": 0.0,
+    "recent_error_rate": 0.04132,
     "recent_429_rate": 0.0,
-    "recent_timeout_rate": 0.0,
+    "recent_timeout_rate": 0.00826,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T19:45:30.907089Z"
+    "last_updated": "2026-08-16T19:50:59.973149Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -71,37 +71,37 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 1,
+      "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 0,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
-      "last_recovered_public_emails": 0,
+      "last_raw_discovered": 3958,
+      "last_fast_ready": 15,
+      "last_live_ready": 7,
+      "last_recovery_candidates": 18,
+      "last_recovered_public_emails": 6,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.06667,
+        "error_rate": 0.33333
       },
       "last_contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.05556,
+        "error_rate": 0.05556
       },
       "recommended_contact_workers": 24,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0
+      "last_contact_ready": 15,
+      "last_social_or_contact_without_email": 9
     },
     "fresh_search": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 358,
-      "last_fast_ready": 32,
-      "last_live_ready": 29,
-      "last_recovery_candidates": 50,
-      "last_recovered_public_emails": 11,
-      "last_contact_ready": 32,
-      "last_social_or_contact_without_email": 21,
+      "last_raw_discovered": 375,
+      "last_fast_ready": 37,
+      "last_live_ready": 34,
+      "last_recovery_candidates": 52,
+      "last_recovered_public_emails": 17,
+      "last_contact_ready": 37,
+      "last_social_or_contact_without_email": 20,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
@@ -117,12 +117,12 @@
       "last_workers_completed": 1,
       "last_workers_failed": 0,
       "last_raw_discovered": 300,
-      "last_fast_ready": 111,
-      "last_live_ready": 107,
-      "last_recovery_candidates": 181,
-      "last_recovered_public_emails": 49,
-      "last_contact_ready": 111,
-      "last_social_or_contact_without_email": 62,
+      "last_fast_ready": 69,
+      "last_live_ready": 68,
+      "last_recovery_candidates": 157,
+      "last_recovered_public_emails": 34,
+      "last_contact_ready": 69,
+      "last_social_or_contact_without_email": 35,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
