@@ -25,7 +25,7 @@ permissions:
 
 concurrency:
   group: gws-qwen-semantic-fleet
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   SEMANTIC_CONFIG: config/gws_semantic_v1.json
