@@ -1,0 +1,82 @@
+name: GWS Qwen One-Shot Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-qwen-one-shot-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install canary dependencies
+        run: python -m pip install --disable-pip-version-check requests 'huggingface_hub>=0.34,<2'
+      - name: Build 19-case residential shadow queue
+        run: |
+          python tools/gws_residential_semantic_adapter.py --out data/gws/verification/residential_shadow_input.jsonl
+          python tools/gws_semantic_plan.py prepare --config config/gws_semantic_v1.json --outdir results/gws_qwen_canary_plan
+          python tools/gws_semantic_plan.py finalize --outdir results/gws_qwen_canary_plan --capacity 1
+          test -s results/gws_qwen_canary_plan/shard-00.jsonl
+      - id: model
+        name: Read pinned Qwen config
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          q=json.load(open('config/gws_semantic_v1.json'))['qwen']
+          print('repo='+q['model_repo'])
+          print('revision='+q['model_revision'])
+          print('file='+q['model_file'])
+          print('image='+q['llama_cpp_image'])
+          PY
+      - uses: actions/cache@v4
+        id: model-cache
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-${{ steps.model.outputs.revision }}
+      - name: Download pinned model on cache miss
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        env:
+          MODEL_REPO: ${{ steps.model.outputs.repo }}
+          MODEL_REVISION: ${{ steps.model.outputs.revision }}
+          MODEL_FILE: ${{ steps.model.outputs.file }}
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+        run: |
+          mkdir -p model_cache
+          python - <<'PY'
+          import os
+          from huggingface_hub import hf_hub_download
+          hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')
+          PY
+          test -s "model_cache/$MODEL_FILE"
+      - name: Start Qwen 4B
+        env:
+          LLAMA_CPP_IMAGE: ${{ steps.model.outputs.image }}
+          MODEL_FILE: ${{ steps.model.outputs.file }}
+        run: bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$MODEL_FILE"
+      - name: Run real semantic inference
+        run: |
+          python tools/gws_semantic_worker.py \
+            --input results/gws_qwen_canary_plan/shard-00.jsonl \
+            --config config/gws_semantic_v1.json \
+            --qwen-url http://127.0.0.1:8080 \
+            --worker-index canary \
+            --outdir results/gws_qwen_canary
+          cat results/gws_qwen_canary/summary.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-qwen-one-shot-canary-${{ github.run_id }}
+          path: |
+            results/gws_qwen_canary_plan/
+            results/gws_qwen_canary/
+          retention-days: 2
+          compression-level: 6
