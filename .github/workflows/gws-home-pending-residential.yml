@@ -103,7 +103,7 @@ jobs:
             --endpoint http://127.0.0.1:7000 `
             --engines bing,duckduckgo `
             --max-candidates 12 `
-            --candidate-concurrency 4 `
+            --candidate-concurrency 6 `
             --sleep-min 0.25 `
             --sleep-max 0.55
           if ($LASTEXITCODE -ne 0) { throw "Residential OpenSERP worker failed exit=$LASTEXITCODE" }
