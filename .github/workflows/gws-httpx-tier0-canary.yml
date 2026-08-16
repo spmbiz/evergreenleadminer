@@ -1,0 +1,61 @@
+name: GWS httpx Tier0 Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_targets:
+        description: Maximum distinct candidate domains in the read-only benchmark
+        required: false
+        default: '120'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-httpx-tier0-canary.yml'
+      - 'control/gws_httpx_canary_trigger.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gws-httpx-tier0-canary
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Install pinned ProjectDiscovery httpx and baseline dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/projectdiscovery/httpx/cmd/httpx@v1.9.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          python -m pip install --disable-pip-version-check requests
+      - name: Run read-only same-input tier0 benchmark
+        env:
+          MAX_TARGETS: ${{ github.event.inputs.max_targets || '120' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/gws_httpx_canary.py \
+            --roots gpt/gws_review gpt/gws_verified_review data/gws/verification \
+            --max-targets "$MAX_TARGETS" \
+            --outdir results/gws_httpx_canary
+          test -s results/gws_httpx_canary/summary.json
+          cat results/gws_httpx_canary/summary.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-httpx-tier0-canary-${{ github.run_id }}
+          path: results/gws_httpx_canary/
+          if-no-files-found: warn
+          retention-days: 7
