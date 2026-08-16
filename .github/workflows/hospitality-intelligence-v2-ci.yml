@@ -22,6 +22,27 @@ on:
       - 'tools/test_hospitality_dynamic_capacity.py'
       - '.github/workflows/hospitality-intelligence-v2*.yml'
       - '.github/workflows/hospitality-autonomous-fleet.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'config/hospitality_intelligence_v2.json'
+      - 'config/global_fleet.json'
+      - 'tools/global_capacity_broker.py'
+      - 'tools/hospitality_intelligence_*.py'
+      - 'tools/hospitality_compound_intelligence.py'
+      - 'tools/hospitality_search_fabric.py'
+      - 'tools/hospitality_portfolio_expand.py'
+      - 'tools/hospitality_qwen_classifier.py'
+      - 'tools/apply_hospitality_intelligence_delta.py'
+      - 'tools/start_qwen4b_ci.sh'
+      - 'tools/start_openserp_ci.sh'
+      - 'tools/test_hospitality_intelligence_v2.py'
+      - 'tools/test_hospitality_compound_intelligence.py'
+      - 'tools/test_hospitality_qwen_classifier.py'
+      - 'tools/test_hospitality_plan_fanout.py'
+      - 'tools/test_hospitality_dynamic_capacity.py'
+      - '.github/workflows/hospitality-intelligence-v2*.yml'
+      - '.github/workflows/hospitality-autonomous-fleet.yml'
   workflow_dispatch:
 
 permissions:
