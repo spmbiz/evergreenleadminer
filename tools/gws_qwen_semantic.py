@@ -188,7 +188,7 @@ def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, t
         base_body={
             "model":model_label,
             "messages":[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user}],
-            "temperature":0.1,"top_p":0.8,"max_tokens":650,
+            "temperature":0.1,"top_p":0.8,"max_tokens":320,
         }
         last="UNKNOWN"
         for attempt in range(2):
