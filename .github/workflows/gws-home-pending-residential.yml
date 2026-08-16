@@ -107,10 +107,10 @@ jobs:
             --input results\gws_home_pending_plan\home_input.jsonl `
             --outdir results\gws_home_pending_openserp `
             --endpoint http://127.0.0.1:7000 `
-            --engines google,bing,duckduckgo `
+            --engines bing,duckduckgo `
             --max-candidates 12 `
-            --sleep-min 0.35 `
-            --sleep-max 0.75
+            --sleep-min 0.25 `
+            --sleep-max 0.55
           if ($LASTEXITCODE -ne 0) { throw "Residential OpenSERP worker failed exit=$LASTEXITCODE" }
 
       - name: Normalize residential observations for durable ingress
