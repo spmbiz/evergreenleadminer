@@ -63,8 +63,6 @@ function Install-FreshRunner([string]$Base,[string]$Url,[string]$Token,[string]$
   Invoke-WebRequest -UseBasicParsing -Headers @{'User-Agent'='GWS-Home-Repair/1.0'} -OutFile $zip $asset.browser_download_url
   Expand-Archive -Force $zip $runnerDir
 
-  # NETWORK SERVICE is SID S-1-5-20. Grant access explicitly so the Windows
-  # runner service can read credentials/work files even under C:\GWS.
   & icacls $runnerDir /grant '*S-1-5-20:(OI)(CI)F' /T /C | Out-Null
 
   Push-Location $runnerDir
@@ -94,7 +92,13 @@ function Install-FreshRunner([string]$Base,[string]$Url,[string]$Token,[string]$
 Assert-Admin
 New-Item -ItemType Directory -Force $Root | Out-Null
 if (-not (Test-Http "http://127.0.0.1:$OpenSerpPort/health")) {
-  throw "OpenSERP is not healthy on http://127.0.0.1:$OpenSerpPort/health. Keep/start OpenSERP first."
+  $bootstrap=Join-Path $PSScriptRoot 'start_openserp_home.ps1'
+  if (-not (Test-Path $bootstrap)) { throw "OpenSERP bootstrap not found at $bootstrap" }
+  Write-Host 'GWS_HOME_REPAIR reviving OpenSERP before runner repair'
+  & $bootstrap -Port $OpenSerpPort -Root $Root
+}
+if (-not (Test-Http "http://127.0.0.1:$OpenSerpPort/health")) {
+  throw "OpenSERP is still unhealthy on http://127.0.0.1:$OpenSerpPort/health after bootstrap."
 }
 Write-Host "OPENSERP_HOME_OK existing port=$OpenSerpPort"
 Remove-BrokenRunnerService
