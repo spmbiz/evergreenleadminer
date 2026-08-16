@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "overture_hospitality_v6": {
-    "recommended_local_http_workers": 80,
-    "recent_error_rate": 0.0,
+    "recommended_local_http_workers": 96,
+    "recent_error_rate": 0.0241,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T21:05:53.768505Z"
+    "last_updated": "2026-08-16T21:09:48.975560Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -73,26 +73,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 6,
+      "last_workers_completed": 8,
       "last_workers_failed": 0,
-      "last_raw_discovered": 2,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
+      "last_raw_discovered": 375,
+      "last_fast_ready": 5,
+      "last_live_ready": 2,
+      "last_recovery_candidates": 5,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.4
       },
       "last_contact_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.4
       },
       "recommended_contact_workers": 16,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0
+      "last_contact_ready": 5,
+      "last_social_or_contact_without_email": 5
     },
     "fresh_search": {
       "last_workers_completed": 4,
@@ -117,14 +117,14 @@
     },
     "wikidata_hospitality": {
       "last_workers_completed": 1,
-      "last_workers_failed": 1,
-      "last_raw_discovered": 0,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
-      "last_recovered_public_emails": 0,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0,
+      "last_workers_failed": 0,
+      "last_raw_discovered": 159,
+      "last_fast_ready": 78,
+      "last_live_ready": 73,
+      "last_recovery_candidates": 107,
+      "last_recovered_public_emails": 42,
+      "last_contact_ready": 78,
+      "last_social_or_contact_without_email": 36,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
