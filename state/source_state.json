@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.33106,
+    "recent_error_rate": 0.26667,
     "recent_429_rate": 0.0,
-    "recent_timeout_rate": 0.0273,
+    "recent_timeout_rate": 0.01333,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T00:46:39.678281Z"
+    "last_updated": "2026-08-16T00:48:49.809867Z"
   },
   "hospitality_lanes": {
     "fast_email": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 4218,
-      "last_fast_ready": 179,
-      "last_live_ready": 106,
+      "last_raw_discovered": 0,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.02235,
-        "error_rate": 0.31844
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -71,26 +71,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 11,
+      "last_workers_completed": 10,
       "last_workers_failed": 0,
-      "last_raw_discovered": 5772,
-      "last_fast_ready": 114,
-      "last_live_ready": 66,
-      "last_recovery_candidates": 118,
-      "last_recovered_public_emails": 21,
+      "last_raw_discovered": 4702,
+      "last_fast_ready": 75,
+      "last_live_ready": 46,
+      "last_recovery_candidates": 77,
+      "last_recovered_public_emails": 13,
       "last_live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.03508,
-        "error_rate": 0.35087
+        "timeout_rate": 0.01333,
+        "error_rate": 0.26667
       },
       "last_contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.02542,
-        "error_rate": 0.0
+        "timeout_rate": 0.02598,
+        "error_rate": 0.01299
       },
       "recommended_contact_workers": 48,
-      "last_contact_ready": 114,
-      "last_social_or_contact_without_email": 93
+      "last_contact_ready": 75,
+      "last_social_or_contact_without_email": 62
     }
   }
 }
