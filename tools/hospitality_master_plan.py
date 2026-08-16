@@ -167,7 +167,7 @@ def fresh_search_tasks(now, coverage):
             "task_type":"fresh_search","name":f"FRESH_SEARCH::{cursor}","country":"MULTI","region":f"FRESH_SEARCH::{cursor}","bbox":f"fresh-search:{cursor}",
             "release":release,"source_final_url":"","spider":"","extract_id":"","search_cursor":cursor,"search_queries":count,
             "lane":"fresh_search","lane_id":f"fresh-search::{cursor}","lane_phase":1,"source_family":"search_fabric_fresh","catalog_layer":"external-source","tier":"SOURCE",
-            "priority":1000-cursor,"key":key,"max_rows":0,"local_workers":32,"contact_workers":24,"contact_timeout":8,
+            "priority":1000-cursor,"key":key,"max_rows":count,"local_workers":32,"contact_workers":24,"contact_timeout":8,
             "contact_max_pages":3,"contact_max_bytes":700000,"revisit_hours":revisit,"source_age_hours":age,"source_changed":changed,
         })
     return tasks, [], cap
