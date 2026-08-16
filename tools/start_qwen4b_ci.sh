@@ -34,8 +34,10 @@ start_server() {
     "$IMAGE"
     -m "/models/${MODEL_FILE}"
     --host 0.0.0.0 --port 8080
-    --ctx-size 8192 --parallel 2 --threads 4
-    --temp 0.3 --top-p 0.8
+    # One worker sends one semantic request at a time. Using parallel=2 split
+    # the global ctx across two slots and cut effective per-request context.
+    --ctx-size 8192 --parallel 1 --threads 4 --threads-batch 4
+    --temp 0.2 --top-p 0.8
   )
   if [[ "$reasoning_flag" == "off" ]]; then
     args+=(--reasoning off)
@@ -58,7 +60,7 @@ health_wait() {
 
 start_server off
 if health_wait; then
-  echo "QWEN4B_READY=http://127.0.0.1:${PORT} reasoning=off"
+  echo "QWEN4B_READY=http://127.0.0.1:${PORT} reasoning=off parallel=1 ctx=8192"
   exit 0
 fi
 
@@ -67,7 +69,7 @@ docker logs --tail 80 hospitality-qwen4b >&2 || true
 docker rm -f hospitality-qwen4b >/dev/null 2>&1 || true
 start_server auto
 if health_wait; then
-  echo "QWEN4B_READY=http://127.0.0.1:${PORT} reasoning=template_default"
+  echo "QWEN4B_READY=http://127.0.0.1:${PORT} reasoning=template_default parallel=1 ctx=8192"
   exit 0
 fi
 
