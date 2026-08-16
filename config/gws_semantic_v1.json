@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "mode": "shadow",
+  "rollout": {
+    "smoke_records": 32,
+    "benchmark_records": 250,
+    "benchmark_workers": 2,
+    "production_max_workers": 10,
+    "production_shard_size": 80,
+    "min_trusted_benchmark": 200,
+    "min_schema_valid_rate": 0.99,
+    "min_trusted_agreement": 0.92,
+    "max_hallucinated_contact_count": 0
+  },
+  "qwen": {
+    "enabled": true,
+    "model_repo": "Qwen/Qwen3-4B-GGUF",
+    "model_revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "model_file": "Qwen3-4B-Q4_K_M.gguf",
+    "model_label": "qwen3-4b-q4_k_m",
+    "prompt_version": "gws-semantic-v1-shadow-high-recall-1",
+    "batch_size": 8,
+    "timeout_seconds": 150,
+    "llama_cpp_image": "ghcr.io/ggml-org/llama.cpp:server"
+  },
+  "selection": {
+    "live_outcomes": ["MEDIUM", "UNCERTAIN"],
+    "live_statuses": ["MEDIUM", "UNCERTAIN"],
+    "benchmark_outcomes": ["HIGH", "REJECT"],
+    "south_priority": ["Uccle", "Ixelles", "Saint-Gilles", "Forest", "Auderghem", "Watermael-Boitsfort"]
+  },
+  "safety": {
+    "shadow_only": true,
+    "can_promote_strict_high": false,
+    "can_demote_strict_high": false,
+    "can_override_deterministic_reject": false,
+    "search_absence_is_negative_proof": false,
+    "invent_contacts": false,
+    "personal_self_hosted_public_repo": false
+  }
+}
