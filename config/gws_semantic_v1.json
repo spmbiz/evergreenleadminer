@@ -3,11 +3,12 @@
   "enabled": true,
   "mode": "shadow",
   "rollout": {
-    "smoke_records": 32,
+    "smoke_records": 8,
     "benchmark_records": 250,
-    "benchmark_workers": 2,
+    "benchmark_workers": 10,
+    "benchmark_shard_size": 20,
     "production_max_workers": 10,
-    "production_shard_size": 80,
+    "production_shard_size": 12,
     "min_trusted_benchmark": 200,
     "min_schema_valid_rate": 0.99,
     "min_trusted_agreement": 0.92,
@@ -20,8 +21,8 @@
     "model_file": "Qwen3-4B-Q4_K_M.gguf",
     "model_label": "qwen3-4b-q4_k_m",
     "prompt_version": "gws-semantic-v1-shadow-ownership-2",
-    "batch_size": 8,
-    "timeout_seconds": 150,
+    "batch_size": 1,
+    "timeout_seconds": 75,
     "llama_cpp_image": "ghcr.io/ggml-org/llama.cpp:server"
   },
   "selection": {
