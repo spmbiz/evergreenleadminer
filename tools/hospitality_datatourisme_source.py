@@ -121,12 +121,12 @@ def get_value(row: dict, *aliases: str) -> str:
 def urls_from_row(row: dict) -> list[str]:
     preferred = []
     for aliases in (
-        ("contact", "contacts", "contactpoi"),
-        ("website", "siteweb", "url", "siteinternet"),
+        ("contact", "contacts", "contactpoi", "contacts_du_poi", "contactsdupoi"),
+        ("website", "siteweb", "url", "siteinternet", "site_internet"),
     ):
         v = get_value(row, *aliases)
         preferred.extend(URL_RE.findall(v))
-    # Contact is the authoritative URL container in current simplified exports.
+    # Contacts_du_POI is the authoritative URL container in current simplified exports.
     out, seen = [], set()
     for raw in preferred:
         url = raw.rstrip(".,;:)\]")
@@ -184,14 +184,18 @@ def main() -> None:
             headers = list(reader.fieldnames or [])
             for row in reader:
                 raw_rows += 1
-                type_value = get_value(row, "type", "types", "categorie", "categories")
+                type_value = get_value(
+                    row,
+                    "type", "types", "categorie", "categories",
+                    "categories_de_poi", "categoriesdupoi", "categorie_du_poi",
+                )
                 type_norm = norm_key(type_value)
                 if type_value:
                     for token in str(type_value).split("|")[:8]:
                         token = token.strip()
                         if token:
                             observed_types[token] = observed_types.get(token, 0) + 1
-                label = get_value(row, "label", "nom", "name", "titre")
+                label = get_value(row, "label", "nom", "name", "titre", "nom_du_poi", "nomdupoi")
                 label_norm = norm_key(label)
                 if not any(k in type_norm or k in label_norm for k in keywords):
                     continue
@@ -211,9 +215,9 @@ def main() -> None:
                 if domain in rows_by_domain:
                     duplicate_domain += 1
                     continue
-                item_id = get_value(row, "id", "uri", "identifier")
-                city = get_value(row, "city", "commune", "ville")
-                street = get_value(row, "street", "adresse", "address")
+                item_id = get_value(row, "id", "uri", "identifier", "uri_id_du_poi", "uriiddupoi")
+                city = get_value(row, "city", "commune", "ville", "code_postal_et_commune", "codepostaletcommune")
+                street = get_value(row, "street", "adresse", "address", "adresse_postale", "adressepostale")
                 description = get_value(row, "description", "comment", "commentaire")
                 premium = 58
                 text = norm_key(" ".join((label, type_value, description)))
