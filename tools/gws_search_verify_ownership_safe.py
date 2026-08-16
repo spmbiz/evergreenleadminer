@@ -9,6 +9,11 @@ gate before any owned-site REJECT is allowed.
 Before any HIGH is emitted, a cheap final challenge searches exact phone/address
 identity and mines domain-looking strings from directory snippets. This catches
 owned website outlinks that a search engine exposes only inside a directory result.
+
+Semantic/Qwen candidate URLs are shadow evidence only. When present, they are
+probed directly before broad search to accelerate a safe owned-site REJECT. A
+semantic candidate can never certify HIGH/no-website; dead, third-party,
+ambiguous, or transient candidates simply fall through to the normal strict path.
 """
 from __future__ import annotations
 
@@ -38,6 +43,72 @@ def _sanitize_owned(row: dict[str, Any], p: dict[str, Any]) -> tuple[dict[str, A
         q["owned_identity"] = {}
         q["owned_via"] = "ownership_gate_withheld"
     return q, assessment
+
+
+def _semantic_candidate_precheck(row: dict[str, Any], c: dict[str, Any]) -> dict[str, Any]:
+    """Probe a Search->Qwen candidate without allowing it to certify HIGH.
+
+    Only a live, identity-matched, ownership-gate-confident first-party URL may
+    short-circuit to REJECT. Everything else is merely recorded and the normal
+    two-pass strict search + final HIGH challenge still runs.
+    """
+    url = str(row.get("semantic_candidate_url") or "").strip()
+    route = str(row.get("semantic_resolution_route") or "").strip().upper()
+    host_class = str(row.get("semantic_candidate_host_class") or "").strip()
+    out: dict[str, Any] = {
+        "attempted": False,
+        "url": url,
+        "route": route,
+        "host_class": host_class,
+        "owned_confirmed": False,
+    }
+    if not url:
+        out["status"] = "NO_CANDIDATE"
+        return out
+    if own.is_third_party(url) or base.v2.platform(url):
+        out["status"] = "THIRD_PARTY_OR_PLATFORM"
+        return out
+
+    out["attempted"] = True
+    try:
+        ev = base.home.probe_host(c, url)
+    except Exception as exc:
+        out.update({"status": "PROBE_EXCEPTION_FALLTHROUGH", "error": str(exc)[:240]})
+        return out
+
+    # Keep a bounded evidence summary in the durable row; the full broad-search
+    # verifier remains authoritative for any no-website conclusion.
+    out["probe"] = {
+        "ok": bool(ev.get("ok")),
+        "matched": bool(ev.get("matched")),
+        "dns_negative": bool(ev.get("dns_negative")),
+        "final": str(ev.get("final") or ""),
+        "error": str(ev.get("error") or "")[:240],
+        "identity": ev.get("identity") or {},
+    }
+    if not ev.get("matched"):
+        if ev.get("dns_negative"):
+            out["status"] = "DEAD_OR_NXDOMAIN_FALLTHROUGH"
+        elif not ev.get("ok"):
+            out["status"] = "TRANSIENT_OR_UNRESOLVED_FALLTHROUGH"
+        else:
+            out["status"] = "LIVE_NOT_IDENTITY_MATCHED_FALLTHROUGH"
+        return out
+
+    p = {
+        "owned": str(ev.get("final") or url),
+        "owned_identity": ev.get("identity") or {},
+        "owned_via": "semantic_candidate_direct_precheck",
+    }
+    assessment = own.assess(row, p)
+    out["assessment"] = assessment
+    if assessment.get("confident"):
+        out["status"] = "OWNED_CONFIRMED"
+        out["owned_confirmed"] = True
+        out["owned"] = p["owned"]
+    else:
+        out["status"] = "IDENTITY_MATCH_OWNERSHIP_WITHHELD_FALLTHROUGH"
+    return out
 
 
 def _challenge_queries(row: dict[str, Any], c: dict[str, Any]) -> tuple[list[str], str]:
@@ -178,6 +249,24 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
 
 
 def classify_strict_safe(row: dict[str, Any], c: dict[str, Any], pe: dict[str, Any], fabric, max_queries: int) -> dict[str, Any]:
+    semantic_precheck = _semantic_candidate_precheck(row, c)
+    if semantic_precheck.get("owned_confirmed"):
+        owned = str(semantic_precheck.get("owned") or "")
+        row.update({
+            "outcome": "REJECT",
+            "reason": "OWNED_SITE_FIRST_PARTY_CONFIRMED_SEMANTIC_CANDIDATE",
+            "needs_gpt_review": False,
+            "verification_status": "REJECT",
+            "verification_provider": "openserp_ci_ownership_safe",
+            "owned_website": owned,
+            "semantic_candidate_precheck": semantic_precheck,
+            "web_pass1": {"skipped": True, "reason": "SEMANTIC_CANDIDATE_OWNERSHIP_CONFIRMED"},
+            "web_pass2": {"skipped": True, "reason": "SEMANTIC_CANDIDATE_OWNERSHIP_CONFIRMED"},
+            "certificate": {"verified": False, "reason": "OWNED_SITE_FIRST_PARTY_SEMANTIC_CANDIDATE"},
+            "certificate_digest": "",
+        })
+        return row
+
     p1_raw = base.strict_pass(c, fabric, 1, max_queries)
     p1, a1 = _sanitize_owned(row, p1_raw)
     if p1.get("owned") and a1.get("confident"):
@@ -189,6 +278,7 @@ def classify_strict_safe(row: dict[str, Any], c: dict[str, Any], pe: dict[str, A
             "verification_provider": "openserp_ci_ownership_safe",
             "owned_website": str(p1.get("owned") or ""),
             "ownership_assessment": a1,
+            "semantic_candidate_precheck": semantic_precheck,
             "web_pass1": p1,
             "web_pass2": {"skipped": True, "reason": "FIRST_PARTY_OWNERSHIP_CONFIRMED_PASS1"},
             "certificate": {"verified": False, "reason": "OWNED_SITE_FIRST_PARTY_PASS1"},
@@ -244,6 +334,7 @@ def classify_strict_safe(row: dict[str, Any], c: dict[str, Any], pe: dict[str, A
         "verification_status": verify,
         "verification_provider": "openserp_ci_ownership_safe",
         "owned_website": owned,
+        "semantic_candidate_precheck": semantic_precheck,
         "ownership_assessment_pass1": a1,
         "ownership_assessment_pass2": a2,
         "ownership_ambiguous_candidates": ambiguous,
