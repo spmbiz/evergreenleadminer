@@ -31805,12 +31805,12 @@
       "region": "FRESH_SEARCH::0",
       "bbox": "fresh-search:0",
       "release": "daily",
-      "status": "complete",
-      "last_attempt": "2026-08-16T21:16:22.187320Z",
+      "status": "failed_retryable",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
       "last_success": "2026-08-16T21:16:22.187320Z",
-      "consecutive_failures": 0,
-      "last_live_ready": 3,
-      "last_elapsed_seconds": 21.68
+      "consecutive_failures": 1,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 24.87
     },
     "9264cb45112059e4": {
       "name": "FRESH_SEARCH::60",
@@ -31819,11 +31819,11 @@
       "bbox": "fresh-search:60",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T21:16:22.187320Z",
-      "last_success": "2026-08-16T21:16:22.187320Z",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
       "consecutive_failures": 0,
-      "last_live_ready": 26,
-      "last_elapsed_seconds": 38.9
+      "last_live_ready": 17,
+      "last_elapsed_seconds": 37.9
     },
     "c3eb840720ac1e49": {
       "name": "FRESH_SEARCH::30",
@@ -31832,11 +31832,11 @@
       "bbox": "fresh-search:30",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T21:16:22.187320Z",
-      "last_success": "2026-08-16T21:16:22.187320Z",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
       "consecutive_failures": 0,
-      "last_live_ready": 8,
-      "last_elapsed_seconds": 29.16
+      "last_live_ready": 27,
+      "last_elapsed_seconds": 45.83
     },
     "79b996efb119f732": {
       "name": "FRESH_SEARCH::90",
@@ -31844,12 +31844,12 @@
       "region": "FRESH_SEARCH::90",
       "bbox": "fresh-search:90",
       "release": "daily",
-      "status": "complete",
-      "last_attempt": "2026-08-16T21:16:22.187320Z",
+      "status": "failed_retryable",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
       "last_success": "2026-08-16T21:16:22.187320Z",
-      "consecutive_failures": 0,
-      "last_live_ready": 6,
-      "last_elapsed_seconds": 25.7
+      "consecutive_failures": 1,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 29.04
     },
     "46dd88b415655826": {
       "name": "atlas-13-25--site-recovery",
@@ -37986,6 +37986,84 @@
       "consecutive_failures": 0,
       "last_live_ready": 5,
       "last_elapsed_seconds": 10.6
+    },
+    "e3fa93740c54024f": {
+      "name": "WIKIDATA::GB::300",
+      "country": "United Kingdom",
+      "region": "WIKIDATA::GB::300",
+      "bbox": "wikidata:Q145:300",
+      "release": "2026-08-16",
+      "status": "failed_retryable",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": null,
+      "consecutive_failures": 1,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 125.08
+    },
+    "532a3025bd71350d": {
+      "name": "atlas-14-50--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::asia::14-50::lane=site-recovery",
+      "bbox": "70.000000,10.000000,75.000000,15.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 2,
+      "last_elapsed_seconds": 14.77
+    },
+    "52b230bf49de68a8": {
+      "name": "atlas-22-48--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::asia::22-48::lane=site-recovery",
+      "bbox": "60.000000,50.000000,65.000000,55.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 5.4
+    },
+    "52e86d7480dd58e1": {
+      "name": "atlas-23-44--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::europe-north-africa::23-44::lane=site-recovery",
+      "bbox": "40.000000,55.000000,45.000000,60.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 4,
+      "last_elapsed_seconds": 51.59
+    },
+    "5389f5450feb6ac6": {
+      "name": "atlas-09-06--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::pacific-west::09-06::lane=site-recovery",
+      "bbox": "-150.000000,-15.000000,-145.000000,-10.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 1,
+      "last_elapsed_seconds": 3.17
+    },
+    "53caa9c6c62d56dc": {
+      "name": "atlas-09-03--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::pacific-west::09-03::lane=site-recovery",
+      "bbox": "-165.000000,-15.000000,-160.000000,-10.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T21:20:26.447645Z",
+      "last_success": "2026-08-16T21:20:26.447645Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 7.45
     }
   }
 }
