@@ -5,9 +5,9 @@
   "rollout": {
     "smoke_records": 8,
     "benchmark_records": 250,
-    "benchmark_workers": 10,
+    "benchmark_workers": 1,
     "benchmark_shard_size": 8,
-    "production_max_workers": 10,
+    "production_max_workers": 1,
     "production_shard_size": 8,
     "min_trusted_benchmark": 200,
     "min_schema_valid_rate": 0.99,
@@ -20,8 +20,8 @@
     "model_revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
     "model_file": "Qwen3-4B-Q4_K_M.gguf",
     "model_label": "qwen3-4b-q4_k_m",
-    "prompt_version": "gws-semantic-v1-shadow-ownership-5-fast-checkpointed-search",
-    "batch_size": 2,
+    "prompt_version": "gws-semantic-v1-shadow-ownership-6-compact-qwen",
+    "batch_size": 1,
     "timeout_seconds": 45,
     "llama_cpp_image": "ghcr.io/ggml-org/llama.cpp:server"
   },
