@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T21:40:00Z",
+  "requested_at": "2026-08-16T22:44:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "source-rebalance-production-smoke-retry",
-  "force_workers": 0,
+  "mode": "compound-qwen-production-smoke",
+  "force_workers": 2,
   "force_lane": "",
-  "note": "Retry normal broker/autoscaler production smoke after the prior pre-patch hospitality lease was released. Validate zero site_recovery selection, Wikidata cap 2, bounded DATAtourisme cap 1, existing FreshSearch/ATP/OSM behavior, canonical dedupe, broker capacity, and single-writer aggregate invariants."
+  "note": "Post-merge production smoke for compound Qwen architecture. Validate two brokered harvest workers when capacity permits, no site_recovery selection, harvest completes before bounded Qwen Intelligence sidecar on the same physical runner, standalone scheduled Intelligence does not steal harvest capacity, compound aggregate remains fail-open/fill-only under hospitality-canonical-writer, and canonical/inflight/dedupe invariants remain intact."
 }
