@@ -1,0 +1,60 @@
+name: GWS Semantic CI
+
+on:
+  pull_request:
+    paths:
+      - 'config/gws_semantic_v1.json'
+      - 'tools/gws_qwen_semantic.py'
+      - 'tools/gws_semantic_*.py'
+      - '.github/workflows/gws-semantic-fleet.yml'
+      - '.github/workflows/gws-semantic-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check requests pyyaml
+      - name: Static compile and workflow parse
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/gws_qwen_semantic.py tools/gws_semantic_plan.py tools/gws_semantic_worker.py tools/gws_semantic_aggregate.py tools/gws_semantic_capacity.py tools/test_gws_semantic.py
+          python -m json.tool config/gws_semantic_v1.json >/dev/null
+          python - <<'PY'
+          import yaml
+          for p in ['.github/workflows/gws-semantic-fleet.yml','.github/workflows/gws-semantic-ci.yml']:
+              with open(p,encoding='utf-8') as f: yaml.safe_load(f)
+              print('YAML_OK',p)
+          PY
+          bash -n tools/start_qwen4b_ci.sh
+      - name: Run semantic safety tests
+        env:
+          PYTHONPATH: tools
+        run: python -m unittest -v tools/test_gws_semantic.py
+      - name: Validate non-negotiable guards
+        run: |
+          python - <<'PY'
+          import json
+          c=json.load(open('config/gws_semantic_v1.json'))
+          s=c['safety']
+          assert s['shadow_only'] is True
+          assert s['can_promote_strict_high'] is False
+          assert s['can_demote_strict_high'] is False
+          assert s['can_override_deterministic_reject'] is False
+          assert s['search_absence_is_negative_proof'] is False
+          assert s['invent_contacts'] is False
+          assert s['personal_self_hosted_public_repo'] is False
+          q=c['qwen']
+          assert q['model_repo']=='Qwen/Qwen3-4B-GGUF'
+          assert q['model_file']=='Qwen3-4B-Q4_K_M.gguf'
+          print('GWS_SEMANTIC_GUARDS_OK=1')
+          PY
