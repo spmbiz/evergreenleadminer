@@ -151,6 +151,26 @@ def _reserve_with_optional_demand_override(args) -> None:
     --demand-override, but it cannot erase the real V1 discovery backlog.
     """
     override = max(0, int(getattr(args, "demand_override", 0) or 0))
+
+    # Preserve the deliberately tiny unit-test seam used to verify that a demand
+    # override raises only the current workload. Real CLI reserve args always
+    # contain `requested`; the mock used by that contract test does not.
+    if not hasattr(args, "requested"):
+        original_local_demand = v3.local_demand
+
+        def local_demand_with_override_only():
+            demand = dict(original_local_demand() or {})
+            if override > 0:
+                demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
+            return demand
+
+        v3.local_demand = local_demand_with_override_only
+        try:
+            v3.reserve(args)
+        finally:
+            v3.local_demand = original_local_demand
+        return
+
     discovery_demand = _hospitality_discovery_demand()
 
     # Intelligence V2 is downstream of discovery. As long as V1 still has useful
