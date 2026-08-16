@@ -7,6 +7,10 @@ The canonical database deliberately remains recall-first. This gate is downstrea
 - assign S/A/B/C/REJECT commercial tiers;
 - expose only contactable S/A and strong B accounts as outreach-ready.
 
+Two valid commercial paths are intentionally supported:
+1) premium multi-property operators / managers with leverage;
+2) clearly premium standalone hotels, resorts and visually strong properties.
+
 Nothing here deletes or rewrites canonical rows. Missing evidence stays missing.
 """
 from __future__ import annotations
@@ -23,12 +27,15 @@ PREMIUM_TERMS = (
     "retreat", "estate", "residence", "residences", "penthouse", "beachfront",
     "oceanfront", "waterfront", "private pool", "infinity pool", "private beach",
     "ski-in", "ski in", "design hotel", "designer hotel", "exclusive", "five-star",
-    "five star", "5-star", "5 star",
+    "five star", "5-star", "5 star", "spa resort", "wellness hotel",
 )
 CONTACT_FIELDS = ("public_email", "public_phone", "instagram", "facebook", "whatsapp", "contact_page")
 GOOD_FIT = {"STRONG_FIT", "FIT"}
 V1_LIVE = {"HIGH", "MEDIUM", "PERMISSIVE"}
 V1_TIERS = {"A", "B"}
+PREMIUM_PROPERTY_TYPES = {
+    "BOUTIQUE_HOTEL", "RESORT", "SERVICED_ACCOMMODATION", "SHORT_STAY_OPERATOR", "OTHER_HOSPITALITY"
+}
 
 
 def truthy(v: Any) -> bool:
@@ -107,6 +114,7 @@ def contact_routes(v2: dict[str, Any]) -> list[str]:
 def evaluate(v2: dict[str, Any], v1: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     fit = str(v2.get("fit_decision") or "MAYBE").upper()
     entity = str(v2.get("entity_match") or "UNCERTAIN").upper()
+    business = str(v2.get("business_type") or "UNCERTAIN").upper()
     confidence = as_float(v2.get("confidence"))
     commercial = as_int(v2.get("commercial_score"))
     contactability = as_int(v2.get("contactability_score"))
@@ -125,12 +133,23 @@ def evaluate(v2: dict[str, Any], v1: dict[str, Any], cfg: dict[str, Any]) -> dic
     portfolio_min = as_int(cfg.get("portfolio_signal_count"), 3)
     strong_portfolio_min = as_int(cfg.get("strong_portfolio_count"), 10)
     b_contact_min = as_int(cfg.get("good_b_contactability_min"), 48)
+    premium_property_score_min = as_int(cfg.get("premium_property_score_min"), 60)
+    premium_property_commercial_min = as_int(cfg.get("premium_property_commercial_min"), 58)
 
     v1_permissive = live in V1_LIVE and v1_fit in V1_TIERS
     premium_signal = premium >= premium_min or bool(hits)
     strong_premium = premium >= strong_premium_min or len(hits) >= 2
     portfolio_signal = properties >= portfolio_min or leverage >= 55 or operator >= 60
     strong_portfolio = properties >= strong_portfolio_min or leverage >= 75 or operator >= 80
+    premium_property_path = (
+        fit in GOOD_FIT
+        and confidence >= max(min_conf, 0.75)
+        and live in V1_LIVE
+        and business in PREMIUM_PROPERTY_TYPES
+        and premium >= premium_property_score_min
+        and strong_premium
+        and contactability >= b_contact_min
+    )
     hard_reject = fit == "REJECT_OBVIOUS" or entity == "WRONG" or live == "REJECT"
     classifier_uncertain = truthy(v2.get("classifier_error")) or confidence < min_conf
 
@@ -144,6 +163,9 @@ def evaluate(v2: dict[str, Any], v1: dict[str, Any], cfg: dict[str, Any]) -> dic
     elif fit in GOOD_FIT and commercial >= 85 and strong_premium and strong_portfolio:
         tier = "S"
         reasons.append("strong_fit_premium_and_portfolio")
+    elif premium_property_path and commercial >= premium_property_commercial_min:
+        tier = "A"
+        reasons.append("premium_standalone_property_path")
     elif fit in GOOD_FIT and commercial >= 72 and premium_signal and portfolio_signal:
         tier = "A"
         reasons.append("fit_plus_premium_plus_portfolio")
@@ -157,11 +179,11 @@ def evaluate(v2: dict[str, Any], v1: dict[str, Any], cfg: dict[str, Any]) -> dic
         tier = "C"
         if not premium_signal:
             reasons.append("insufficient_premium_evidence")
-        if not portfolio_signal:
-            reasons.append("insufficient_portfolio_leverage")
+        if not portfolio_signal and not premium_property_path:
+            reasons.append("insufficient_portfolio_or_premium_property_evidence")
         if fit not in GOOD_FIT:
             reasons.append("semantic_fit_not_confirmed")
-        if commercial < 62:
+        if commercial < min(62, premium_property_commercial_min):
             reasons.append("commercial_score_below_outreach_floor")
 
     ready = False
@@ -193,6 +215,7 @@ def evaluate(v2: dict[str, Any], v1: dict[str, Any], cfg: dict[str, Any]) -> dic
         "premium_signal": premium_signal,
         "premium_evidence_hits": hits[:12],
         "portfolio_signal": portfolio_signal,
+        "premium_property_path": premium_property_path,
     })
     return out
 
@@ -245,11 +268,12 @@ def main() -> None:
         "outreach_ready_s": sum(1 for r in ready if r.get("commercial_tier") == "S"),
         "outreach_ready_a": sum(1 for r in ready if r.get("commercial_tier") == "A"),
         "outreach_ready_b": sum(1 for r in ready if r.get("commercial_tier") == "B"),
+        "premium_property_path": sum(1 for r in scored if r.get("premium_property_path")),
         "qualified_missing_contact": sum(
             1 for r in scored
             if r.get("commercial_tier") in {"S", "A", "B"} and not r.get("public_contact_routes")
         ),
-        "rule": "V1 permissive evidence + V2 semantic/portfolio scoring; canonical untouched; outreach exposes S/A + strong B only.",
+        "rule": "V1 permissive evidence + V2 semantic/portfolio scoring; operator and premium-property paths; canonical untouched; outreach exposes S/A + strong B only.",
     }
     (outdir / "outreach-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
