@@ -7,17 +7,17 @@
     16,
     20
   ],
-  "recommended_cloud_workers": 16,
-  "last_cycle": "20260816T011809Z-github-multilane",
-  "last_decision": "demote_cloud_source_pressure",
-  "updated_at": "2026-08-16T01:20:06.479792Z",
+  "recommended_cloud_workers": 20,
+  "last_cycle": "20260816T012106Z-github-multilane",
+  "last_decision": "promote_disjoint_shard_canary",
+  "updated_at": "2026-08-16T01:22:02.293977Z",
   "last_health": {
-    "429_rate": 0.0303,
-    "timeout_rate": 0.0303,
-    "site_error_rate": 0.21212,
+    "429_rate": 0.0,
+    "timeout_rate": 0.0,
+    "site_error_rate": 0.33333,
     "workers_failed": 0
   },
   "last_workers_completed": 10,
-  "last_live_ready": 24,
-  "last_live_ready_per_worker": 2.4
+  "last_live_ready": 2,
+  "last_live_ready_per_worker": 0.2
 }
