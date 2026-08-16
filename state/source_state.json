@@ -6,7 +6,7 @@
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T19:28:33.430599Z"
+    "last_updated": "2026-08-16T19:31:41.926538Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -71,9 +71,9 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 3,
+      "last_workers_completed": 5,
       "last_workers_failed": 0,
-      "last_raw_discovered": 67,
+      "last_raw_discovered": 4,
       "last_fast_ready": 0,
       "last_live_ready": 0,
       "last_recovery_candidates": 0,
@@ -95,13 +95,34 @@
     "fresh_search": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 369,
+      "last_raw_discovered": 474,
       "last_fast_ready": 56,
       "last_live_ready": 52,
-      "last_recovery_candidates": 84,
-      "last_recovered_public_emails": 26,
+      "last_recovery_candidates": 88,
+      "last_recovered_public_emails": 23,
       "last_contact_ready": 56,
-      "last_social_or_contact_without_email": 30,
+      "last_social_or_contact_without_email": 33,
+      "last_live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      },
+      "last_contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      }
+    },
+    "wikidata_hospitality": {
+      "last_workers_completed": 1,
+      "last_workers_failed": 1,
+      "last_raw_discovered": 0,
+      "last_fast_ready": 0,
+      "last_live_ready": 0,
+      "last_recovery_candidates": 0,
+      "last_recovered_public_emails": 0,
+      "last_contact_ready": 0,
+      "last_social_or_contact_without_email": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
