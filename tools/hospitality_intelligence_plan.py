@@ -23,6 +23,8 @@ def main() -> None:
     ap.add_argument('--config', required=True)
     ap.add_argument('--outdir', required=True)
     ap.add_argument('--force', action='store_true')
+    ap.add_argument('--max-accounts', type=int, default=0, help='Optional one-run cap; 0 keeps config value')
+    ap.add_argument('--max-workers', type=int, default=0, help='Optional one-run worker cap; 0 keeps config value')
     a = ap.parse_args()
 
     cfg = load_config(a.config)
@@ -42,7 +44,8 @@ def main() -> None:
 
     retry_hours = int(cfg.get('retry_hours') or 48)
     refresh_days = int(cfg.get('refresh_days') or 30)
-    max_accounts = int(cfg.get('max_accounts_per_pass') or 10000)
+    configured_max_accounts = int(cfg.get('max_accounts_per_pass') or 10000)
+    max_accounts = int(a.max_accounts) if int(a.max_accounts or 0) > 0 else configured_max_accounts
     candidates = []
     counts = {'canonical_total': len(rows), 'new': 0, 'changed': 0, 'retry': 0, 'stale': 0, 'unchanged_skipped': 0}
 
@@ -90,7 +93,8 @@ def main() -> None:
     if max_accounts > 0:
         candidates = candidates[:max_accounts]
 
-    max_workers = max(1, int(cfg.get('max_workers') or 10))
+    configured_max_workers = max(1, int(cfg.get('max_workers') or 10))
+    max_workers = min(configured_max_workers, max(1, int(a.max_workers))) if int(a.max_workers or 0) > 0 else configured_max_workers
     shard_size = max(1, int(cfg.get('shard_size') or 250))
     worker_count = min(max_workers, max(1, math.ceil(len(candidates) / shard_size))) if candidates else 0
     if candidates and worker_count:
@@ -117,9 +121,11 @@ def main() -> None:
         'counts': counts,
         'config': {
             'max_workers': max_workers,
+            'max_accounts': max_accounts,
             'shard_size': shard_size,
             'retry_hours': retry_hours,
             'refresh_days': refresh_days,
+            'smoke_override': bool(int(a.max_accounts or 0) > 0 or int(a.max_workers or 0) > 0),
         },
     }
     (out / 'plan.json').write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
