@@ -120,9 +120,11 @@ jobs:
           git config user.email 'actions@users.noreply.github.com'
           git add \
             state/gws_verify_index.json \
+            state/gws_semantic_index.json \
             gpt/gws_pending_batches.json \
             gpt/gws_verified_pending.json \
             gpt/gws_verified_review/ \
+            gpt/gws_semantic_hard_review/ \
             data/gws/verification/ \
             metrics/gws_verify_latest.json \
             metrics/gws_verify_history.jsonl
