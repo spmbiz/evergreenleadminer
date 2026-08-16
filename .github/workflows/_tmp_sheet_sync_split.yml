@@ -1,0 +1,40 @@
+name: tmp-sheet-sync-split
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_sheet_sync_split.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Split compact staging into pasteable blocks
+        shell: python
+        run: |
+          import pathlib, shutil, json
+          src=pathlib.Path('gpt/_tmp_sync_compact')
+          out=pathlib.Path('gpt/_tmp_sync_paste')
+          if out.exists(): shutil.rmtree(out)
+          out.mkdir(parents=True)
+          manifest=[]
+          for f in sorted(src.glob('[0-9][0-9]_*.tsv')):
+            lines=f.read_text(encoding='utf-8').splitlines()
+            assert len(lines)==50,(f,len(lines))
+            for j in range(0,50,10):
+              p=out/f'{f.stem}_p{j//10}.tsv'
+              p.write_text('\n'.join(lines[j:j+10])+'\n',encoding='utf-8')
+              manifest.append({'file':p.name,'records':10})
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+      - name: Commit blocks
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gpt/_tmp_sync_paste
+          git commit -m 'chore: split hospitality sync staging [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push
