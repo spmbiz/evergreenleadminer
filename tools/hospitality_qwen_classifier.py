@@ -14,21 +14,13 @@ BUSINESS = {
 }
 FIT = {'STRONG_FIT', 'FIT', 'MAYBE', 'REJECT_OBVIOUS'}
 
-SYSTEM_PROMPT = '''You are a high-recall hospitality account triage classifier for an AI production sales harvester.
-Your job is NOT to be aggressive. Preserve plausible commercial opportunities.
-
-Rules:
-- Operators, villa managers, vacation-rental agencies, holiday-home operators, boutique hotels, resorts, serviced accommodation and multi-property managers are valuable.
-- A novel, unusual, unclear, brokerable, premium or potentially multi-property business should survive as FIT or MAYBE.
-- REJECT_OBVIOUS only when supplied evidence clearly shows the business is unrelated to short-stay/hospitality opportunity, or clearly generic long-term property management with no short-stay evidence.
-- Insufficient evidence means MAYBE/UNCERTAIN, not rejection.
-- Never invent contact information, property counts, company identity, location, services or facts.
-- Use only supplied evidence.
-- Entity: MATCH, PROBABLE, WRONG, UNCERTAIN.
-- Business: SHORT_STAY_OPERATOR, PROPERTY_MANAGER_SHORT_STAY, BOUTIQUE_HOTEL, RESORT, SERVICED_ACCOMMODATION, OTHER_HOSPITALITY, LONG_TERM_PROPERTY_MANAGEMENT, UNRELATED, UNCERTAIN.
-- Fit: STRONG_FIT, FIT, MAYBE, REJECT_OBVIOUS.
-Return ONLY JSON: {"items":[{"account_id":"...","entity_match":"...","business_type":"...","fit_decision":"...","confidence":0.0,"unusual_or_novel":false,"matching_evidence":["..."],"contradictions":["..."],"reason":"short evidence-grounded reason"}]}
-Return exactly one item per input account_id.'''
+SYSTEM_PROMPT = '''High-recall hospitality sales triage. Preserve plausible opportunities.
+Valuable: vacation-rental operators, villa/holiday-home managers, boutique hotels, resorts, serviced accommodation and multi-property hospitality managers.
+REJECT_OBVIOUS only with clear supplied evidence of irrelevance. Unclear or insufficient evidence => MAYBE/UNCERTAIN. Never invent facts or contacts.
+Entity: MATCH|PROBABLE|WRONG|UNCERTAIN.
+Business: SHORT_STAY_OPERATOR|PROPERTY_MANAGER_SHORT_STAY|BOUTIQUE_HOTEL|RESORT|SERVICED_ACCOMMODATION|OTHER_HOSPITALITY|LONG_TERM_PROPERTY_MANAGEMENT|UNRELATED|UNCERTAIN.
+Fit: STRONG_FIT|FIT|MAYBE|REJECT_OBVIOUS.
+Return ONLY JSON {"items":[...]}. Exactly one item per account_id. For each item: account_id, entity_match, business_type, fit_decision, confidence 0..1, unusual_or_novel, matching_evidence (max 2 short strings), contradictions (max 1 short string), reason (max 14 words).'''
 
 
 def _short(value: Any, limit: int) -> str:
@@ -41,35 +33,35 @@ def compact_record(rec: dict[str, Any]) -> dict[str, Any]:
     search = rec.get('search_results') or []
     raw = account.get('raw') or {}
     first = portfolio.get('first_party') or {}
+    keep_link_keys = ('contact_page', 'portfolio_url', 'instagram', 'facebook', 'whatsapp', 'public_email')
+    compact_links = {k: _short(first.get(k), 180) for k in keep_link_keys if first.get(k)}
     return {
         'account_id': _short(account.get('account_id'), 160),
-        'name': _short(account.get('name'), 220),
-        'country': _short(account.get('country'), 80),
-        'region': _short(account.get('region'), 120),
-        'city': _short(account.get('city'), 120),
-        'website': _short(account.get('website'), 300),
-        'public_email_present': bool(account.get('public_email')),
-        'public_phone_present': bool(account.get('public_phone')),
-        'existing_fit_tier': _short(account.get('fit_tier'), 40),
+        'name': _short(account.get('name'), 180),
+        'country': _short(account.get('country'), 60),
+        'region': _short(account.get('region'), 90),
+        'city': _short(account.get('city'), 90),
+        'website': _short(account.get('website'), 220),
+        'email': bool(account.get('public_email')),
+        'phone': bool(account.get('public_phone')),
+        'fit_tier': _short(account.get('fit_tier'), 24),
         'operator_score': account.get('operator_score'),
         'premium_score': account.get('premium_score'),
-        # Keep batches inside the 8k llama.cpp context even when Search Fabric
-        # returns verbose snippets. Full evidence stays in the durable ledger.
-        'homepage_excerpt': _short(portfolio.get('homepage_excerpt'), 1100),
-        'property_count_from_public_urls': int(portfolio.get('property_count_known') or 0),
-        'pms_fingerprints': [_short(x, 80) for x in (portfolio.get('pms_fingerprints') or [])[:8]],
-        'first_party_links': {str(k)[:80]: _short(v, 300) for k, v in list(first.items())[:10]},
-        'search_results': [
+        'homepage_excerpt': _short(portfolio.get('homepage_excerpt'), 650),
+        'public_property_urls': int(portfolio.get('property_count_known') or 0),
+        'pms': [_short(x, 60) for x in (portfolio.get('pms_fingerprints') or [])[:5]],
+        'first_party': compact_links,
+        'search': [
             {
-                'provider': _short(x.get('provider'), 40),
-                'query_family': _short(x.get('query_family'), 60),
-                'title': _short(x.get('title'), 160),
-                'url': _short(x.get('url'), 300),
-                'snippet': _short(x.get('snippet'), 260),
+                'p': _short(x.get('provider'), 24),
+                'f': _short(x.get('query_family'), 40),
+                't': _short(x.get('title'), 110),
+                'u': _short(x.get('url'), 220),
+                's': _short(x.get('snippet'), 180),
             }
-            for x in search[:4]
+            for x in search[:3]
         ],
-        'source_categories': _short(raw.get('categories') or raw.get('category'), 300),
+        'categories': _short(raw.get('categories') or raw.get('category'), 180),
     }
 
 
@@ -106,9 +98,9 @@ def validate_item(item: dict[str, Any], expected_ids: set[str]) -> dict[str, Any
         'fit_decision': fit,
         'confidence': conf,
         'unusual_or_novel': bool(item.get('unusual_or_novel')),
-        'matching_evidence': [str(x)[:300] for x in (item.get('matching_evidence') or [])[:8]],
-        'contradictions': [str(x)[:300] for x in (item.get('contradictions') or [])[:8]],
-        'reason': str(item.get('reason') or '')[:700],
+        'matching_evidence': [str(x)[:180] for x in (item.get('matching_evidence') or [])[:2]],
+        'contradictions': [str(x)[:180] for x in (item.get('contradictions') or [])[:1]],
+        'reason': str(item.get('reason') or '')[:240],
     }
 
 
@@ -117,7 +109,7 @@ def fallback(records: list[dict[str, Any]], error: str) -> list[dict[str, Any]]:
         'account_id': (r.get('account') or r).get('account_id'),
         'entity_match': 'UNCERTAIN', 'business_type': 'UNCERTAIN', 'fit_decision': 'MAYBE',
         'confidence': 0.0, 'unusual_or_novel': False, 'matching_evidence': [], 'contradictions': [],
-        'reason': f'Classifier unavailable or invalid: {error}'[:700], '_classifier_error': error[:500],
+        'reason': f'Classifier unavailable or invalid: {error}'[:240], '_classifier_error': error[:500],
     } for r in records]
 
 
@@ -145,20 +137,25 @@ def _parse_response(data: dict[str, Any], expected: set[str]) -> dict[str, dict[
     return valid
 
 
+def _payload(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
+    payload_records = [compact_record(r) for r in records]
+    encoded = json.dumps(payload_records, ensure_ascii=False, separators=(',', ':'))
+    return payload_records, encoded
+
+
 def _request_once(records: list[dict[str, Any]], base_url: str, model_label: str, timeout: float, constrained: bool) -> tuple[dict[str, dict[str, Any]] | None, str]:
     expected = {str((r.get('account') or r).get('account_id') or '') for r in records}
-    payload_records = [compact_record(r) for r in records]
-    user = 'Classify these hospitality accounts. Preserve uncertain and novel opportunities. Return only the requested JSON.\nINPUT=' + json.dumps(payload_records, ensure_ascii=False, separators=(',', ':'))
+    _, encoded = _payload(records)
+    user = 'Classify. Preserve uncertain/novel opportunities. JSON only. INPUT=' + encoded
     body: dict[str, Any] = {
         'model': model_label,
         'messages': [{'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': user}],
-        'temperature': 0.2,
+        'temperature': 0.15,
         'top_p': 0.8,
-        'max_tokens': max(450, min(1800, 180 * len(records) + 260)),
+        # Keep output bounded: labels + terse evidence are enough for routing.
+        'max_tokens': max(260, min(1050, 105 * len(records) + 160)),
         'stream': False,
     }
-    # llama-server is already started with --reasoning off. Keep the first
-    # request deliberately minimal for maximum OpenAI-route compatibility.
     if constrained:
         body['response_format'] = {'type': 'json_object'}
     try:
@@ -166,8 +163,7 @@ def _request_once(records: list[dict[str, Any]], base_url: str, model_label: str
         if r.status_code >= 400:
             detail = _short(getattr(r, 'text', ''), 320).replace('\n', ' ')
             return None, f'HTTP_{r.status_code}:{detail}'
-        data = r.json()
-        return _parse_response(data, expected), ''
+        return _parse_response(r.json(), expected), ''
     except Exception as exc:
         return None, f'{type(exc).__name__}:{str(exc)[:320]}'
 
@@ -176,16 +172,18 @@ def _classify_adaptive(records: list[dict[str, Any]], base_url: str, model_label
     if not records:
         return []
 
-    # 1) Minimal OpenAI-compatible request. 2) JSON-constrained retry if the
-    # model answered but formatting was bad. Both profiles are supported by
-    # current llama.cpp; minimal first avoids optional-field regressions.
+    # Avoid a known-bad oversized request entirely. 18k UTF-8-ish characters
+    # leaves ample headroom for system prompt and <=1050 output tokens inside
+    # the single 8192-token llama.cpp slot.
+    _, encoded = _payload(records)
+    if len(records) > 1 and len(encoded) > 18000:
+        mid = max(1, len(records) // 2)
+        return _classify_adaptive(records[:mid], base_url, model_label, timeout) + _classify_adaptive(records[mid:], base_url, model_label, timeout)
+
     valid, err1 = _request_once(records, base_url, model_label, timeout, constrained=False)
-    if valid is None and not err1.startswith('HTTP_4'):
+    err2 = ''
+    if valid is None and (not err1.startswith('HTTP_4') or 'json' in err1.lower() or 'parse' in err1.lower()):
         valid, err2 = _request_once(records, base_url, model_label, timeout, constrained=True)
-    elif valid is None and ('json' in err1.lower() or 'parse' in err1.lower()):
-        valid, err2 = _request_once(records, base_url, model_label, timeout, constrained=True)
-    else:
-        err2 = ''
 
     if valid is not None:
         out = []
@@ -194,14 +192,10 @@ def _classify_adaptive(records: list[dict[str, Any]], base_url: str, model_label
             out.append(valid.get(aid) or fallback([rec], 'MISSING_ITEM')[0])
         return out
 
-    # A 400 on a multi-account batch is commonly context/grammar pressure.
-    # Split recursively rather than marking the entire shard unavailable.
     if len(records) > 1:
         mid = max(1, len(records) // 2)
         return _classify_adaptive(records[:mid], base_url, model_label, timeout) + _classify_adaptive(records[mid:], base_url, model_label, timeout)
 
-    # Last single-record attempt with JSON constraint covers a model that
-    # requires grammar to emit parseable JSON but rejects larger batches.
     valid, err3 = _request_once(records, base_url, model_label, timeout, constrained=True)
     if valid is not None:
         aid = str((records[0].get('account') or records[0]).get('account_id') or '')
