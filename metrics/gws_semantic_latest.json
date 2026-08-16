@@ -1,34 +1,35 @@
 {
-  "at": "2026-08-16T11:53:28+00:00",
-  "benchmark_passed": 2,
-  "benchmark_total": 2,
+  "at": "2026-08-16T12:10:47+00:00",
+  "benchmark_passed": 0,
+  "benchmark_total": 0,
   "canonical_high_mutations": 0,
   "decisions": {
-    "UNCERTAIN": 72
+    "UNCERTAIN": 80
   },
-  "gpt_review_added": 70,
+  "gpt_review_added": 80,
   "hallucinated_contact_count": 0,
   "next_stage": "benchmark_waiting",
-  "processed": 72,
+  "processed": 80,
   "qwen_classified": 0,
-  "qwen_unavailable_or_invalid": 72,
-  "resolution_queued": 70,
+  "qwen_unavailable_or_invalid": 80,
+  "resolution_queued": 80,
   "resolution_routes": {
-    "GPT_SEARCH_REVIEW": 55,
-    "STRICT_NO_SITE_RECHECK": 15
+    "GPT_SEARCH_REVIEW": 68,
+    "STRICT_NO_SITE_RECHECK": 11,
+    "TARGETED_OWNERSHIP_RECHECK": 1
   },
   "rollout_reason": "benchmark_gate_not_met_live_shadow_continues",
   "schema_valid_rate": 0.0,
   "schema_version": 2,
   "stage": "benchmark",
   "strict_high_overrides": 0,
-  "targeted_candidates": 833,
-  "targeted_first_party_confirmed": 0,
-  "targeted_probes": 264,
+  "targeted_candidates": 949,
+  "targeted_first_party_confirmed": 1,
+  "targeted_probes": 290,
   "targeted_search_errors": 0,
-  "targeted_search_records": 70,
-  "trusted_agreement": 1.0,
+  "targeted_search_records": 80,
+  "trusted_agreement": 0.0,
   "website_states": {
-    "UNCERTAIN": 72
+    "UNCERTAIN": 80
   }
 }

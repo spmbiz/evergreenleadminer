@@ -1,33 +1,34 @@
 {
   "backlog": {
-    "eligible_benchmark": 2,
-    "eligible_live": 718
+    "eligible_benchmark": 0,
+    "eligible_live": 648
   },
   "last_run": {
-    "benchmark_passed": 2,
-    "benchmark_total": 2,
+    "benchmark_passed": 0,
+    "benchmark_total": 0,
     "classified": 0,
     "decisions": {
-      "UNCERTAIN": 72
+      "UNCERTAIN": 80
     },
-    "errors": 72,
+    "errors": 80,
     "hallucinated_contact_count": 0,
-    "processed": 72,
-    "resolution_queued": 70,
+    "processed": 80,
+    "resolution_queued": 80,
     "resolution_routes": {
-      "GPT_SEARCH_REVIEW": 55,
-      "STRICT_NO_SITE_RECHECK": 15
+      "GPT_SEARCH_REVIEW": 68,
+      "STRICT_NO_SITE_RECHECK": 11,
+      "TARGETED_OWNERSHIP_RECHECK": 1
     },
     "schema_valid_rate": 0.0,
     "selected": 250,
-    "targeted_candidates": 833,
-    "targeted_first_party_confirmed": 0,
-    "targeted_probes": 264,
+    "targeted_candidates": 949,
+    "targeted_first_party_confirmed": 1,
+    "targeted_probes": 290,
     "targeted_search_errors": 0,
-    "targeted_search_records": 70,
-    "trusted_agreement": 1.0,
+    "targeted_search_records": 80,
+    "trusted_agreement": 0.0,
     "website_states": {
-      "UNCERTAIN": 72
+      "UNCERTAIN": 80
     }
   },
   "model": "qwen3-4b-q4_k_m",
@@ -36,5 +37,5 @@
   "reason": "benchmark_gate_not_met_live_shadow_continues",
   "schema_version": 1,
   "stage": "benchmark_waiting",
-  "updated_at": "2026-08-16T11:53:28+00:00"
+  "updated_at": "2026-08-16T12:10:47+00:00"
 }
