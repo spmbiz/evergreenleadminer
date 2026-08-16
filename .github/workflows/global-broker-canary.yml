@@ -2,7 +2,7 @@ name: Global Capacity Broker Canary
 
 on:
   push:
-    branches: [main, agent/global-broker-three-way-fairness]
+    branches: [main]
     paths:
       - 'control/global_broker_canary.json'
       - 'config/global_fleet.json'
