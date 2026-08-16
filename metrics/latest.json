@@ -1,31 +1,31 @@
 {
-  "cycle_id": "20260816T203724Z-github-multilane",
+  "cycle_id": "20260816T204100Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T20:39:12.466367Z",
-  "workers_completed": 4,
-  "workers_failed": 0,
-  "raw_discovered": 10,
-  "live_ready_before_canonical_dedupe": 0,
-  "new_unique": 0,
+  "finished_at": "2026-08-16T20:46:11.017152Z",
+  "workers_completed": 3,
+  "workers_failed": 1,
+  "raw_discovered": 72,
+  "live_ready_before_canonical_dedupe": 65,
+  "new_unique": 65,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 0,
-  "gpt_review_pending": 0,
-  "errors": 0,
-  "peak_wall_seconds": 52.47,
-  "new_unique_per_worker_minute": 0.0,
-  "canonical_total": 34122,
+  "instagram_found": 37,
+  "gpt_review_pending": 49,
+  "errors": 1,
+  "peak_wall_seconds": 254.11,
+  "new_unique_per_worker_minute": 14.668,
+  "canonical_total": 34187,
   "health": {
     "429_rate": 0.0,
     "timeout_rate": 0.0,
-    "error_rate": 0.0
+    "error_rate": 0.05714
   },
-  "next_local_http_workers": 32,
+  "next_local_http_workers": 48,
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 3,
+      "workers_completed": 1,
       "workers_failed": 0,
-      "raw_discovered": 7,
+      "raw_discovered": 1,
       "fast_ready": 0,
       "live_ready": 0,
       "recovery_candidates": 0,
@@ -45,13 +45,36 @@
         "error_rate": 0.0
       }
     },
-    "wikidata_hospitality": {
+    "atp_directory_contact": {
       "workers_completed": 1,
       "workers_failed": 0,
-      "raw_discovered": 3,
+      "raw_discovered": 71,
+      "fast_ready": 70,
+      "live_ready": 65,
+      "recovery_candidates": 0,
+      "recovered_public_emails": 0,
+      "contact_ready": 0,
+      "social_or_contact_without_email": 0,
+      "instagram_found": 37,
+      "facebook_found": 0,
+      "live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.05714
+      },
+      "contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      }
+    },
+    "wikidata_hospitality": {
+      "workers_completed": 1,
+      "workers_failed": 1,
+      "raw_discovered": 0,
       "fast_ready": 0,
       "live_ready": 0,
-      "recovery_candidates": 2,
+      "recovery_candidates": 0,
       "recovered_public_emails": 0,
       "contact_ready": 0,
       "social_or_contact_without_email": 0,
