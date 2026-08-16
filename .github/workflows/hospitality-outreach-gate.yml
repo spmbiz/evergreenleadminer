@@ -1,0 +1,134 @@
+name: Hospitality Premium Outreach Gate
+
+on:
+  workflow_run:
+    workflows: ["Hospitality Intelligence V2"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_outreach_trigger*.json'
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed Hospitality Intelligence V2 run id to shortlist'
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: hospitality-premium-outreach-gate
+  cancel-in-progress: false
+
+env:
+  INTEL_CONFIG: config/hospitality_intelligence_v2.json
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      enabled: ${{ steps.resolve.outputs.enabled }}
+      source_run_id: ${{ steps.resolve.outputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id || '' }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          DISPATCH_RUN_ID: ${{ github.event.inputs.source_run_id || '' }}
+        run: |
+          set -euo pipefail
+          ENABLED=true
+          SOURCE=''
+          if [ "$EVENT_NAME" = 'workflow_run' ]; then
+            SOURCE="$WORKFLOW_RUN_ID"
+            if [ "$WORKFLOW_RUN_CONCLUSION" != 'success' ]; then ENABLED=false; fi
+          elif [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            SOURCE="$DISPATCH_RUN_ID"
+          elif [ "$EVENT_NAME" = 'push' ]; then
+            TRIGGER=$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'control/hospitality_outreach_trigger*.json' | head -1 || true)
+            if [ -z "$TRIGGER" ] || [ ! -f "$TRIGGER" ]; then
+              echo 'No commit-bound outreach trigger found.' >&2
+              exit 3
+            fi
+            SOURCE=$(python -c "import json; print(int(json.load(open('$TRIGGER')).get('source_run_id') or 0))")
+          fi
+          if ! [[ "$SOURCE" =~ ^[0-9]+$ ]] || [ "$SOURCE" -le 0 ]; then ENABLED=false; fi
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          echo "source_run_id=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "premium gate source_run_id=$SOURCE enabled=$ENABLED"
+
+  gate:
+    needs: resolve
+    if: needs.resolve.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ needs.resolve.outputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download V2 plan evidence
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve.outputs.source_run_id }}
+          pattern: hospitality-intelligence-plan-${{ needs.resolve.outputs.source_run_id }}-*
+          path: intelligence_plan
+          merge-multiple: true
+      - name: Download V2 worker intelligence
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve.outputs.source_run_id }}
+          pattern: hospitality-intelligence-worker-${{ needs.resolve.outputs.source_run_id }}-*
+          path: worker_results
+      - name: Build premium commercial tiers and outreach shortlist
+        run: |
+          set -euo pipefail
+          mkdir -p gate_out
+          python tools/hospitality_intelligence_outreach_gate.py \
+            --results-root worker_results \
+            --plan-root intelligence_plan \
+            --config "$INTEL_CONFIG" \
+            --outdir gate_out
+          test -s gate_out/outreach-summary.json
+          test -f gate_out/outreach-ready.jsonl
+          test -s gate_out/outreach-tiered.jsonl.gz
+          python - <<'PY'
+          import json, os
+          p='gate_out/outreach-summary.json'
+          d=json.load(open(p))
+          d['source_run_id']=int(os.environ['SOURCE_RUN_ID'])
+          open(p,'w').write(json.dumps(d,indent=2)+'\n')
+          print(json.dumps(d))
+          PY
+      - name: Persist latest outreach-ready state without touching canonical
+        run: |
+          set -euo pipefail
+          cp gate_out/outreach-ready.jsonl gate_out/hospitality-outreach-ready.jsonl
+          cp gate_out/outreach-summary.json gate_out/hospitality-outreach-summary.json
+          cp gate_out/outreach-tiered.jsonl.gz gate_out/hospitality-outreach-tiered.jsonl.gz
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file gate_out/hospitality-outreach-ready.jsonl
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file gate_out/hospitality-outreach-summary.json
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file gate_out/hospitality-outreach-tiered.jsonl.gz
+          BUNDLE="gate_out/hospitality-outreach-${SOURCE_RUN_ID}.tar.gz"
+          tar -czf "$BUNDLE" -C gate_out outreach-summary.json outreach-ready.jsonl outreach-followup.jsonl outreach-rejected.jsonl outreach-tiered.jsonl.gz
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag "harvest-history-$(date -u +%F)" --file "$BUNDLE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-premium-outreach-${{ needs.resolve.outputs.source_run_id }}
+          path: gate_out/
+          retention-days: 7
+          compression-level: 6
