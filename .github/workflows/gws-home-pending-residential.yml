@@ -1,0 +1,157 @@
+name: GWS Home Pending Residential OpenSERP
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'gpt/gws_pending_batches.json'
+      - 'control/gws_home_pending_kick.json'
+      - '.github/workflows/gws-home-pending-residential.yml'
+
+permissions:
+  contents: write
+
+actionlint:
+
+concurrency:
+  group: gws-home-pending-residential
+  cancel-in-progress: false
+
+jobs:
+  residential_pending:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 90
+    env:
+      PYTHONPATH: tools
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Refresh current durable main
+        shell: powershell
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Ensure residential OpenSERP before any Python setup
+        shell: powershell
+        run: .\tools\windows\start_openserp_home.ps1 -Port 7000
+
+      - name: Resolve existing local Python
+        shell: powershell
+        run: |
+          if (Get-Command py.exe -ErrorAction SilentlyContinue) {
+            'GWS_HOME_PYTHON=py' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            & py.exe -3 --version
+          } elseif (Get-Command python.exe -ErrorAction SilentlyContinue) {
+            'GWS_HOME_PYTHON=python' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            & python.exe --version
+          } else {
+            throw 'No local Python found on gws-home runner.'
+          }
+
+      - id: plan
+        name: Select bounded high-value current pending batch
+        shell: powershell
+        run: |
+          if ($env:GWS_HOME_PYTHON -eq 'py') {
+            & py.exe -3 tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
+          } else {
+            & python.exe tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
+          }
+          $plan = Get-Content results\gws_home_pending_plan\plan.json -Raw | ConvertFrom-Json
+          "selected=$($plan.selected)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "GWS_HOME_PENDING_SELECTED=$($plan.selected) ELIGIBLE=$($plan.eligible)"
+
+      - name: Adapt current pending records for residential worker
+        if: steps.plan.outputs.selected != '0'
+        shell: powershell
+        run: |
+          if ($env:GWS_HOME_PYTHON -eq 'py') {
+            & py.exe -3 tools\gws_home_pending_adapter.py --input results\gws_home_pending_plan\pending.jsonl --output results\gws_home_pending_plan\home_input.jsonl
+          } else {
+            & python.exe tools\gws_home_pending_adapter.py --input results\gws_home_pending_plan\pending.jsonl --output results\gws_home_pending_plan\home_input.jsonl
+          }
+
+      - name: Run bounded residential OpenSERP evidence pass
+        if: steps.plan.outputs.selected != '0'
+        shell: powershell
+        run: |
+          if ($env:GWS_HOME_PYTHON -eq 'py') { $exe='py.exe'; $pre=@('-3') } else { $exe='python.exe'; $pre=@() }
+          $args = $pre + @(
+            'tools\gws_home_openserp_worker_v55.py',
+            '--input','results\gws_home_pending_plan\home_input.jsonl',
+            '--outdir','results\gws_home_pending_openserp',
+            '--endpoint','http://127.0.0.1:7000',
+            '--engines','google,bing,duckduckgo',
+            '--max-candidates','12',
+            '--sleep-min','0.35',
+            '--sleep-max','0.75'
+          )
+          & $exe @args
+          if ($LASTEXITCODE -ne 0) { throw "Residential OpenSERP worker failed exit=$LASTEXITCODE" }
+
+      - name: Normalize residential observations for durable ingress
+        if: steps.plan.outputs.selected != '0'
+        shell: powershell
+        run: |
+          if ($env:GWS_HOME_PYTHON -eq 'py') {
+            & py.exe -3 tools\gws_home_ingress_adapter.py --input results\gws_home_pending_openserp\results.jsonl --output results\gws_home_pending_openserp\residential_ingress.jsonl
+          } else {
+            & python.exe tools\gws_home_ingress_adapter.py --input results\gws_home_pending_openserp\results.jsonl --output results\gws_home_pending_openserp\residential_ingress.jsonl
+          }
+
+      - name: Persist immutable residential evidence and wake semantic fleet
+        if: steps.plan.outputs.selected != '0'
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'gws-home-residential'
+          git config user.email 'actions@users.noreply.github.com'
+          git fetch origin main
+          git pull --rebase origin main
+          $stamp=(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+          $dest="data/gws/residential_ingress/$stamp.jsonl"
+          Copy-Item results\gws_home_pending_openserp\residential_ingress.jsonl $dest
+          New-Item -ItemType Directory -Force "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID" | Out-Null
+          Copy-Item results\gws_home_pending_openserp\summary.json "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID/worker_summary.json"
+          Copy-Item results\gws_home_pending_openserp\results.jsonl "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID/residential_observations.jsonl"
+          git add $dest "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID"
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "[gws-residential] evidence ingress $env:GITHUB_RUN_ID [skip ci]"
+            $pushed=$false
+            foreach ($attempt in 1..3) {
+              git push origin HEAD:main
+              if ($LASTEXITCODE -eq 0) { $pushed=$true; break }
+              git rebase --abort 2>$null
+              git fetch origin main
+              git rebase origin/main
+              if ($LASTEXITCODE -ne 0) { throw 'Residential evidence rebase conflict; refusing unsafe merge.' }
+              Start-Sleep -Seconds ($attempt * 3)
+            }
+            if (-not $pushed) { throw 'Could not persist residential evidence after retries.' }
+          }
+          $headers=@{
+            Authorization="Bearer $env:GH_TOKEN"
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          $body=@{event_type='gws_semantic_refill';client_payload=@{source='gws-home-residential';run_id="$env:GITHUB_RUN_ID"}} | ConvertTo-Json -Depth 4
+          Invoke-RestMethod -Method Post -Headers $headers -ContentType 'application/json' -Body $body -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/dispatches" | Out-Null
+          Write-Host "GWS_HOME_RESIDENTIAL_PERSISTED=$dest"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-pending-residential-${{ github.run_id }}
+          path: |
+            results/gws_home_pending_plan/
+            results/gws_home_pending_openserp/
+          if-no-files-found: warn
+          retention-days: 2
