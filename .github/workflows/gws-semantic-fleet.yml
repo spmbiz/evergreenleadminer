@@ -133,7 +133,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install worker dependencies
-        run: python -m pip install --disable-pip-version-check requests 'huggingface_hub>=0.34,<2'
+        run: python -m pip install --disable-pip-version-check requests duckdb 'ddgs>=9,<10' aiohttp 'huggingface_hub>=0.34,<2'
       - id: model
         name: Read worker model config
         run: python -c "import json; q=json.load(open('config/gws_semantic_v1.json'))['qwen']; print('repo='+q['model_repo']); print('revision='+q['model_revision']); print('file='+q['model_file']); print('image='+q['llama_cpp_image'])" >> "$GITHUB_OUTPUT"
@@ -158,6 +158,19 @@ jobs:
         with:
           name: gws-semantic-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: results/gws_semantic_plan
+      - name: Start hosted OpenSERP for targeted candidate discovery
+        shell: bash
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then
+            echo 'OPENSERP_URL=http://127.0.0.1:7000' >> "$GITHUB_ENV"
+            echo 'SEMANTIC_SEARCH_RUNTIME=openserp_ci' >> "$GITHUB_ENV"
+          else
+            echo 'OPENSERP_URL=' >> "$GITHUB_ENV"
+            echo 'SEMANTIC_SEARCH_RUNTIME=fallback_search_fabric' >> "$GITHUB_ENV"
+            echo 'OpenSERP unavailable; candidate discovery may use fallback search only. No fallback absence can certify HIGH.'
+          fi
+          exit 0
       - name: Start local Qwen 4B server fail-open
         env:
           LLAMA_CPP_IMAGE: ${{ steps.model.outputs.image }}
@@ -172,7 +185,7 @@ jobs:
             echo 'QWEN_RUNTIME=unavailable' >> "$GITHUB_ENV"
           fi
           exit 0
-      - name: Classify semantic shard in shadow mode
+      - name: Targeted web discovery then Qwen semantic compare
         run: |
           out="results/gws_semantic_workers/${{ matrix.worker_index }}"
           python tools/gws_semantic_worker.py \
