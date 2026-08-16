@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse, json, random, re, socket, time
 import urllib.error, urllib.parse, urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import gws_legacy_deep_v2 as v2
@@ -30,7 +31,7 @@ def load_rows(path: Path):
 
 
 def request_json(url,timeout=25):
-    req=urllib.request.Request(url,headers={"User-Agent":"GWS-Home-OpenSERP/5.7","Accept":"application/json"}); z=time.time()
+    req=urllib.request.Request(url,headers={"User-Agent":"GWS-Home-OpenSERP/5.8","Accept":"application/json"}); z=time.time()
     try:
         with urllib.request.urlopen(req,timeout=timeout) as r:
             return {"ok":200<=int(r.status)<300,"status":int(r.status),"seconds":round(time.time()-z,2),"data":json.loads(r.read(4_000_000).decode(errors="ignore"))}
@@ -149,32 +150,64 @@ def run_pass(c,endpoint,engines,pass_no,sleep_min,sleep_max):
     return {"search_queries":len(search_health),"search_usable_queries":usable,"search_resultful_queries":resultful,"search_health":search_health,"search_candidates":[x["url"] for x in serp_candidates],"healthy_providers":sorted(healthy),"direct_checked":len(direct_health),"direct_health":direct_health,"owned":owned,"owned_identity":owned_identity,"owned_via":owned_via,"candidate_seeds":seeds_for_pass(c,pass_no),"residential_pass":pass_no}
 
 
+def process_row(row,endpoint,engines,sleep_min,sleep_max):
+    c=row["candidate"]; pe=row["place"]
+    if prod.obvious_non_independent_entity(c):
+        rec={"schema":"gws-home-openserp-observation-v3","r":row['r'],"candidate":c,"place":pe,"status":"REJECT","reason":"OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY","certificate_eligible":False}
+        return rec, Counter()
+    p1=run_pass(c,endpoint,engines,1,sleep_min,sleep_max); p2=run_pass(c,endpoint,engines,2,sleep_min,sleep_max)
+    fam=Counter()
+    for p in (p1,p2):
+        for f in p["healthy_providers"]: fam[f]+=1
+    owned=p1.get("owned") or p2.get("owned"); cert=prod.v5.certificate(c,pe,p1,p2)
+    if owned: status,reason="REJECT","OWNED_SITE_RESIDENTIAL_CONFIRMED"
+    elif cert.get("verified"): status,reason="EVIDENCE_COMPLETE","RESIDENTIAL_CERTIFICATE_GATES_COMPLETE"
+    elif cert.get("unresolved_plausible_domains"): status,reason="EVIDENCE_INCOMPLETE","PLAUSIBLE_DOMAIN_UNRESOLVED"
+    else: status,reason="EVIDENCE_INCOMPLETE","RESIDENTIAL_CERTIFICATE_GATES_INCOMPLETE"
+    rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":c,"place":pe,"pass1":p1,"pass2":p2,"certificate":cert,"owned_site":owned or "","status":status,"reason":reason,"certificate_eligible":bool(cert.get("verified"))}
+    return rec, fam
+
+
+def write_partial(d,ordered_records,processed,total,counts,z):
+    completed=[x for x in ordered_records if x is not None]
+    (d/"partial_results.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,separators=(",",":"),default=str)+"\n" for x in completed),encoding="utf-8")
+    prog={"processed":processed,"total":total,"statuses":dict(counts),"elapsed_seconds":round(time.time()-z,2)}
+    (d/"progress.json").write_text(json.dumps(prog,indent=2)+"\n",encoding="utf-8")
+    print("GWS_HOME_PROGRESS="+json.dumps(prog,separators=(",",":")),flush=True)
+
+
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--input",required=True); ap.add_argument("--outdir",required=True); ap.add_argument("--endpoint",default="http://127.0.0.1:7000"); ap.add_argument("--engines",default="google,duckduckgo,yandex,bing,ecosia"); ap.add_argument("--shard-index",type=int,default=0); ap.add_argument("--shard-count",type=int,default=1); ap.add_argument("--max-candidates",type=int,default=0); ap.add_argument("--sleep-min",type=float,default=.15); ap.add_argument("--sleep-max",type=float,default=.45); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--input",required=True); ap.add_argument("--outdir",required=True); ap.add_argument("--endpoint",default="http://127.0.0.1:7000"); ap.add_argument("--engines",default="google,duckduckgo,yandex,bing,ecosia"); ap.add_argument("--shard-index",type=int,default=0); ap.add_argument("--shard-count",type=int,default=1); ap.add_argument("--max-candidates",type=int,default=0); ap.add_argument("--candidate-concurrency",type=int,default=1); ap.add_argument("--sleep-min",type=float,default=.15); ap.add_argument("--sleep-max",type=float,default=.45); a=ap.parse_args()
     endpoint=a.endpoint.rstrip('/'); health=request_json(endpoint+"/health",8)
     if not health.get("ok"): raise SystemExit("OPENSERP_HOME_UNHEALTHY:"+json.dumps(health,separators=(",",":"),default=str))
     engines=[x.strip().lower() for x in a.engines.split(',') if x.strip()]; bad=[x for x in engines if x not in FAMILY]
     if bad: raise SystemExit("UNSUPPORTED_ENGINES:"+','.join(bad))
     all_rows=load_rows(Path(a.input)); rows=[x for i,x in enumerate(all_rows) if i%max(1,a.shard_count)==a.shard_index]
     if a.max_candidates>0: rows=rows[:a.max_candidates]
-    d=Path(a.outdir); d.mkdir(parents=True,exist_ok=True); z=time.time(); results=[]; counts=Counter(); fam=Counter()
-    for i,row in enumerate(rows,1):
-        c=row["candidate"]; pe=row["place"]
-        if prod.obvious_non_independent_entity(c):
-            results.append({"schema":"gws-home-openserp-observation-v3","r":row['r'],"candidate":c,"place":pe,"status":"REJECT","reason":"OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY","certificate_eligible":False}); counts['REJECT']+=1; continue
-        p1=run_pass(c,endpoint,engines,1,a.sleep_min,a.sleep_max); p2=run_pass(c,endpoint,engines,2,a.sleep_min,a.sleep_max)
-        for p in (p1,p2):
-            for f in p["healthy_providers"]: fam[f]+=1
-        owned=p1.get("owned") or p2.get("owned"); cert=prod.v5.certificate(c,pe,p1,p2)
-        if owned: status,reason="REJECT","OWNED_SITE_RESIDENTIAL_CONFIRMED"
-        elif cert.get("verified"): status,reason="EVIDENCE_COMPLETE","RESIDENTIAL_CERTIFICATE_GATES_COMPLETE"
-        elif cert.get("unresolved_plausible_domains"): status,reason="EVIDENCE_INCOMPLETE","PLAUSIBLE_DOMAIN_UNRESOLVED"
-        else: status,reason="EVIDENCE_INCOMPLETE","RESIDENTIAL_CERTIFICATE_GATES_INCOMPLETE"
-        rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":c,"place":pe,"pass1":p1,"pass2":p2,"certificate":cert,"owned_site":owned or "","status":status,"reason":reason,"certificate_eligible":bool(cert.get("verified"))}
-        results.append(rec); counts[status]+=1
-        (d/"partial_results.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,separators=(",",":"),default=str)+"\n" for x in results),encoding="utf-8")
-        prog={"processed":i,"total":len(rows),"statuses":dict(counts),"elapsed_seconds":round(time.time()-z,2)}; (d/"progress.json").write_text(json.dumps(prog,indent=2)+"\n",encoding="utf-8"); print("GWS_HOME_PROGRESS="+json.dumps(prog,separators=(",",":")),flush=True)
+    concurrency=max(1,min(int(a.candidate_concurrency or 1),8,len(rows) or 1))
+    d=Path(a.outdir); d.mkdir(parents=True,exist_ok=True); z=time.time(); ordered=[None]*len(rows); counts=Counter(); fam=Counter(); processed=0
+    if concurrency==1:
+        for idx,row in enumerate(rows):
+            rec,rfam=process_row(row,endpoint,engines,a.sleep_min,a.sleep_max)
+            ordered[idx]=rec; counts[rec["status"]]+=1; fam.update(rfam); processed+=1
+            write_partial(d,ordered,processed,len(rows),counts,z)
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency,thread_name_prefix="gws-home-candidate") as pool:
+            future_map={pool.submit(process_row,row,endpoint,engines,a.sleep_min,a.sleep_max):idx for idx,row in enumerate(rows)}
+            for fut in as_completed(future_map):
+                idx=future_map[fut]
+                try:
+                    rec,rfam=fut.result()
+                except Exception as e:
+                    row=rows[idx]
+                    rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":row["candidate"],"place":row["place"],"status":"ERROR_RETRYABLE","reason":"RESIDENTIAL_WORKER_EXCEPTION","certificate_eligible":False,"error":type(e).__name__,"error_detail":str(e)[:300]}
+                    rfam=Counter()
+                ordered[idx]=rec; counts[rec["status"]]+=1; fam.update(rfam); processed+=1
+                write_partial(d,ordered,processed,len(rows),counts,z)
+    results=[x for x in ordered if x is not None]
     (d/"results.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,separators=(",",":"),default=str)+"\n" for x in results),encoding="utf-8")
-    summ={"schema":"gws-home-openserp-worker-v3","input_rows":len(all_rows),"attempted":len(rows),"shard_index":a.shard_index,"shard_count":a.shard_count,"engines":engines,"statuses":dict(counts),"family_pass_observations":dict(fam),"owned_sites_found":counts.get("REJECT",0),"certificate_eligible":counts.get("EVIDENCE_COMPLETE",0),"elapsed_seconds":round(time.time()-z,2),"final_high":0,"note":"Evidence only. Downstream single-writer must independently re-evaluate certificate before any HIGH persistence."}; (d/"summary.json").write_text(json.dumps(summ,indent=2)+"\n",encoding="utf-8"); print("GWS_HOME_SUMMARY="+json.dumps(summ,separators=(",",":")),flush=True)
+    summ={"schema":"gws-home-openserp-worker-v4","input_rows":len(all_rows),"attempted":len(rows),"shard_index":a.shard_index,"shard_count":a.shard_count,"engines":engines,"candidate_concurrency":concurrency,"statuses":dict(counts),"family_pass_observations":dict(fam),"owned_sites_found":counts.get("REJECT",0),"certificate_eligible":counts.get("EVIDENCE_COMPLETE",0),"elapsed_seconds":round(time.time()-z,2),"final_high":0,"note":"Evidence only. Downstream single-writer must independently re-evaluate certificate before any HIGH persistence."}
+    (d/"summary.json").write_text(json.dumps(summ,indent=2)+"\n",encoding="utf-8"); print("GWS_HOME_SUMMARY="+json.dumps(summ,separators=(",",":")),flush=True)
+
 
 if __name__=="__main__": main()
