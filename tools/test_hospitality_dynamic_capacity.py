@@ -12,6 +12,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 
 import global_capacity_broker as broker
+from hospitality_intelligence_aggregate import needs_gpt_review
 from hospitality_intelligence_worker_fast import deterministic_classification
 
 
@@ -88,6 +89,30 @@ class HospitalityDynamicCapacityTests(unittest.TestCase):
             'portfolio': {'homepage_status': 200, 'property_count_known': 0, 'pms_fingerprints': []},
         }
         self.assertIsNone(deterministic_classification(weak, cfg))
+
+    def test_gpt_review_is_not_every_confident_fit(self):
+        normal_fit = {
+            'fit_decision': 'STRONG_FIT',
+            'entity_match': 'MATCH',
+            'confidence': 0.95,
+            'commercial_score': 78,
+            'portfolio_leverage_score': 72,
+            'property_count_known': 8,
+            'contradictions': [],
+            'unusual_or_novel': False,
+            'classifier_error': '',
+            'queue_reason': 'NEW',
+        }
+        self.assertFalse(needs_gpt_review(normal_fit))
+
+        uncertain = dict(normal_fit, entity_match='UNCERTAIN')
+        self.assertTrue(needs_gpt_review(uncertain))
+
+        exceptional = dict(normal_fit, commercial_score=92, portfolio_leverage_score=90, property_count_known=30)
+        self.assertTrue(needs_gpt_review(exceptional))
+
+        changed_high_value = dict(normal_fit, commercial_score=84, queue_reason='CHANGED')
+        self.assertTrue(needs_gpt_review(changed_high_value))
 
     def test_workflow_is_brokered_twenty_slot_and_fail_safe(self):
         wf = (ROOT / '.github/workflows/hospitality-intelligence-v2.yml').read_text(encoding='utf-8')
