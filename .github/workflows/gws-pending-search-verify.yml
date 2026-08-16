@@ -2,8 +2,10 @@ name: GWS Pending Search Verify Fleet
 
 on:
   schedule:
-    - cron: '4,19,34,49 * * * *'
+    - cron: '4 * * * *'
   workflow_dispatch:
+  repository_dispatch:
+    types: [gws_verify_refill]
   push:
     branches: [main]
     paths:
@@ -142,6 +144,8 @@ jobs:
     if: always() && needs.plan.outputs.workers != '0'
     runs-on: ubuntu-slim
     timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -173,21 +177,28 @@ jobs:
             metrics/gws_verify_history.jsonl
           if git diff --cached --quiet; then
             echo 'No GWS verification delta.'
-            exit 0
-          fi
-          git commit -m "[gws-verify-state] pending search verification ${GITHUB_RUN_ID} [skip ci]"
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then exit 0; fi
-            git rebase --abort >/dev/null 2>&1 || true
-            git fetch origin main
-            if ! git rebase origin/main; then
+          else
+            git commit -m "[gws-verify-state] pending search verification ${GITHUB_RUN_ID} [skip ci]"
+            pushed=0
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then pushed=1; break; fi
               git rebase --abort >/dev/null 2>&1 || true
-              echo 'Concurrent verification-state conflict; refusing unsafe merge.' >&2
-              exit 1
-            fi
-            sleep $((attempt * 3))
-          done
-          exit 1
+              git fetch origin main
+              if ! git rebase origin/main; then
+                git rebase --abort >/dev/null 2>&1 || true
+                echo 'Concurrent verification-state conflict; refusing unsafe merge.' >&2
+                exit 1
+              fi
+              sleep $((attempt * 3))
+            done
+            test "$pushed" = 1
+          fi
+      - name: Hot-refill unfinished strict source backlog
+        run: |
+          REFILL=$(python -c "import json; m=json.load(open('metrics/gws_verify_latest.json')); print(1 if int(m.get('remaining_source_backlog') or 0)>0 else 0)")
+          if [ "$REFILL" = "1" ]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=gws_verify_refill
+          fi
 
   release_capacity:
     needs: [plan, verify, aggregate]
