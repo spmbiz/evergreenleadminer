@@ -127,6 +127,10 @@ class HospitalityIntelligenceV2Tests(unittest.TestCase):
         self.assertIn('aggregate_out/summary.json', wf)
         self.assertIn('hospitality-intelligence-ledger-writer', wf)
         self.assertIn('hospitality-canonical-writer', wf)
+        # Trigger selection must be commit-bound, never filesystem-mtime based.
+        self.assertIn('fetch-depth: 2', wf)
+        self.assertIn('git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA"', wf)
+        self.assertNotIn("find control -maxdepth 1 -type f -name 'hospitality_intelligence_trigger", wf)
 
 
 if __name__ == '__main__':
