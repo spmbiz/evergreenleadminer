@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.2,
-    "recent_429_rate": 0.0,
-    "recent_timeout_rate": 0.04,
+    "recent_error_rate": 0.21212,
+    "recent_429_rate": 0.0303,
+    "recent_timeout_rate": 0.0303,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T01:17:04.247065Z"
+    "last_updated": "2026-08-16T01:20:05.457267Z"
   },
   "hospitality_lanes": {
     "fast_email": {
-      "last_workers_completed": 3,
+      "last_workers_completed": 6,
       "last_workers_failed": 0,
-      "last_raw_discovered": 0,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
+      "last_raw_discovered": 131,
+      "last_fast_ready": 2,
+      "last_live_ready": 1,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.5
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -71,26 +71,26 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 6,
+      "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 19654,
-      "last_fast_ready": 50,
-      "last_live_ready": 33,
-      "last_recovery_candidates": 52,
+      "last_raw_discovered": 7537,
+      "last_fast_ready": 31,
+      "last_live_ready": 23,
+      "last_recovery_candidates": 37,
       "last_recovered_public_emails": 4,
       "last_live_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.04,
-        "error_rate": 0.2
+        "429_rate": 0.03226,
+        "timeout_rate": 0.03226,
+        "error_rate": 0.19354
       },
       "last_contact_health": {
-        "429_rate": 0.0,
-        "timeout_rate": 0.05769,
-        "error_rate": 0.03846
+        "429_rate": 0.02702,
+        "timeout_rate": 0.08108,
+        "error_rate": 0.02702
       },
-      "recommended_contact_workers": 40,
-      "last_contact_ready": 50,
-      "last_social_or_contact_without_email": 46
+      "recommended_contact_workers": 32,
+      "last_contact_ready": 31,
+      "last_social_or_contact_without_email": 27
     }
   }
 }
