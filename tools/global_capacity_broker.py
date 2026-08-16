@@ -17,6 +17,11 @@ coverage heuristic. While discovery backlog exists, normal Intelligence V2 runs
 are capped to one hospitality slot so V2 cannot consume the base Hospitality
 share that should keep finding/recovering new accounts. Explicit manual V2 worker
 overrides remain available for canaries.
+
+GWS demand includes the strict pending-verification backlog, not only the older
+geographic task signal. This makes the five-slot GWS fair-share floor real while
+strict work exists. Semantic Qwen is separately capped to two of those slots while
+strict demand is non-zero, leaving three protected slots for strict verification.
 """
 from __future__ import annotations
 
@@ -27,6 +32,9 @@ import urllib.request
 
 import fleet_runtime as fr
 import global_capacity_broker_v3 as v3
+
+HARD_TERMINAL_SEARCH_STATUSES = {"HIGH", "REJECT", "DUPLICATE", "ERROR_HARD"}
+SOFT_SEARCH_STATUSES = {"MEDIUM", "UNCERTAIN"}
 
 
 def _infer_workload(matched_leases: list[dict]) -> str:
@@ -43,13 +51,7 @@ def _infer_workload(matched_leases: list[dict]) -> str:
 
 
 def _hospitality_discovery_demand() -> int:
-    """Return the V1 multi-lane geographic backlog used by production planning.
-
-    This deliberately mirrors hospitality_multilane_plan's eligibility/ranking
-    inputs without selecting workers or touching canonical state. It fixes the
-    regression where the broker's older grid-only heuristic returned zero while
-    the production V1 planner still had hundreds of site-recovery work units.
-    """
+    """Return the V1 multi-lane geographic backlog used by production planning."""
     try:
         import hospitality_grid_plan as gp
         import hospitality_multilane_plan as mp
@@ -64,10 +66,65 @@ def _hospitality_discovery_demand() -> int:
                 useful += 1
         return useful
     except Exception:
-        # Never turn an inability to compute the new signal into false zero
-        # demand. Fall back to the broker's legacy signal instead.
         try:
             return max(0, int(v3.useful_hospitality_count() or 0))
+        except Exception:
+            return 1
+
+
+def _strict_gws_demand() -> int:
+    """Return strict GWS eligibility using the same gates as the strict planner.
+
+    This is deliberately read-only. If the signal cannot be computed, fail closed
+    in favour of preserving GWS headroom instead of reporting a false zero.
+    """
+    try:
+        pending = fr.load_json(v3.ROOT / "gpt/gws_pending_batches.json", {"batches": []})
+        verify_index = fr.load_json(v3.ROOT / "state/gws_verify_index.json", {"records": {}}).get("records", {})
+        semantic_index = fr.load_json(v3.ROOT / "state/gws_semantic_index.json", {"records": {}}).get("records", {})
+        latest = {}
+        for batch in pending.get("batches") or []:
+            if batch.get("status") != "pending" or not batch.get("batch"):
+                continue
+            p = v3.ROOT / str(batch["batch"])
+            if not p.exists():
+                continue
+            for line in p.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                key = str(row.get("record_key") or "")
+                if key:
+                    latest[key] = row
+
+        eligible = 0
+        for key, row in latest.items():
+            prior = verify_index.get(key) or {}
+            fp = str(row.get("fingerprint") or "")
+            prior_status = str(prior.get("verification_status") or "").strip().upper()
+            same = prior.get("source_fingerprint") == fp
+            if same and prior_status in HARD_TERMINAL_SEARCH_STATUSES:
+                continue
+
+            semantic_recheck = False
+            if same and prior_status in SOFT_SEARCH_STATUSES:
+                sem = semantic_index.get(key) or {}
+                sem_fp = str(sem.get("semantic_fingerprint") or "")
+                sem_status = str(sem.get("resolution_status") or "").upper()
+                prior_sem_fp = str(prior.get("semantic_resolution_fingerprint") or "")
+                prior_attempt = int(prior.get("semantic_resolution_attempt") or 0)
+                if sem_status == "QUEUED" and sem_fp and sem_fp != prior_sem_fp and prior_attempt < 2:
+                    semantic_recheck = True
+                else:
+                    continue
+
+            if row.get("outcome") == "REJECT" and not semantic_recheck:
+                continue
+            eligible += 1
+        return eligible
+    except Exception:
+        try:
+            return max(1, int(v3.useful_gws_count() or 0))
         except Exception:
             return 1
 
@@ -77,6 +134,10 @@ def _effective_local_demand() -> dict:
     demand["hospitality"] = max(
         int(demand.get("hospitality", 0) or 0),
         _hospitality_discovery_demand(),
+    )
+    demand["gws"] = max(
+        int(demand.get("gws", 0) or 0),
+        _strict_gws_demand(),
     )
     return demand
 
@@ -134,7 +195,6 @@ def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: i
             "released_slots": int(released_slots),
         }
     except Exception as exc:
-        # Capacity release must never fail because the refill signal failed.
         return {
             "emitted": False,
             "reason": "dispatch_failed",
@@ -144,22 +204,16 @@ def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: i
 
 
 def _reserve_with_optional_demand_override(args) -> None:
-    """Reserve capacity with truthful V1 demand and V1-before-V2 priority.
-
-    The v3 broker still owns all physical-capacity accounting, sibling headroom,
-    max_slots and borrowing rules. A sub-lane may raise its own bounded demand via
-    --demand-override, but it cannot erase the real V1 discovery backlog.
-    """
+    """Reserve capacity with truthful Hospitality and strict-GWS demand."""
     override = max(0, int(getattr(args, "demand_override", 0) or 0))
+    strict_gws_demand = _strict_gws_demand()
 
-    # Preserve the deliberately tiny unit-test seam used to verify that a demand
-    # override raises only the current workload. Real CLI reserve args always
-    # contain `requested`; the mock used by that contract test does not.
     if not hasattr(args, "requested"):
         original_local_demand = v3.local_demand
 
         def local_demand_with_override_only():
             demand = dict(original_local_demand() or {})
+            demand["gws"] = max(int(demand.get("gws", 0) or 0), strict_gws_demand)
             if override > 0:
                 demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
             return demand
@@ -173,10 +227,6 @@ def _reserve_with_optional_demand_override(args) -> None:
 
     discovery_demand = _hospitality_discovery_demand()
 
-    # Intelligence V2 is downstream of discovery. As long as V1 still has useful
-    # geographic/recovery work, keep normal V2 to one slot so V1 can own the base
-    # Hospitality share and borrow elastic capacity. An explicit manual worker
-    # override remains a deliberate operator canary escape hatch.
     workflow = str(os.environ.get("GITHUB_WORKFLOW") or "").lower()
     manual_v2_workers = max(0, int(os.environ.get("MAX_WORKERS_INPUT") or 0))
     if (
@@ -190,17 +240,21 @@ def _reserve_with_optional_demand_override(args) -> None:
 
     original_local_demand = v3.local_demand
 
-    def local_demand_with_truthful_hospitality():
+    def local_demand_with_truthful_hospitality_and_gws():
         demand = dict(original_local_demand() or {})
         demand["hospitality"] = max(
             int(demand.get("hospitality", 0) or 0),
             discovery_demand,
         )
+        demand["gws"] = max(
+            int(demand.get("gws", 0) or 0),
+            strict_gws_demand,
+        )
         if override > 0:
             demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
         return demand
 
-    v3.local_demand = local_demand_with_truthful_hospitality
+    v3.local_demand = local_demand_with_truthful_hospitality_and_gws
     try:
         v3.reserve(args)
     finally:
