@@ -1,0 +1,59 @@
+name: Hospitality DATAtourisme Source Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_datatourisme_test.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal dependencies
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Build canonical domain snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p planner/canonical results
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical.sqlite' --dir planner/canonical --clobber
+          python - <<'PY'
+          import gzip,sqlite3
+          from pathlib import Path
+          db=Path('planner/canonical/hospitality-canonical.sqlite'); out=Path('planner/canonical-domains.txt.gz')
+          con=sqlite3.connect(db)
+          try: domains=sorted({str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''") if r and str(r[0]).strip()})
+          finally: con.close()
+          if len(domains)<10000: raise SystemExit('canonical snapshot too small')
+          with gzip.open(out,'wt',encoding='utf-8') as f:
+            for d in domains: f.write(d+'\n')
+          print({'canonical_domains':len(domains)})
+          PY
+          rm -rf planner/canonical
+      - name: Run DATAtourisme canary through full V1 gate
+        run: |
+          python tools/hospitality_datatourisme_worker.py \
+            --provider github \
+            --cycle-id "datatourisme-canary-${GITHUB_RUN_ID}" \
+            --canonical-domains planner/canonical-domains.txt.gz \
+            --contact-workers 24 \
+            --local-workers 32 \
+            --outdir results/datatourisme-fr
+      - name: Upload canary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-datatourisme-canary-${{ github.run_id }}
+          path: results/
+          retention-days: 2
