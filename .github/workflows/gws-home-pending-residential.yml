@@ -44,25 +44,48 @@ jobs:
       - name: Resolve existing local Python
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          if (Get-Command py.exe -ErrorAction SilentlyContinue) {
-            'GWS_HOME_PYTHON=py' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            & py.exe -3 --version
-          } elseif (Get-Command python.exe -ErrorAction SilentlyContinue) {
-            'GWS_HOME_PYTHON=python' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            & python.exe --version
-          } else {
-            throw 'No local Python found on gws-home runner.'
+          $ErrorActionPreference='Stop'
+          $candidates = New-Object System.Collections.Generic.List[string]
+
+          $pythonCmd = Get-Command python.exe -ErrorAction SilentlyContinue
+          if ($pythonCmd) { $candidates.Add($pythonCmd.Source) }
+
+          $patterns = @(
+            'C:\Users\*\AppData\Local\Programs\Python\Python*\python.exe',
+            'C:\Program Files\Python*\python.exe',
+            'C:\Program Files (x86)\Python*\python.exe',
+            'C:\Python*\python.exe'
+          )
+          foreach ($pattern in $patterns) {
+            Get-Item $pattern -ErrorAction SilentlyContinue | ForEach-Object { $candidates.Add($_.FullName) }
           }
+
+          $selected = $null
+          foreach ($candidate in ($candidates | Select-Object -Unique | Sort-Object -Descending)) {
+            if (-not (Test-Path $candidate)) { continue }
+            try {
+              $version = & $candidate --version 2>&1
+              if ($LASTEXITCODE -eq 0 -and "$version" -match '^Python 3\.') {
+                $selected = $candidate
+                Write-Host "GWS_HOME_PYTHON_FOUND=$candidate VERSION=$version"
+                break
+              }
+            } catch {}
+          }
+
+          if (-not $selected) {
+            throw 'No usable Python 3 installation found on gws-home runner, including user-local Python installs.'
+          }
+          "GWS_HOME_PYTHON_EXE=$selected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - id: plan
         name: Select bounded high-value current pending batch
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          if ($env:GWS_HOME_PYTHON -eq 'py') {
-            & py.exe -3 tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
-          } else {
-            & python.exe tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
-          }
+          $py=$env:GWS_HOME_PYTHON_EXE
+          if (-not $py -or -not (Test-Path $py)) { throw 'Resolved Python path missing.' }
+          & $py tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
+          if ($LASTEXITCODE -ne 0) { throw "Pending planner failed exit=$LASTEXITCODE" }
           $plan = Get-Content results\gws_home_pending_plan\plan.json -Raw | ConvertFrom-Json
           "selected=$($plan.selected)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "GWS_HOME_PENDING_SELECTED=$($plan.selected) ELIGIBLE=$($plan.eligible)"
@@ -71,39 +94,32 @@ jobs:
         if: steps.plan.outputs.selected != '0'
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          if ($env:GWS_HOME_PYTHON -eq 'py') {
-            & py.exe -3 tools\gws_home_pending_adapter.py --input results\gws_home_pending_plan\pending.jsonl --output results\gws_home_pending_plan\home_input.jsonl
-          } else {
-            & python.exe tools\gws_home_pending_adapter.py --input results\gws_home_pending_plan\pending.jsonl --output results\gws_home_pending_plan\home_input.jsonl
-          }
+          $py=$env:GWS_HOME_PYTHON_EXE
+          & $py tools\gws_home_pending_adapter.py --input results\gws_home_pending_plan\pending.jsonl --output results\gws_home_pending_plan\home_input.jsonl
+          if ($LASTEXITCODE -ne 0) { throw "Pending adapter failed exit=$LASTEXITCODE" }
 
       - name: Run bounded residential OpenSERP evidence pass
         if: steps.plan.outputs.selected != '0'
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          if ($env:GWS_HOME_PYTHON -eq 'py') { $exe='py.exe'; $pre=@('-3') } else { $exe='python.exe'; $pre=@() }
-          $args = $pre + @(
-            'tools\gws_home_openserp_worker_v55.py',
-            '--input','results\gws_home_pending_plan\home_input.jsonl',
-            '--outdir','results\gws_home_pending_openserp',
-            '--endpoint','http://127.0.0.1:7000',
-            '--engines','google,bing,duckduckgo',
-            '--max-candidates','12',
-            '--sleep-min','0.35',
-            '--sleep-max','0.75'
-          )
-          & $exe @args
+          $py=$env:GWS_HOME_PYTHON_EXE
+          & $py tools\gws_home_openserp_worker_v55.py `
+            --input results\gws_home_pending_plan\home_input.jsonl `
+            --outdir results\gws_home_pending_openserp `
+            --endpoint http://127.0.0.1:7000 `
+            --engines google,bing,duckduckgo `
+            --max-candidates 12 `
+            --sleep-min 0.35 `
+            --sleep-max 0.75
           if ($LASTEXITCODE -ne 0) { throw "Residential OpenSERP worker failed exit=$LASTEXITCODE" }
 
       - name: Normalize residential observations for durable ingress
         if: steps.plan.outputs.selected != '0'
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          if ($env:GWS_HOME_PYTHON -eq 'py') {
-            & py.exe -3 tools\gws_home_ingress_adapter.py --input results\gws_home_pending_openserp\results.jsonl --output results\gws_home_pending_openserp\residential_ingress.jsonl
-          } else {
-            & python.exe tools\gws_home_ingress_adapter.py --input results\gws_home_pending_openserp\results.jsonl --output results\gws_home_pending_openserp\residential_ingress.jsonl
-          }
+          $py=$env:GWS_HOME_PYTHON_EXE
+          & $py tools\gws_home_ingress_adapter.py --input results\gws_home_pending_openserp\results.jsonl --output results\gws_home_pending_openserp\residential_ingress.jsonl
+          if ($LASTEXITCODE -ne 0) { throw "Ingress adapter failed exit=$LASTEXITCODE" }
 
       - name: Persist immutable residential evidence and wake semantic fleet
         if: steps.plan.outputs.selected != '0'
