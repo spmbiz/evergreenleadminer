@@ -120,6 +120,19 @@ def health(base_url: str, timeout: float = 3) -> bool:
         return False
 
 
+def resolve_model_id(base_url: str, fallback_label: str, timeout: float = 3) -> str:
+    """Use llama.cpp's actual loaded model id instead of guessing a router label."""
+    try:
+        r = requests.get(base_url.rstrip('/') + '/v1/models', timeout=timeout)
+        if r.status_code == 200:
+            data = r.json().get('data') or []
+            if data and data[0].get('id'):
+                return str(data[0]['id'])
+    except Exception:
+        pass
+    return fallback_label
+
+
 def _parse_response(data: dict[str, Any], expected: set[str]) -> dict[str, dict[str, Any]]:
     content = strip_thinking(data['choices'][0]['message']['content'])
     parsed = json.loads(content)
@@ -143,17 +156,16 @@ def _payload(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
     return payload_records, encoded
 
 
-def _request_once(records: list[dict[str, Any]], base_url: str, model_label: str, timeout: float, constrained: bool) -> tuple[dict[str, dict[str, Any]] | None, str]:
+def _request_once(records: list[dict[str, Any]], base_url: str, model_id: str, timeout: float, constrained: bool) -> tuple[dict[str, dict[str, Any]] | None, str]:
     expected = {str((r.get('account') or r).get('account_id') or '') for r in records}
     _, encoded = _payload(records)
     user = 'Classify. Preserve uncertain/novel opportunities. JSON only. INPUT=' + encoded
     body: dict[str, Any] = {
-        'model': model_label,
+        'model': model_id,
         'messages': [{'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': user}],
         'temperature': 0.15,
         'top_p': 0.8,
-        # Keep output bounded: labels + terse evidence are enough for routing.
-        'max_tokens': max(260, min(1050, 105 * len(records) + 160)),
+        'max_tokens': max(220, min(720, 72 * len(records) + 130)),
         'stream': False,
     }
     if constrained:
@@ -168,44 +180,44 @@ def _request_once(records: list[dict[str, Any]], base_url: str, model_label: str
         return None, f'{type(exc).__name__}:{str(exc)[:320]}'
 
 
-def _classify_adaptive(records: list[dict[str, Any]], base_url: str, model_label: str, timeout: float) -> list[dict[str, Any]]:
+def _classify_adaptive(records: list[dict[str, Any]], base_url: str, model_id: str, timeout: float) -> list[dict[str, Any]]:
     if not records:
         return []
 
-    # Avoid a known-bad oversized request entirely. 18k UTF-8-ish characters
-    # leaves ample headroom for system prompt and <=1050 output tokens inside
-    # the single 8192-token llama.cpp slot.
     _, encoded = _payload(records)
-    if len(records) > 1 and len(encoded) > 18000:
+    if len(records) > 1 and len(encoded) > 12000:
         mid = max(1, len(records) // 2)
-        return _classify_adaptive(records[:mid], base_url, model_label, timeout) + _classify_adaptive(records[mid:], base_url, model_label, timeout)
+        return _classify_adaptive(records[:mid], base_url, model_id, timeout) + _classify_adaptive(records[mid:], base_url, model_id, timeout)
 
-    valid, err1 = _request_once(records, base_url, model_label, timeout, constrained=False)
-    err2 = ''
-    if valid is None and (not err1.startswith('HTTP_4') or 'json' in err1.lower() or 'parse' in err1.lower()):
-        valid, err2 = _request_once(records, base_url, model_label, timeout, constrained=True)
-
+    # llama.cpp supports JSON response_format natively. Ask for constrained
+    # JSON first so CPU time is not wasted generating a malformed answer and
+    # then repeating the entire inference.
+    valid, err1 = _request_once(records, base_url, model_id, timeout, constrained=True)
     if valid is not None:
-        out = []
-        for rec in records:
-            aid = str((rec.get('account') or rec).get('account_id') or '')
-            out.append(valid.get(aid) or fallback([rec], 'MISSING_ITEM')[0])
-        return out
+        return [valid.get(str((rec.get('account') or rec).get('account_id') or '')) or fallback([rec], 'MISSING_ITEM')[0] for rec in records]
+
+    # If a provider/runtime ever rejects response_format itself, a single free
+    # JSON retry is cheaper than discarding the account. Context/size 4xx errors
+    # split instead of repeating the same oversized request.
+    low = err1.lower()
+    if len(records) > 1 and (err1.startswith('HTTP_4') or 'context' in low or 'token' in low):
+        mid = max(1, len(records) // 2)
+        return _classify_adaptive(records[:mid], base_url, model_id, timeout) + _classify_adaptive(records[mid:], base_url, model_id, timeout)
+
+    valid, err2 = _request_once(records, base_url, model_id, timeout, constrained=False)
+    if valid is not None:
+        return [valid.get(str((rec.get('account') or rec).get('account_id') or '')) or fallback([rec], 'MISSING_ITEM')[0] for rec in records]
 
     if len(records) > 1:
         mid = max(1, len(records) // 2)
-        return _classify_adaptive(records[:mid], base_url, model_label, timeout) + _classify_adaptive(records[mid:], base_url, model_label, timeout)
-
-    valid, err3 = _request_once(records, base_url, model_label, timeout, constrained=True)
-    if valid is not None:
-        aid = str((records[0].get('account') or records[0]).get('account_id') or '')
-        return [valid.get(aid) or fallback(records, 'MISSING_ITEM')[0]]
-    return fallback(records, err3 or err2 or err1 or 'UNKNOWN')
+        return _classify_adaptive(records[:mid], base_url, model_id, timeout) + _classify_adaptive(records[mid:], base_url, model_id, timeout)
+    return fallback(records, err2 or err1 or 'UNKNOWN')
 
 
-def classify_batch(records: list[dict[str, Any]], base_url: str, model_label: str, timeout: float = 120) -> list[dict[str, Any]]:
+def classify_batch(records: list[dict[str, Any]], base_url: str, model_label: str, timeout: float = 90) -> list[dict[str, Any]]:
     if not records:
         return []
     if not base_url or not health(base_url):
         return fallback(records, 'QWEN_UNAVAILABLE')
-    return _classify_adaptive(records, base_url, model_label, timeout)
+    model_id = resolve_model_id(base_url, model_label)
+    return _classify_adaptive(records, base_url, model_id, timeout)
