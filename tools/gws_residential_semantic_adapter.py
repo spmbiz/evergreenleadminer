@@ -5,11 +5,12 @@ import argparse, json
 from pathlib import Path
 from urllib.parse import urlparse
 
+ADAPTER_VERSION='gws-residential-semantic-v1'
+
 
 def host(u):
     try:return (urlparse(str(u or '')).hostname or '').lower().removeprefix('www.')
     except Exception:return ''
-
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--root',default='data/gws/residential_ingress');ap.add_argument('--out',required=True);a=ap.parse_args()
     latest={}
@@ -39,9 +40,9 @@ def main():
             'residential_engines':ev.get('engines_responded') or [],
             'web_pass1':{'owned':'','search_candidates':candidates,'direct_health':direct,'healthy_providers':ev.get('engines_responded') or []},
             'web_pass2':{},'certificate':{'unresolved_plausible_domains':[{'host':host(url),'source':'residential_candidate'}] if url else []},
-            'observed_at':ev.get('observed_at'),'residential_candidate_url':url,
+            'observed_at':ev.get('observed_at'),'residential_candidate_url':url,'residential_adapter_version':ADAPTER_VERSION,
         })
     out=Path(a.out);out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(''.join(json.dumps(r,ensure_ascii=False,sort_keys=True,default=str)+'\n' for r in rows),encoding='utf-8')
-    print('GWS_RESIDENTIAL_SEMANTIC_ADAPTER='+json.dumps({'input_unique':len(latest),'output':len(rows),'owned_candidates':sum(bool(r.get('residential_candidate_url')) for r in rows)},separators=(',',':')))
+    print('GWS_RESIDENTIAL_SEMANTIC_ADAPTER='+json.dumps({'version':ADAPTER_VERSION,'input_unique':len(latest),'output':len(rows),'owned_candidates':sum(bool(r.get('residential_candidate_url')) for r in rows)},separators=(',',':')))
 if __name__=='__main__':main()
