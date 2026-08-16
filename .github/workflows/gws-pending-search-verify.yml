@@ -1,0 +1,144 @@
+name: GWS Pending Search Verify Fleet
+
+on:
+  schedule:
+    - cron: '4,19,34,49 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_pending_verify_*.py'
+      - 'tools/gws_search_*.py'
+      - 'config/gws_search_verify.json'
+      - '.github/workflows/gws-pending-search-verify.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gws-pending-search-verify-fleet
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      eligible: ${{ steps.plan.outputs.eligible }}
+      workers: ${{ steps.plan.outputs.workers }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_plan --max-workers 5 --per-worker 70
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.workers != '0'
+        with:
+          name: gws-pending-verify-plan-${{ github.run_id }}
+          path: results/gws_verify_plan/
+          retention-days: 1
+          compression-level: 6
+
+  verify:
+    needs: plan
+    if: needs.plan.outputs.workers != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.workers) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install verifier dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - uses: actions/download-artifact@v4
+        with:
+          name: gws-pending-verify-plan-${{ github.run_id }}
+          path: results/gws_verify_plan
+      - name: Start hosted OpenSERP or arm fallback
+        id: openserp
+        shell: bash
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then
+            echo 'url=http://127.0.0.1:7000' >> "$GITHUB_OUTPUT"
+            echo 'mode=openserp_ci' >> "$GITHUB_OUTPUT"
+          else
+            echo 'url=' >> "$GITHUB_OUTPUT"
+            echo 'mode=fallback_search_fabric' >> "$GITHUB_OUTPUT"
+            echo 'OpenSERP unavailable; continuing exclusion-only through fallback providers.'
+          fi
+          exit 0
+      - name: Refresh current identity and verify pending partition
+        env:
+          OPENSERP_URL: ${{ steps.openserp.outputs.url }}
+        run: |
+          out="results/gws_verify_shards/${{ matrix.worker_index }}"
+          python tools/gws_pending_verify_worker.py \
+            --input results/gws_verify_plan/pending.jsonl \
+            --worker-index ${{ matrix.worker_index }} \
+            --worker-count ${{ matrix.worker_count }} \
+            --outdir "$out" \
+            --threads 8
+          python tools/gws_search_verify.py --shard-dir "$out" --config config/gws_search_verify.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-pending-verify-shard-${{ matrix.worker_index }}
+          path: results/gws_verify_shards/${{ matrix.worker_index }}/
+          retention-days: 1
+          compression-level: 6
+
+  aggregate:
+    needs: [plan, verify]
+    if: always() && needs.plan.outputs.workers != '0'
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Refresh durable state base
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gws-pending-verify-shard-*
+          path: results/gws_verify_shards
+      - name: Aggregate strict verification results
+        run: python tools/gws_pending_verify_aggregate.py --root results/gws_verify_shards
+      - name: Persist verification ledger and handoff
+        run: |
+          set -euo pipefail
+          git config user.name 'evergreen-gws-verify'
+          git config user.email 'actions@users.noreply.github.com'
+          git add \
+            state/gws_verify_index.json \
+            gpt/gws_pending_batches.json \
+            gpt/gws_verified_pending.json \
+            gpt/gws_verified_review/ \
+            data/gws/verification/ \
+            metrics/gws_verify_latest.json \
+            metrics/gws_verify_history.jsonl
+          if git diff --cached --quiet; then
+            echo 'No GWS verification delta.'
+            exit 0
+          fi
+          git commit -m "[gws-verify-state] pending search verification ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git rebase --abort >/dev/null 2>&1 || true
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git rebase --abort >/dev/null 2>&1 || true
+              echo 'Concurrent verification-state conflict; refusing unsafe merge.' >&2
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
+          exit 1
