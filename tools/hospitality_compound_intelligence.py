@@ -228,10 +228,14 @@ def aggregate_sidecars(args: argparse.Namespace) -> int:
     for idx, source in enumerate(dirs):
         shutil.copytree(source, staging / f'worker-{idx:02d}')
 
-    working_intel = outdir / 'hospitality-intelligence.working.sqlite'
-    working_canonical = outdir / 'hospitality-canonical.working.sqlite'
-    if working_intel.exists():
-        working_intel.unlink()
+    workdir = outdir / 'work'
+    if workdir.exists():
+        shutil.rmtree(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    # Preserve production filenames inside the scratch directory so existing
+    # safety-floor checks continue to apply exactly as they do in production.
+    working_intel = workdir / 'hospitality-intelligence.sqlite'
+    working_canonical = workdir / 'hospitality-canonical.sqlite'
     if intelligence.is_file():
         shutil.copy2(intelligence, working_intel)
     shutil.copy2(canonical, working_canonical)
@@ -283,12 +287,11 @@ def aggregate_sidecars(args: argparse.Namespace) -> int:
             raise
         return 0
     finally:
-        for p in (working_intel, working_canonical):
-            try:
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
+        try:
+            if workdir.exists():
+                shutil.rmtree(workdir)
+        except Exception:
+            pass
 
 
 def build_parser() -> argparse.ArgumentParser:
