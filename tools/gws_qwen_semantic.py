@@ -13,45 +13,19 @@ WEBSITE_STATES={
     "ANCIENT_SITE","NON_MOBILE_SITE","NO_SSL","ONE_PAGE_BAD_SITE","BAD_CONVERSION_SITE","GOOD_SITE","UNCERTAIN"
 }
 
-SYSTEM_PROMPT='''You are the semantic ambiguity resolver for a high-recall local-business website harvester.
+SYSTEM_PROMPT='''You classify whether one supplied URL is a current FIRST-PARTY website owned by the named local business.
 /no_think
-You receive ONLY compact public/deterministic evidence already collected by other workers.
+Use ONLY supplied evidence. Never invent a URL or fact.
+Directories, social/profile/listing/booking/editorial pages are NOT owned sites.
+Identity match on a page does NOT prove domain ownership.
+legacy_identity never proves ownership.
+MATCH/PROBABLE require positive first-party control evidence.
+Dead/NXDOMAIN/parked historical domains are not current owned websites.
+If no supplied candidate has positive ownership evidence, return candidate_url="" and WRONG or UNCERTAIN.
+You are shadow-only and cannot certify VERIFIED_NO_WEBSITE.
 
-CRITICAL OWNERSHIP SEMANTICS:
-- The input may include candidate_set: a bounded set of URLs found by targeted current-web search before you run.
-- Compare ALL candidate_set entries. candidate_url in your output MUST be either one exact URL from candidate_set / the supplied legacy candidate_url, or an empty string. Never invent a URL.
-- MATCH or PROBABLE means the selected candidate_url is a FIRST-PARTY web property controlled by the named business.
-- If no supplied candidate has positive first-party evidence, output candidate_url="" and prefer UNCERTAIN or WRONG rather than selecting the least-bad URL.
-- candidate_set.host_class=KNOWN_THIRD_PARTY is not owned. candidate_set.ownership_assessment.confident=true is strong deterministic first-party evidence.
-- candidate_set.probe.matched proves entity identity on the probed page, NOT automatically domain ownership.
-- A page that accurately mentions the business is NOT automatically owned by the business.
-- direct_identity_evidence.matched proves only that the page content matches the entity. It does NOT prove domain ownership or control.
-- match_mode=legacy_identity is especially weak and NEVER proves first-party ownership by itself.
-- A domain-name or business-name resemblance alone NEVER proves ownership.
-- If candidate_host_class is KNOWN_THIRD_PARTY or EDITORIAL_OR_PROFILE_PAGE, the legacy candidate_url is not an owned site unless stronger deterministic evidence explicitly proves control.
-- Directories, marketplaces, booking/lead aggregators, editorial pages, author/profile pages, salon locators, social networks and listing pages are third-party even when name/address/postcode/phone match exactly.
-- Examples of non-owned evidence patterns include Infobel, idGarages, Cybo, Foursquare, Yelp, TripAdvisor, Booking, Pagesdor/Goudengids, Information-Bruxelles, TopCoiffeur, LocalServices, OpeningsurenGids, L'Oréal salon locator and URL shapes such as /author/, /profile/, /listing/ on unrelated domains.
-- If a candidate domain belongs to an unrelated foreign company, institution, product page, dictionary, media site or business in a different geography, use WRONG for that candidate even if a weak text token or legacy matcher fired.
-- PROBABLE requires positive evidence of first-party control. Lack of a contradiction is NOT positive ownership evidence.
-- If deterministic ownership_assessments say a candidate is third-party, host-not-branded, identity-not-strong-enough, or otherwise not confident, do not promote it to MATCH/PROBABLE without stronger supplied first-party evidence.
-
-Rules:
-- Select the best supplied candidate, if any, then decide whether it is a first-party owned site of the named business: MATCH, PROBABLE, WRONG, or UNCERTAIN.
-- Classify website_state only from supplied evidence.
-- Search absence NEVER proves NO_SITE. If there is no positive website evidence, prefer UNCERTAIN unless supplied deterministic page evidence supports another state.
-- Facebook, Instagram, directories, booking aggregators and listing pages are not owned websites.
-- Strong phone/address/name/geography contradictions outweigh weak name resemblance.
-- Preserve unusual or potentially valuable businesses for review.
-- Never invent or output an email, phone, address, social profile, domain, URL, company identity, or fact.
-- You are SHADOW ONLY. You cannot certify VERIFIED_NO_WEBSITE and cannot override deterministic HIGH/REJECT decisions.
-
-Allowed website_state values:
-NO_SITE, DEAD_SITE, BROKEN_SITE, PARKED_DOMAIN, FACEBOOK_ONLY, DIRECTORY_ONLY, ANCIENT_SITE, NON_MOBILE_SITE, NO_SSL, ONE_PAGE_BAD_SITE, BAD_CONVERSION_SITE, GOOD_SITE, UNCERTAIN.
-
-Return ONLY JSON in this exact shape:
-{"items":[{"business_id":"...","candidate_url":"...","decision":"MATCH|PROBABLE|WRONG|UNCERTAIN","confidence":0.0,"matching_evidence":["..."],"contradictions":["..."],"website_state":"...","needs_gpt_review":false,"reason":"short evidence-grounded reason"}]}
-Return exactly one item for every business_id.'''
-
+Return ONLY JSON:
+{"items":[{"business_id":"...","candidate_url":"...","decision":"MATCH|PROBABLE|WRONG|UNCERTAIN","confidence":0.0,"matching_evidence":["..."],"contradictions":["..."],"website_state":"NO_SITE|DEAD_SITE|BROKEN_SITE|PARKED_DOMAIN|FACEBOOK_ONLY|DIRECTORY_ONLY|ANCIENT_SITE|NON_MOBILE_SITE|NO_SSL|ONE_PAGE_BAD_SITE|BAD_CONVERSION_SITE|GOOD_SITE|UNCERTAIN","needs_gpt_review":false,"reason":"short reason"}]}'''
 
 def strip_thinking(text:str)->str:
     x=(text or "").strip()
@@ -60,7 +34,6 @@ def strip_thinking(text:str)->str:
         x=re.sub(r"^```(?:json)?\s*","",x,flags=re.I)
         x=re.sub(r"\s*```$","",x).strip()
     return x
-
 
 def _allowed_urls(record:dict[str,Any])->set[str]:
     out=set()
@@ -72,6 +45,96 @@ def _allowed_urls(record:dict[str,Any])->set[str]:
             if u: out.add(u)
     return out
 
+def _compact_probe(p:Any)->dict[str,Any]:
+    if not isinstance(p,dict): return {}
+    ident=p.get("identity") if isinstance(p.get("identity"),dict) else {}
+    return {
+        "ok":bool(p.get("ok")),
+        "status":int(p.get("status") or 0),
+        "dns_negative":bool(p.get("dns_negative")),
+        "matched":bool(p.get("matched")),
+        "match_mode":p.get("match_mode") or ident.get("match_mode") or "",
+        "final_url":str(p.get("final") or "")[:180],
+    }
+
+def _compact_ownership(x:Any)->dict[str,Any]:
+    if not isinstance(x,dict): return {}
+    try: addr=round(float(x.get("address_overlap") or 0.0),2)
+    except Exception: addr=0.0
+    return {
+        "confident":bool(x.get("confident")),
+        "reason":str(x.get("reason") or "")[:100],
+        "third_party":bool(x.get("third_party")),
+        "phone_exact":bool(x.get("phone_exact")),
+        "address_overlap":addr,
+        "postcode_match":bool(x.get("postcode_match")),
+        "branded_host":bool(x.get("branded_host")),
+    }
+
+def _candidate_score(c:dict[str,Any], legacy_url:str)->tuple:
+    own=c.get("ownership_assessment") if isinstance(c.get("ownership_assessment"),dict) else {}
+    probe=c.get("probe") if isinstance(c.get("probe"),dict) else {}
+    hc=str(c.get("host_class") or "").upper()
+    try: rank=int(c.get("rank") or 999)
+    except Exception: rank=999
+    return (
+        1 if bool(own.get("confident")) else 0,
+        1 if str(c.get("url") or "")==legacy_url else 0,
+        1 if bool(probe.get("matched")) else 0,
+        1 if bool(c.get("plausible")) else 0,
+        0 if hc in {"KNOWN_THIRD_PARTY","EDITORIAL_OR_PROFILE_PAGE"} else 1,
+        1 if bool(probe.get("ok")) else 0,
+        -rank,
+    )
+
+def _compact_record(r:dict[str,Any], max_candidates:int=5)->dict[str,Any]:
+    legacy=str(r.get("candidate_url") or "").strip()
+    raw=[x for x in (r.get("candidate_set") or []) if isinstance(x,dict) and x.get("url")]
+    seen=set(); uniq=[]
+    for c in raw:
+        u=str(c.get("url") or "").strip()
+        if not u or u in seen: continue
+        seen.add(u); uniq.append(c)
+    uniq=sorted(uniq,key=lambda c:_candidate_score(c,legacy),reverse=True)[:max_candidates]
+    candidates=[]
+    for c in uniq:
+        hint=c.get("plausibility_hint") if isinstance(c.get("plausibility_hint"),dict) else {}
+        try: overlap=round(float(hint.get("text_overlap") or 0.0),2)
+        except Exception: overlap=0.0
+        candidates.append({
+            "url":str(c.get("url") or "")[:240],
+            "host":str(c.get("host") or "")[:100],
+            "host_class":str(c.get("host_class") or "")[:50],
+            "source":str(c.get("source") or "")[:40],
+            "plausible":bool(c.get("plausible")),
+            "name_overlap":overlap,
+            "phone_snippet":bool(hint.get("phone_snippet")),
+            "probe":_compact_probe(c.get("probe")),
+            "ownership":_compact_ownership(c.get("ownership_assessment")),
+        })
+    try: ns=round(float(r.get("name_similarity") or 0.0),2)
+    except Exception: ns=0.0
+    try: ao=round(float(r.get("address_overlap") or 0.0),2)
+    except Exception: ao=0.0
+    return {
+        "business_id":str(r.get("business_id") or ""),
+        "name":str(r.get("name") or "")[:120],
+        "address":str(r.get("address") or "")[:180],
+        "postcode":str(r.get("postcode") or "")[:20],
+        "identity":{
+            "overture_name":str(r.get("overture_name") or "")[:120],
+            "resolved":bool(r.get("overture_resolved")),
+            "name_similarity":ns,
+            "address_overlap":ao,
+            "postcode_match":bool(r.get("postcode_match")),
+            "phone_exact":bool(r.get("phone_exact")),
+        },
+        "legacy_candidate_url":legacy[:240],
+        "legacy_host_class":str(r.get("candidate_host_class") or "")[:50],
+        "candidates":candidates,
+        "unresolved_domain_count":len(r.get("unresolved_plausible_domains") or []),
+        "platform_only_count":len(r.get("platform_only_signals") or []),
+    }
 
 def validate_item(item:dict[str,Any], expected:dict[str,set[str]])->dict[str,Any]|None:
     bid=str(item.get("business_id") or "")
@@ -82,21 +145,18 @@ def validate_item(item:dict[str,Any], expected:dict[str,set[str]])->dict[str,Any
     if state not in WEBSITE_STATES: state="UNCERTAIN"
     candidate_url=str(item.get("candidate_url") or "").strip()
     if candidate_url and candidate_url not in expected[bid]:
-        candidate_url=""
-        decision="UNCERTAIN"
-        state="UNCERTAIN"
+        candidate_url=""; decision="UNCERTAIN"; state="UNCERTAIN"
     if decision in {"MATCH","PROBABLE"} and not candidate_url:
         decision="UNCERTAIN"
     try: conf=max(0.0,min(1.0,float(item.get("confidence") or 0.0)))
     except Exception: conf=0.0
     return {
         "business_id":bid,"candidate_url":candidate_url,"decision":decision,"confidence":conf,
-        "matching_evidence":[str(x)[:300] for x in (item.get("matching_evidence") or [])[:8]],
-        "contradictions":[str(x)[:300] for x in (item.get("contradictions") or [])[:8]],
+        "matching_evidence":[str(x)[:180] for x in (item.get("matching_evidence") or [])[:4]],
+        "contradictions":[str(x)[:180] for x in (item.get("contradictions") or [])[:4]],
         "website_state":state,"needs_gpt_review":bool(item.get("needs_gpt_review")),
-        "reason":str(item.get("reason") or "")[:700],
+        "reason":str(item.get("reason") or "")[:350],
     }
-
 
 def fallback(records:list[dict[str,Any]], error:str)->list[dict[str,Any]]:
     return [{
@@ -106,49 +166,50 @@ def fallback(records:list[dict[str,Any]], error:str)->list[dict[str,Any]]:
         "reason":f"Classifier unavailable or invalid: {error}"[:700],"_classifier_error":error,
     } for r in records]
 
-
 def health(base_url:str, timeout:float=3)->bool:
     try: return requests.get(base_url.rstrip("/")+"/health",timeout=timeout).status_code<500
     except Exception: return False
 
+def _post_once(base_url:str, body:dict[str,Any], timeout:float)->dict[str,Any]:
+    resp=requests.post(base_url.rstrip("/")+"/v1/chat/completions",json=body,timeout=timeout)
+    if resp.status_code>=400:
+        detail=re.sub(r"\s+"," ",resp.text or "")[:500]
+        raise RuntimeError(f"HTTP_{resp.status_code}:{detail}")
+    return resp.json()
 
-def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, timeout:float=150)->list[dict[str,Any]]:
+def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, timeout:float=45)->list[dict[str,Any]]:
     if not records: return []
     if not base_url or not health(base_url): return fallback(records,"QWEN_UNAVAILABLE")
-    expected={str(r.get("business_id") or ""):_allowed_urls(r) for r in records}
-    payload=[]
+    outputs=[]
     for r in records:
-        payload.append({k:r.get(k) for k in (
-            "business_id","name","address","postcode","public_phone_present","candidate_url","candidate_host","candidate_host_class",
-            "candidate_set","targeted_search","overture_name","overture_resolved","name_similarity","address_overlap","postcode_match","phone_exact",
-            "search_candidates","direct_identity_evidence","ownership_assessments","unresolved_plausible_domains","platform_only_signals"
-        )})
-    user="/no_think\nResolve these ambiguous GWS business/site cases. Compare every supplied candidate_set URL, select only from that set, and separate identity presence from first-party ownership.\nINPUT="+json.dumps(payload,ensure_ascii=False,separators=(",",":"))
-    body={
-        "model":model_label,
-        "messages":[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user}],
-        "temperature":0.15,"top_p":0.8,
-        "max_tokens":max(800,min(3200,320*len(records))),
-        "response_format":{"type":"json_object"},
-        "chat_template_kwargs":{"enable_thinking":False},
-    }
-    last="UNKNOWN"
-    for _ in range(2):
-        try:
-            resp=requests.post(base_url.rstrip("/")+"/v1/chat/completions",json=body,timeout=timeout)
-            resp.raise_for_status(); data=resp.json()
-            parsed=json.loads(strip_thinking(data["choices"][0]["message"]["content"]))
-            items=parsed.get("items") if isinstance(parsed,dict) else None
-            if not isinstance(items,list): raise ValueError("missing_items_array")
-            valid={}
-            for item in items:
-                if isinstance(item,dict):
-                    v=validate_item(item,expected)
-                    if v: valid[v["business_id"]]=v
-            if not valid: raise ValueError("no_valid_items")
-            return [valid.get(str(r.get("business_id") or "")) or fallback([r],"MISSING_ITEM")[0] for r in records]
-        except Exception as exc:
-            last=f"{type(exc).__name__}:{str(exc)[:160]}"
-            body["messages"][1]["content"]="/no_think\nReturn only valid JSON. Do not invent candidate URLs. "+user
-            body["max_tokens"]=min(int(body["max_tokens"]),2400)
-    return fallback(records,last)
+        expected={str(r.get("business_id") or ""):_allowed_urls(r)}
+        compact=_compact_record(r,max_candidates=5)
+        user="/no_think\nJudge the supplied candidates for first-party ownership. INPUT="+json.dumps(compact,ensure_ascii=False,separators=(",",":"))
+        base_body={
+            "model":model_label,
+            "messages":[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user}],
+            "temperature":0.1,"top_p":0.8,"max_tokens":650,
+        }
+        last="UNKNOWN"
+        for attempt in range(2):
+            try:
+                body=dict(base_body)
+                if attempt==0:
+                    body["response_format"]={"type":"json_object"}
+                data=_post_once(base_url,body,timeout)
+                parsed=json.loads(strip_thinking(data["choices"][0]["message"]["content"]))
+                items=parsed.get("items") if isinstance(parsed,dict) else None
+                if not isinstance(items,list): raise ValueError("missing_items_array")
+                valid={}
+                for item in items:
+                    if isinstance(item,dict):
+                        v=validate_item(item,expected)
+                        if v: valid[v["business_id"]]=v
+                bid=str(r.get("business_id") or "")
+                if bid not in valid: raise ValueError("missing_valid_item")
+                outputs.append(valid[bid]); break
+            except Exception as exc:
+                last=f"{type(exc).__name__}:{str(exc)[:500]}"
+                if attempt==1:
+                    outputs.append(fallback([r],last)[0])
+    return outputs
