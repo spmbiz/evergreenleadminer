@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T20:46:00Z",
+  "requested_at": "2026-08-16T21:36:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "validate-inert-datatourisme-wiring",
+  "mode": "source-rebalance-production-smoke",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Normal broker/autoscaler. DATAtourisme production flag remains false; this run only validates planner/worker wiring imports without allowing a DATAtourisme task. Existing FreshSearch, Wikidata, ATP and canonical single-writer behavior must remain unchanged."
+  "note": "Normal broker/autoscaler production smoke after retiring zero-yield site_recovery, raising Wikidata cap from 1 to 2, and promoting DATAtourisme at cap 1. Preserve existing FreshSearch/ATP/OSM behavior, canonical dedupe, broker capacity, and single-writer aggregate invariants."
 }
