@@ -6,6 +6,10 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [gws_verify_refill]
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_strict_kick.json'
 
 permissions:
   contents: write
