@@ -8,6 +8,14 @@
   "max_accounts_per_pass": 400,
   "retry_hours": 24,
   "refresh_days": 30,
+  "compound_sidecar": {
+    "enabled": true,
+    "records_per_harvest_worker": 8,
+    "max_accounts_per_cycle": 160,
+    "standalone_overflow_max_workers": 4,
+    "standalone_overflow_max_accounts": 80,
+    "fail_open": true
+  },
   "deterministic_fast_path": {
     "enabled": true,
     "positive_only": true,
