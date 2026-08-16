@@ -2,7 +2,7 @@ name: Hospitality Intelligence V2
 
 on:
   schedule:
-    - cron: '11 1,9,17 * * *'
+    - cron: '11,41 * * * *'
   push:
     branches: [main]
     paths:
@@ -18,7 +18,7 @@ on:
         required: false
         default: '0'
       max_workers:
-        description: 'Optional one-run worker cap for smoke testing; 0 uses config'
+        description: 'Optional one-run worker fanout for smoke testing; 0 uses brokered config'
         required: false
         default: '0'
 
@@ -26,30 +26,31 @@ permissions:
   contents: write
   actions: read
 
-# Latest explicit trigger wins while smoke hardening is active.
 concurrency:
   group: hospitality-intelligence-v2
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   INTEL_CONFIG: config/hospitality_intelligence_v2.json
 
 jobs:
   plan:
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     outputs:
       enabled: ${{ steps.emit.outputs.enabled }}
       matrix: ${{ steps.emit.outputs.matrix }}
       worker_count: ${{ steps.emit.outputs.worker_count }}
       accounts_planned: ${{ steps.emit.outputs.accounts_planned }}
+      allocated_slots: ${{ steps.emit.outputs.allocated_slots }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # Need the parent tree so the push-trigger control file can be
-          # resolved deterministically from THIS commit, never from mtimes.
           fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
@@ -68,11 +69,12 @@ jobs:
             --pattern 'hospitality-intelligence.sqlite' \
             --dir snapshot \
             --clobber || true
-      - name: Build NEW / CHANGED / unresolved semantic queue
+      - name: Resolve trigger, reserve broker capacity and build semantic queue
         env:
           FORCE_INPUT: ${{ github.event.inputs.force_reclassify || 'false' }}
           MAX_ACCOUNTS_INPUT: ${{ github.event.inputs.max_accounts || '0' }}
           MAX_WORKERS_INPUT: ${{ github.event.inputs.max_workers || '0' }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           FORCE="$FORCE_INPUT"
@@ -91,25 +93,75 @@ jobs:
             echo "Trigger overrides: file=$TRIGGER force=$FORCE max_accounts=$MAX_ACCOUNTS max_workers=$MAX_WORKERS"
           fi
 
+          CONFIG_MAX=$(python -c "import json; print(int(json.load(open('$INTEL_CONFIG')).get('max_workers') or 20))")
+          if [ "${MAX_WORKERS:-0}" -gt 0 ]; then
+            REQUESTED=$MAX_WORKERS
+          else
+            REQUESTED=$CONFIG_MAX
+          fi
+          if [ "$REQUESTED" -gt 20 ]; then REQUESTED=20; fi
+          if [ "$REQUESTED" -lt 1 ]; then REQUESTED=1; fi
+
+          python tools/global_capacity_broker.py reserve \
+            --workload hospitality \
+            --requested "$REQUESTED" \
+            --demand-override "$REQUESTED" \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out intelligence_plan/global_broker.json
+          ALLOCATED=$(python -c 'import json; print(int(json.load(open("intelligence_plan/global_broker.json")).get("allocated") or 0))')
+          echo "hospitality_intelligence_requested=$REQUESTED allocated=$ALLOCATED"
+
+          if [ "$ALLOCATED" -le 0 ]; then
+            python - <<'PY'
+          import json
+          p={
+            'enabled':False,'accounts_planned':0,'worker_count':0,'include':[],
+            'reason':'global_broker_no_capacity','counts':{},
+            'config':{'broker_allocated':0}
+          }
+          open('intelligence_plan/plan.json','w').write(json.dumps(p,indent=2)+'\n')
+          PY
+            exit 0
+          fi
+
+          python - <<PY
+          import json
+          p='$INTEL_CONFIG'
+          d=json.load(open(p))
+          d['max_workers']=int('$ALLOCATED')
+          open('intelligence_plan/effective_config.json','w').write(json.dumps(d,indent=2)+'\n')
+          PY
+
           ARGS=(
             --canonical-db snapshot/hospitality-canonical.sqlite
             --intelligence-db snapshot/hospitality-intelligence.sqlite
-            --config "$INTEL_CONFIG"
+            --config intelligence_plan/effective_config.json
             --outdir intelligence_plan
           )
           if [ "${FORCE,,}" = "true" ]; then ARGS+=(--force); fi
           if [ "${MAX_ACCOUNTS:-0}" -gt 0 ]; then ARGS+=(--max-accounts "$MAX_ACCOUNTS"); fi
-          if [ "${MAX_WORKERS:-0}" -gt 0 ]; then ARGS+=(--max-workers "$MAX_WORKERS"); fi
+          if [ "${MAX_WORKERS:-0}" -gt 0 ]; then
+            EFFECTIVE_EXPLICIT=$MAX_WORKERS
+            if [ "$EFFECTIVE_EXPLICIT" -gt "$ALLOCATED" ]; then EFFECTIVE_EXPLICIT=$ALLOCATED; fi
+            ARGS+=(--max-workers "$EFFECTIVE_EXPLICIT")
+          fi
           python tools/hospitality_intelligence_plan.py "${ARGS[@]}"
       - id: emit
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           p=json.load(open('intelligence_plan/plan.json'))
+          try:
+              b=json.load(open('intelligence_plan/global_broker.json'))
+          except Exception:
+              b={}
           print('enabled='+str(bool(p.get('enabled'))).lower())
           print('matrix='+json.dumps({'include':p.get('include') or []},separators=(',',':')))
           print('worker_count='+str(int(p.get('worker_count') or 0)))
           print('accounts_planned='+str(int(p.get('accounts_planned') or 0)))
+          print('allocated_slots='+str(int(b.get('allocated') or 0)))
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -185,7 +237,7 @@ jobs:
     if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 20
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ubuntu-latest
     timeout-minutes: 58
@@ -220,8 +272,8 @@ jobs:
           test -n "$SHARD_ID"
           test -s "model_cache/$MODEL_FILE"
           test -s "intelligence_plan/$SHARD_FILE"
-          python tools/hospitality_intelligence_worker.py --help | grep -q -- '--shard'
-          python tools/hospitality_intelligence_worker.py --help | grep -q -- '--qwen-url'
+          python tools/hospitality_intelligence_worker_fast.py --help | grep -q -- '--shard'
+          python tools/hospitality_intelligence_worker_fast.py --help | grep -q -- '--qwen-url'
           echo "Qwen=$MODEL_FILE shard=$SHARD_ID input=$SHARD_FILE"
       - name: Start local Qwen server fail-open
         env:
@@ -235,7 +287,7 @@ jobs:
           else
             echo 'QWEN_URL=http://127.0.0.1:65534' >> "$GITHUB_ENV"
             echo 'QWEN_RUNTIME=unavailable_fail_open' >> "$GITHUB_ENV"
-            echo 'Qwen runtime unavailable; worker will preserve records as MAYBE/QWEN_UNAVAILABLE.'
+            echo 'Qwen runtime unavailable; ambiguous records remain MAYBE/QWEN_UNAVAILABLE.'
           fi
           exit 0
       - name: Start local OpenSERP fail-open to DDGS
@@ -255,7 +307,7 @@ jobs:
           set -euo pipefail
           OUT="worker_out/${{ matrix.shard }}"
           mkdir -p "$OUT"
-          python tools/hospitality_intelligence_worker.py \
+          python tools/hospitality_intelligence_worker_fast.py \
             --input "intelligence_plan/${{ matrix.path }}" \
             --config "$INTEL_CONFIG" \
             --qwen-url "$QWEN_URL" \
@@ -275,7 +327,7 @@ jobs:
 
   aggregate_intelligence:
     needs: [plan, intelligence]
-    if: always() && needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
+    if: always() && needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0' && needs.intelligence.result == 'success'
     concurrency:
       group: hospitality-intelligence-ledger-writer
       cancel-in-progress: false
@@ -389,3 +441,19 @@ jobs:
           path: merge_out/
           retention-days: 3
           compression-level: 6
+
+  release_capacity_lease:
+    needs: [plan, prepare_model, intelligence, aggregate_intelligence, merge_canonical_fill_only]
+    if: always()
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release account-wide GitHub capacity lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
