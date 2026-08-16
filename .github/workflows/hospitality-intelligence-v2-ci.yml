@@ -2,7 +2,7 @@ name: Hospitality Intelligence V2 CI
 
 on:
   push:
-    branches: [main, hospitality-intelligence-v2]
+    branches: [main, hospitality-intelligence-v2, agent/hospitality-compound-qwen-3]
     paths:
       - 'config/hospitality_intelligence_v2.json'
       - 'config/global_fleet.json'
