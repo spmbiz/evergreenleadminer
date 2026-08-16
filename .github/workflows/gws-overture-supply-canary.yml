@@ -1,0 +1,66 @@
+name: GWS Overture Expanded Supply Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_source_overture_extended.py'
+      - '.github/workflows/gws-overture-supply-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install DuckDB
+        run: python -m pip install --disable-pip-version-check duckdb
+      - name: Materialize expanded Overture reservoir without canonical writes
+        run: |
+          set -euo pipefail
+          mkdir -p results/overture_supply_canary
+          : > results/overture_supply_canary/empty.jsonl
+          python tools/gws_source_overture_extended.py prepare \
+            --input-candidates results/overture_supply_canary/empty.jsonl \
+            --out-candidates results/overture_supply_canary/candidates.jsonl \
+            --plan-dir results/overture_supply_canary \
+            --threads 16
+      - name: Measure expanded-family supply
+        run: |
+          python - <<'PY'
+          import collections, json
+          from pathlib import Path
+
+          p=Path('results/overture_supply_canary/candidates.jsonl')
+          rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          old_types={
+            'Hairdresser','Beauty salon','Bakery','Butcher','Dry cleaning','Laundry','Tailor','Shoe repair',
+            'Florist','Garden center','Pet grooming','Optician','Mobile phones','Printing','Photo studio','Garage',
+            'Tyres','Locksmith','Watch repair','Jewelry repair','Plumber','Electrician','Heating','Massage','Podiatry'
+          }
+          south={'1050':'Ixelles','1060':'Saint-Gilles','1160':'Auderghem','1170':'Watermael-Boitsfort','1180':'Uccle','1190':'Forest'}
+          expanded=[r for r in rows if r.get('type_en') not in old_types]
+          by_type=collections.Counter(r.get('type_en') for r in expanded)
+          by_south=collections.Counter(south.get(str(r.get('postalcode'))) for r in expanded if str(r.get('postalcode')) in south)
+          summary={
+            'all_materialized':len(rows),
+            'expanded_materialized':len(expanded),
+            'expanded_types':dict(by_type.most_common()),
+            'south_expanded_materialized':sum(by_south.values()),
+            'south_by_territory':dict(by_south),
+          }
+          Path('results/overture_supply_canary/expanded_summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          print('GWS_OVERTURE_EXPANDED_CANARY='+json.dumps(summary,separators=(',',':'),ensure_ascii=False))
+          if summary['expanded_materialized'] <= 0 or summary['south_expanded_materialized'] <= 0:
+              raise SystemExit('Expanded mapper produced no usable South Brussels supply')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-overture-supply-canary-${{ github.run_id }}
+          path: results/overture_supply_canary/
+          retention-days: 2
