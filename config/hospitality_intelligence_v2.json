@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "mode": "shadow",
+  "max_workers": 10,
+  "shard_size": 500,
+  "max_accounts_per_pass": 5000,
+  "retry_hours": 24,
+  "refresh_days": 30,
+  "qwen": {
+    "enabled": true,
+    "model_repo": "Qwen/Qwen3-4B-GGUF",
+    "model_revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "model_file": "Qwen3-4B-Q4_K_M.gguf",
+    "model_label": "qwen3-4b-q4_k_m",
+    "prompt_version": "hospitality-v2-high-recall-1",
+    "batch_size": 8,
+    "timeout_seconds": 150,
+    "llama_cpp_image": "ghcr.io/ggml-org/llama.cpp:server"
+  },
+  "search": {
+    "openserp_ci_enabled": true,
+    "openserp_engines": "google,bing,duckduckgo,ecosia,yandex",
+    "ddgs_enabled": true,
+    "searxng_url": "",
+    "max_results": 5,
+    "max_queries_per_account": 3,
+    "account_budget_per_worker": 60,
+    "timeout_seconds": 15,
+    "provider_delay_seconds": 0.1,
+    "stop_after_first_successful_provider": true
+  },
+  "portfolio": {
+    "workers": 12,
+    "timeout_seconds": 8,
+    "max_bytes_per_fetch": 750000,
+    "max_sitemaps": 5,
+    "max_sitemap_urls": 1500,
+    "max_assets": 250,
+    "sample_count": 5
+  },
+  "safety": {
+    "auto_reject": false,
+    "canonical_contact_merge": "first_party_fill_only",
+    "search_absence_is_negative_proof": false,
+    "personal_self_hosted_public_repo": false
+  }
+}
