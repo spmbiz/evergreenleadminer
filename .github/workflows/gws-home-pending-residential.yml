@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: gws-home-pending-residential
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   residential_pending:
