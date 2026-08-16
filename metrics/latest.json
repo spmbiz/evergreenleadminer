@@ -1,48 +1,48 @@
 {
-  "cycle_id": "20260816T151126Z-github-multilane",
+  "cycle_id": "20260816T151355Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T15:12:47.789169Z",
+  "finished_at": "2026-08-16T15:15:20.077573Z",
   "workers_completed": 6,
   "workers_failed": 0,
-  "raw_discovered": 4556,
-  "live_ready_before_canonical_dedupe": 8,
-  "new_unique": 8,
+  "raw_discovered": 3163,
+  "live_ready_before_canonical_dedupe": 2,
+  "new_unique": 2,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 4,
-  "gpt_review_pending": 1,
+  "instagram_found": 2,
+  "gpt_review_pending": 0,
   "errors": 0,
-  "peak_wall_seconds": 20.7,
-  "new_unique_per_worker_minute": 7.193,
-  "canonical_total": 31322,
+  "peak_wall_seconds": 26.84,
+  "new_unique_per_worker_minute": 2.274,
+  "canonical_total": 31324,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.09091,
-    "error_rate": 0.27273
+    "timeout_rate": 0.11111,
+    "error_rate": 0.66667
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
       "workers_completed": 6,
       "workers_failed": 0,
-      "raw_discovered": 4556,
-      "fast_ready": 11,
-      "live_ready": 8,
-      "recovery_candidates": 13,
-      "recovered_public_emails": 2,
-      "contact_ready": 11,
-      "social_or_contact_without_email": 9,
-      "instagram_found": 4,
-      "facebook_found": 3,
+      "raw_discovered": 3163,
+      "fast_ready": 9,
+      "live_ready": 2,
+      "recovery_candidates": 11,
+      "recovered_public_emails": 1,
+      "contact_ready": 9,
+      "social_or_contact_without_email": 8,
+      "instagram_found": 2,
+      "facebook_found": 0,
       "live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.09091,
-        "error_rate": 0.27273
+        "timeout_rate": 0.11111,
+        "error_rate": 0.66667
       },
       "contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.07692,
-        "error_rate": 0.07692
+        "timeout_rate": 0.09091,
+        "error_rate": 0.0
       }
     }
   },
