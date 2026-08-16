@@ -1,0 +1,24 @@
+{
+  "schema": "gws-home-openserp-worker-v3",
+  "input_rows": 12,
+  "attempted": 12,
+  "shard_index": 0,
+  "shard_count": 1,
+  "engines": [
+    "bing",
+    "duckduckgo"
+  ],
+  "statuses": {
+    "REJECT": 7,
+    "EVIDENCE_INCOMPLETE": 5
+  },
+  "family_pass_observations": {
+    "bing": 24,
+    "duckduckgo": 24
+  },
+  "owned_sites_found": 7,
+  "certificate_eligible": 0,
+  "elapsed_seconds": 1093.2,
+  "final_high": 0,
+  "note": "Evidence only. Downstream single-writer must independently re-evaluate certificate before any HIGH persistence."
+}
