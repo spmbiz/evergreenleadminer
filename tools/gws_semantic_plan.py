@@ -16,7 +16,6 @@ PROFILE_PATH_MARKERS=('/author/','/authors/','/profile/','/profiles/','/listing/
 def load(path,default):
     try:return json.loads(Path(path).read_text(encoding='utf-8'))
     except Exception:return default
-
 def dump(path,obj):
     p=Path(path);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(obj,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
 def iter_jsonl(pattern):
@@ -104,7 +103,7 @@ def prepare(args):
     if stage=='smoke':
         n=int(rcfg.get('smoke_records') or 32); bsel,_,_=balanced_benchmark(bench,max(2,n//4)); selected=(live[:max(1,n-len(bsel))]+bsel)[:n]; desired=1; stage_shard_size=n
     elif stage in {'benchmark','benchmark_waiting'}:
-        n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=125; selected,_,_=balanced_benchmark(bench,n); desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
+        n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=max(1,int(rcfg.get('benchmark_shard_size') or 20)); selected,_,_=balanced_benchmark(bench,n); desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
     else:
         stage_shard_size=max(1,int(rcfg.get('production_shard_size') or 80)); maxw=int(rcfg.get('production_max_workers') or 10); selected=live[:maxw*stage_shard_size]; desired=min(maxw,max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='production'
     out=Path(args.outdir);out.mkdir(parents=True,exist_ok=True)
