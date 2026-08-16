@@ -2,25 +2,25 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.0,
+    "recent_error_rate": 1.0,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T02:13:36.540907Z"
+    "last_updated": "2026-08-16T02:15:19.162486Z"
   },
   "hospitality_lanes": {
     "fast_email": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 39,
-      "last_fast_ready": 2,
-      "last_live_ready": 2,
+      "last_raw_discovered": 6,
+      "last_fast_ready": 1,
+      "last_live_ready": 0,
       "last_recovery_candidates": 0,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 1.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
