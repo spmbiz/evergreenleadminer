@@ -28,17 +28,17 @@ def iter_jsonl(root: Path, name: str):
 
 
 def require_complete_github_matrix() -> dict:
-    """Prevent `if: always()` from aggregating a cancelled/failed worker matrix.
+    """Refuse partial/cancelled worker matrices before ledger mutation.
 
-    In GitHub Actions, aggregate can still be scheduled after a failed or cancelled
-    matrix. Query the authoritative run job list and require every intelligence
-    matrix job to have concluded successfully before any ledger mutation.
-    Local tests do not have GITHUB_RUN_ID/GITHUB_REPOSITORY and skip this gate.
+    Production aggregate jobs have GH_TOKEN plus the GitHub run identifiers.
+    Local/unit-test subprocesses intentionally do not, so they skip this remote
+    gate and remain deterministic.
     """
     repo = os.environ.get('GITHUB_REPOSITORY', '').strip()
     run_id = os.environ.get('GITHUB_RUN_ID', '').strip()
-    if not repo or not run_id:
-        return {'checked': False, 'reason': 'not_github_actions'}
+    token = os.environ.get('GH_TOKEN', '').strip()
+    if not repo or not run_id or not token:
+        return {'checked': False, 'reason': 'not_authenticated_aggregate_job'}
     proc = subprocess.run(
         ['gh', 'api', f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100'],
         text=True, capture_output=True,
