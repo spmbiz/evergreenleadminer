@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T22:45:00Z",
+  "requested_at": "2026-08-16T23:08:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "compound-qwen-normalized-after-smoke",
+  "mode": "three-way-broker-live-validation",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Return to durable autoscaler after compound-Qwen post-merge smoke. Prior forced smoke reached the new compound planner safely but global broker allocated 0 because GWS/tenders external load occupied account capacity. Keep normal source rebalance and compound-Qwen architecture active; next capacity-bearing cycle should validate same-runner harvest then intelligence sidecar."
+  "note": "Live validation after global broker fair-share fix. Run durable Hospitality autoscaler while Tenders and GWS are active. Expect nonzero Hospitality allocation when physical capacity exists, fair targets preserved for all demanding workloads, no site_recovery, and compound Qwen on the same harvest workers without separate Hospitality Intelligence starvation."
 }
