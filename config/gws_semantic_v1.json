@@ -5,9 +5,9 @@
   "rollout": {
     "smoke_records": 8,
     "benchmark_records": 250,
-    "benchmark_workers": 5,
+    "benchmark_workers": 2,
     "benchmark_shard_size": 8,
-    "production_max_workers": 5,
+    "production_max_workers": 2,
     "production_shard_size": 8,
     "min_trusted_benchmark": 200,
     "min_schema_valid_rate": 0.99,
