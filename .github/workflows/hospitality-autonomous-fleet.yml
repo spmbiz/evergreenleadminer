@@ -111,15 +111,20 @@ jobs:
             --cycle-id "$CYCLE_ID" \
             --run-id "$RUN_ID" \
             --ttl-minutes 75
-      - name: Build read-only canonical domain snapshot
+      - name: Build canonical snapshot and compound Intelligence sidecars
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p planner/canonical
+          mkdir -p planner/canonical planner/intelligence_sidecar
           gh release download harvest-state \
             --repo "$GITHUB_REPOSITORY" \
             --pattern 'hospitality-canonical.sqlite' \
+            --dir planner/canonical \
+            --clobber || true
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-intelligence.sqlite' \
             --dir planner/canonical \
             --clobber || true
           python - <<'PY'
@@ -136,6 +141,12 @@ jobs:
               for d in sorted(set(domains)): f.write(d+'\n')
           print({'canonical_domains':len(set(domains)),'path':str(out)})
           PY
+          python tools/hospitality_compound_intelligence.py plan \
+            --harvest-plan planner/plan.json \
+            --canonical-db planner/canonical/hospitality-canonical.sqlite \
+            --intelligence-db planner/canonical/hospitality-intelligence.sqlite \
+            --config config/hospitality_intelligence_v2.json \
+            --outdir planner/intelligence_sidecar
           rm -rf planner/canonical
       - id: emit
         name: Emit dynamic matrix
@@ -167,7 +178,7 @@ jobs:
       max-parallel: 20
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 58
     steps:
       - uses: actions/checkout@v4
         with:
@@ -176,7 +187,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install minimal worker dependencies
-        run: python -m pip install --disable-pip-version-check duckdb requests ijson osmium
+        run: python -m pip install --disable-pip-version-check duckdb requests ijson osmium 'ddgs>=9,<10'
       - name: Download read-only canonical snapshot
         uses: actions/download-artifact@v4
         with:
@@ -225,6 +236,61 @@ jobs:
               --verify-engine thread \
               --outdir "results/${{ matrix.key }}"
           fi
+      - name: Read compound Qwen cache coordinates
+        if: ${{ matrix.compound_intel_records > 0 }}
+        id: compound_model
+        run: |
+          echo "revision=${{ matrix.compound_qwen_revision }}" >> "$GITHUB_OUTPUT"
+          echo "file=${{ matrix.compound_qwen_file }}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ matrix.compound_qwen_image }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Qwen model cache for compound sidecar
+        if: ${{ matrix.compound_intel_records > 0 }}
+        uses: actions/cache/restore@v4
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-${{ steps.compound_model.outputs.revision }}
+      - name: Start compound Qwen server fail-open
+        if: ${{ matrix.compound_intel_records > 0 }}
+        env:
+          MODEL_FILE: ${{ steps.compound_model.outputs.file }}
+          LLAMA_CPP_IMAGE: ${{ steps.compound_model.outputs.image }}
+        run: |
+          set +e
+          if [ -s "model_cache/$MODEL_FILE" ] && [ "$(stat -c%s "model_cache/$MODEL_FILE" 2>/dev/null || echo 0)" -gt 1000000000 ] && bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$MODEL_FILE"; then
+            echo 'QWEN_URL=http://127.0.0.1:8080' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=ready_compound' >> "$GITHUB_ENV"
+          else
+            echo 'QWEN_URL=http://127.0.0.1:65534' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=cache_miss_or_unavailable_fail_open' >> "$GITHUB_ENV"
+            echo 'Compound Qwen cache/runtime unavailable; intelligence remains retryable without blocking harvest.'
+          fi
+          exit 0
+      - name: Start compound OpenSERP fail-open to DDGS
+        if: ${{ matrix.compound_intel_records > 0 }}
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then
+            echo 'OPENSERP_URL=http://127.0.0.1:7000' >> "$GITHUB_ENV"
+            echo 'OPENSERP_RUNTIME=ready_compound' >> "$GITHUB_ENV"
+          else
+            echo 'OPENSERP_URL=' >> "$GITHUB_ENV"
+            echo 'OPENSERP_RUNTIME=unavailable_ddgs_fallback' >> "$GITHUB_ENV"
+          fi
+          exit 0
+      - name: Run compound account intelligence on same harvest worker
+        if: ${{ matrix.compound_intel_records > 0 }}
+        run: |
+          set -euo pipefail
+          OUT="results/${{ matrix.key }}/compound_intelligence"
+          mkdir -p "$OUT"
+          python tools/hospitality_intelligence_worker_fast.py \
+            --input "planner_input/${{ matrix.compound_intel_path }}" \
+            --config config/hospitality_intelligence_v2.json \
+            --qwen-url "$QWEN_URL" \
+            --shard "${{ matrix.compound_intel_shard }}" \
+            --outdir "$OUT"
+          test -s "$OUT/accounts.jsonl.gz"
+          test -s "$OUT/summary.json"
       - name: Upload transport artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -275,6 +341,46 @@ jobs:
             --canonical-db canonical/hospitality-canonical.sqlite \
             --outdir aggregate_out
           python tools/hospitality_scheduler.py after --metrics metrics/latest.json
+      - name: Compound Intelligence fill-only merge under the same canonical writer
+        if: needs.harvest.result == 'success'
+        run: |
+          set -euo pipefail
+          PLAN=$(find incoming -type f -path '*/planner/plan.json' -print -quit)
+          if [ -z "${PLAN:-}" ]; then
+            echo 'Compound Intelligence skipped: harvest plan artifact not found.'
+            exit 0
+          fi
+          mkdir -p intelligence compound_intelligence_out
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-intelligence.sqlite' \
+            --dir intelligence \
+            --clobber || true
+          python tools/hospitality_compound_intelligence.py aggregate \
+            --incoming incoming \
+            --harvest-plan "$PLAN" \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --intelligence-db intelligence/hospitality-intelligence.sqlite \
+            --outdir compound_intelligence_out \
+            --run-id "compound-${CYCLE_ID}"
+          cat compound_intelligence_out/compound-status.json || true
+          python - <<'PY'
+          import json,os,shutil
+          from pathlib import Path
+          status_path=Path('compound_intelligence_out/compound-status.json')
+          metrics_path=Path('metrics/latest.json')
+          if status_path.is_file() and metrics_path.is_file():
+              s=json.loads(status_path.read_text(encoding='utf-8'))
+              m=json.loads(metrics_path.read_text(encoding='utf-8'))
+              m['compound_intelligence']=s
+              metrics_path.write_text(json.dumps(m,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          cycle=os.environ['CYCLE_ID']
+          if status_path.is_file():
+              shutil.copy2(status_path, Path('aggregate_out')/f'compound-intelligence-{cycle}.json')
+          review=Path('compound_intelligence_out/aggregate/gpt-review.jsonl')
+          if review.is_file():
+              shutil.copy2(review, Path('aggregate_out')/f'gpt-review-compound-{cycle}.jsonl')
+          PY
       - name: Preserve enriched observations beyond temporary artifacts
         run: |
           python - <<'PY'
@@ -296,13 +402,16 @@ jobs:
       - name: Package immutable cycle bundle
         run: |
           BUNDLE="aggregate_out/hospitality-bundle-${CYCLE_ID}.tar.gz"
-          FILES=$(find aggregate_out -maxdepth 1 -type f \( -name 'partition-*.jsonl.gz' -o -name 'gpt-review-*.jsonl' -o -name 'observations-*.jsonl.gz' -o -name 'aggregate_summary.json' \) -print)
+          FILES=$(find aggregate_out -maxdepth 1 -type f \( -name 'partition-*.jsonl.gz' -o -name 'gpt-review-*.jsonl' -o -name 'observations-*.jsonl.gz' -o -name 'aggregate_summary.json' -o -name 'compound-intelligence-*.json' \) -print)
           tar -czf "$BUNDLE" $FILES
           echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
           echo "HISTORY_TAG=harvest-history-$(date -u +%F)" >> "$GITHUB_ENV"
-      - name: Persist canonical and immutable cycle bundle to Releases
+      - name: Persist canonical, compound intelligence ledger and immutable cycle bundle to Releases
         run: |
           python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file canonical/hospitality-canonical.sqlite
+          if [ -f compound_intelligence_out/merged.ok ] && [ -s intelligence/hospitality-intelligence.sqlite ]; then
+            python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file intelligence/hospitality-intelligence.sqlite
+          fi
           python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag "$HISTORY_TAG" --file "$BUNDLE"
       - name: Commit small checkpoint / coverage / GPT state
         run: |
