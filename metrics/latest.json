@@ -1,10 +1,10 @@
 {
-  "cycle_id": "20260816T013239Z-github-multilane",
+  "cycle_id": "20260816T013433Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T01:33:32.386998Z",
+  "finished_at": "2026-08-16T01:35:27.356198Z",
   "workers_completed": 9,
   "workers_failed": 0,
-  "raw_discovered": 47,
+  "raw_discovered": 109,
   "live_ready_before_canonical_dedupe": 1,
   "new_unique": 1,
   "changed_existing": 0,
@@ -12,12 +12,12 @@
   "instagram_found": 0,
   "gpt_review_pending": 0,
   "errors": 0,
-  "peak_wall_seconds": 14.07,
-  "new_unique_per_worker_minute": 0.877,
-  "canonical_total": 30888,
+  "peak_wall_seconds": 13.58,
+  "new_unique_per_worker_minute": 1.12,
+  "canonical_total": 30889,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.0,
+    "timeout_rate": 0.5,
     "error_rate": 0.5
   },
   "next_local_http_workers": 32,
@@ -25,7 +25,7 @@
     "fast_email": {
       "workers_completed": 9,
       "workers_failed": 0,
-      "raw_discovered": 47,
+      "raw_discovered": 109,
       "fast_ready": 2,
       "live_ready": 1,
       "recovery_candidates": 0,
@@ -36,7 +36,7 @@
       "facebook_found": 0,
       "live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
+        "timeout_rate": 0.5,
         "error_rate": 0.5
       },
       "contact_health": {
