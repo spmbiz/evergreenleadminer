@@ -1,0 +1,99 @@
+{
+  "schema": "HOSPITALITY_FRESH_SEARCH_SOURCES_V1",
+  "enabled": true,
+  "production_enabled": false,
+  "policy": {
+    "benchmark_first": true,
+    "canonical_mutation": false,
+    "max_queries_per_canary": 30,
+    "max_results_per_query": 8,
+    "timeout_seconds": 12,
+    "provider_delay_seconds": 0.05,
+    "stop_after_first_successful_provider": true,
+    "target_geographies": "US + Western Europe premium short-stay markets",
+    "promotion_gate": {
+      "min_unseen_live_ready": 8,
+      "min_unseen_live_ready_rate": 0.04,
+      "max_error_rate": 0.25
+    }
+  },
+  "markets": [
+    "Orlando Florida",
+    "Miami Florida",
+    "Palm Springs California",
+    "Scottsdale Arizona",
+    "San Diego California",
+    "Maui Hawaii",
+    "Mallorca Spain",
+    "Marbella Spain",
+    "Ibiza Spain",
+    "Algarve Portugal",
+    "Mykonos Greece",
+    "French Riviera France",
+    "Provence France",
+    "Tuscany Italy",
+    "Lake Como Italy",
+    "Dolomites Italy",
+    "Swiss Alps Switzerland",
+    "Austrian Alps Austria",
+    "Dubrovnik Croatia",
+    "Istria Croatia"
+  ],
+  "query_families": [
+    {
+      "id": "luxury_villa_operator",
+      "operator_score": 78,
+      "premium_score": 82,
+      "template": "\"luxury villa rentals\" {market} \"property management\""
+    },
+    {
+      "id": "vacation_rental_manager",
+      "operator_score": 82,
+      "premium_score": 66,
+      "template": "\"vacation rental management\" {market} villas"
+    },
+    {
+      "id": "premium_direct_booking",
+      "operator_score": 62,
+      "premium_score": 78,
+      "template": "\"book direct\" {market} luxury villas resort"
+    },
+    {
+      "id": "lodgify_footprint",
+      "operator_score": 72,
+      "premium_score": 64,
+      "template": "\"Powered by Lodgify\" {market} villa rentals"
+    },
+    {
+      "id": "guesty_footprint",
+      "operator_score": 74,
+      "premium_score": 64,
+      "template": "\"Powered by Guesty\" {market} vacation rentals"
+    },
+    {
+      "id": "hostaway_footprint",
+      "operator_score": 74,
+      "premium_score": 64,
+      "template": "\"Hostaway\" {market} \"vacation rentals\" \"book direct\""
+    }
+  ],
+  "excluded_domains": [
+    "airbnb.com",
+    "booking.com",
+    "vrbo.com",
+    "expedia.com",
+    "tripadvisor.com",
+    "hotels.com",
+    "agoda.com",
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "youtube.com",
+    "tiktok.com",
+    "pinterest.com",
+    "google.com",
+    "bing.com",
+    "duckduckgo.com",
+    "yelp.com"
+  ]
+}
