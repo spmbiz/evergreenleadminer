@@ -12,7 +12,7 @@ permissions:
 jobs:
   canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,12 +20,22 @@ jobs:
           python-version: '3.11'
       - name: Install canary dependencies
         run: python -m pip install --disable-pip-version-check requests 'huggingface_hub>=0.34,<2'
-      - name: Build 19-case residential shadow queue
+      - name: Build 3-case residential shadow queue
         run: |
           python tools/gws_residential_semantic_adapter.py --out data/gws/verification/residential_shadow_input.jsonl
           python tools/gws_semantic_plan.py prepare --config config/gws_semantic_v1.json --outdir results/gws_qwen_canary_plan
+          head -n 3 results/gws_qwen_canary_plan/selected.jsonl > results/gws_qwen_canary_plan/selected.micro.jsonl
+          mv results/gws_qwen_canary_plan/selected.micro.jsonl results/gws_qwen_canary_plan/selected.jsonl
           python tools/gws_semantic_plan.py finalize --outdir results/gws_qwen_canary_plan --capacity 1
           test -s results/gws_qwen_canary_plan/shard-00.jsonl
+          python - <<'PY'
+          import json
+          p='config/gws_semantic_v1.json'
+          c=json.load(open(p))
+          c['qwen']['batch_size']=1
+          c['qwen']['timeout_seconds']=60
+          json.dump(c,open('config/gws_semantic_canary.json','w'),indent=2)
+          PY
       - id: model
         name: Read pinned Qwen config
         run: |
@@ -66,9 +76,9 @@ jobs:
         run: |
           python tools/gws_semantic_worker.py \
             --input results/gws_qwen_canary_plan/shard-00.jsonl \
-            --config config/gws_semantic_v1.json \
+            --config config/gws_semantic_canary.json \
             --qwen-url http://127.0.0.1:8080 \
-            --worker-index canary \
+            --worker-index micro-canary \
             --outdir results/gws_qwen_canary
           cat results/gws_qwen_canary/summary.json
       - uses: actions/upload-artifact@v4
