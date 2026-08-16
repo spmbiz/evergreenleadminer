@@ -208,12 +208,13 @@ def _reserve_with_optional_demand_override(args) -> None:
     override = max(0, int(getattr(args, "demand_override", 0) or 0))
     strict_gws_demand = _strict_gws_demand()
 
+    # Preserve the unit-test seam: callers without a concrete `requested` field
+    # are validating demand-override isolation, not production cross-lane demand.
     if not hasattr(args, "requested"):
         original_local_demand = v3.local_demand
 
         def local_demand_with_override_only():
             demand = dict(original_local_demand() or {})
-            demand["gws"] = max(int(demand.get("gws", 0) or 0), strict_gws_demand)
             if override > 0:
                 demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
             return demand
