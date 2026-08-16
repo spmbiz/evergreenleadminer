@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 from pathlib import Path
 
 import fleet_runtime as fr
 
 ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_SAFETY_FLOOR = int(os.environ.get("HOSPITALITY_CANONICAL_SAFETY_FLOOR", "10000"))
 MULTI_SUFFIXES = {
     "co.uk","org.uk","me.uk","ltd.uk","plc.uk","net.uk",
     "com.au","net.au","org.au","id.au","asn.au",
@@ -44,6 +46,30 @@ def registrable_domain(host: str) -> str:
     if last2 in MULTI_SUFFIXES and len(parts) >= 3:
         return ".".join(parts[-3:])
     return last2
+
+
+def canonical_count(canonical_db: str) -> int:
+    db = Path(canonical_db)
+    if not db.exists() or db.stat().st_size == 0:
+        return 0
+    con = sqlite3.connect(db)
+    try:
+        exists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='leads'").fetchone()
+        if not exists:
+            return 0
+        return int(con.execute("SELECT COUNT(*) FROM leads").fetchone()[0])
+    finally:
+        con.close()
+
+
+def require_healthy_canonical(canonical_db: str) -> int:
+    count = canonical_count(canonical_db)
+    if count < CANONICAL_SAFETY_FLOOR:
+        raise RuntimeError(
+            f"Refusing Hospitality canonical aggregate: restored rows={count} "
+            f"below safety floor={CANONICAL_SAFETY_FLOOR}. Restore durable state first."
+        )
+    return count
 
 
 def weighted(summaries, key: str, weight_key: str) -> float:
@@ -185,10 +211,23 @@ def main() -> None:
     a = ap.parse_args()
 
     fr.root_host = registrable_domain
+    prior_count = require_healthy_canonical(a.canonical_db)
     prior_enrichment = snapshot_monotonic_fields(a.canonical_db)
     fr.aggregate(a)
+    after_count = canonical_count(a.canonical_db)
+    if after_count < prior_count or after_count < CANONICAL_SAFETY_FLOOR:
+        raise RuntimeError(
+            f"Refusing Hospitality canonical persistence: before={prior_count} after={after_count} "
+            f"floor={CANONICAL_SAFETY_FLOOR}. Canonical aggregation must be monotonic."
+        )
     restored = restore_monotonic_fields(a.canonical_db, prior_enrichment)
-    print(json.dumps({"monotonic_raw_rows_restored": restored, "multichannel_inline": False}))
+    final_count = canonical_count(a.canonical_db)
+    print(json.dumps({
+        "canonical_rows_before": prior_count,
+        "canonical_rows_after": final_count,
+        "monotonic_raw_rows_restored": restored,
+        "multichannel_inline": False,
+    }))
     persist_lane_health(a.results_root)
 
 
