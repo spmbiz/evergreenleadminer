@@ -1,48 +1,48 @@
 {
-  "cycle_id": "20260816T150849Z-github-multilane",
+  "cycle_id": "20260816T151126Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T15:10:18.508550Z",
-  "workers_completed": 5,
+  "finished_at": "2026-08-16T15:12:47.789169Z",
+  "workers_completed": 6,
   "workers_failed": 0,
-  "raw_discovered": 1811,
-  "live_ready_before_canonical_dedupe": 2,
-  "new_unique": 2,
+  "raw_discovered": 4556,
+  "live_ready_before_canonical_dedupe": 8,
+  "new_unique": 8,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 2,
-  "gpt_review_pending": 0,
+  "instagram_found": 4,
+  "gpt_review_pending": 1,
   "errors": 0,
-  "peak_wall_seconds": 32.52,
-  "new_unique_per_worker_minute": 2.242,
-  "canonical_total": 31314,
+  "peak_wall_seconds": 20.7,
+  "new_unique_per_worker_minute": 7.193,
+  "canonical_total": 31322,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.0,
-    "error_rate": 0.0
+    "timeout_rate": 0.09091,
+    "error_rate": 0.27273
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 5,
+      "workers_completed": 6,
       "workers_failed": 0,
-      "raw_discovered": 1811,
-      "fast_ready": 2,
-      "live_ready": 2,
-      "recovery_candidates": 2,
-      "recovered_public_emails": 1,
-      "contact_ready": 2,
-      "social_or_contact_without_email": 1,
-      "instagram_found": 2,
-      "facebook_found": 1,
+      "raw_discovered": 4556,
+      "fast_ready": 11,
+      "live_ready": 8,
+      "recovery_candidates": 13,
+      "recovered_public_emails": 2,
+      "contact_ready": 11,
+      "social_or_contact_without_email": 9,
+      "instagram_found": 4,
+      "facebook_found": 3,
       "live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.09091,
+        "error_rate": 0.27273
       },
       "contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "timeout_rate": 0.07692,
+        "error_rate": 0.07692
       }
     }
   },
