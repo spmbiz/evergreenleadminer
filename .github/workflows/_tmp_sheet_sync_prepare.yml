@@ -40,4 +40,6 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add gpt/_tmp_sheet_sync_batch.tsv gpt/_tmp_sheet_sync_batch_manifest.json
           git commit -m 'chore: stage oldest hospitality sync chunks [skip ci]' || exit 0
+          git pull --rebase origin main
           git push
+# refresh-20260816-0922
