@@ -13,6 +13,7 @@ on:
       - 'tools/start_qwen4b_ci.sh'
       - 'tools/start_openserp_ci.sh'
       - 'tools/test_hospitality_intelligence_v2.py'
+      - 'tools/test_hospitality_qwen_classifier.py'
       - '.github/workflows/hospitality-intelligence-v2*.yml'
   workflow_dispatch:
 
@@ -42,9 +43,13 @@ jobs:
             tools/hospitality_intelligence_worker.py \
             tools/hospitality_intelligence_aggregate.py \
             tools/apply_hospitality_intelligence_delta.py \
-            tools/test_hospitality_intelligence_v2.py
+            tools/test_hospitality_intelligence_v2.py \
+            tools/test_hospitality_qwen_classifier.py
           bash -n tools/start_qwen4b_ci.sh
           bash -n tools/start_openserp_ci.sh
           python -m json.tool config/hospitality_intelligence_v2.json >/dev/null
       - name: Run deterministic V2 tests
-        run: PYTHONPATH=tools python -m unittest -v tools/test_hospitality_intelligence_v2.py
+        run: |
+          PYTHONPATH=tools python -m unittest -v \
+            tools/test_hospitality_intelligence_v2.py \
+            tools/test_hospitality_qwen_classifier.py
