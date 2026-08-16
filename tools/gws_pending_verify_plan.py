@@ -34,6 +34,7 @@ def main():
 
     rows=[]
     suppressed_terminal=0; retryable_or_pending=0; semantic_rechecks=0; soft_waiting_semantic=0
+    semantic_candidates_forwarded=0
     for key,r in latest.items():
         prior=index.get(key) or {}; fp=str(r.get("fingerprint") or "")
         prior_status=str(prior.get("verification_status") or "").strip().upper()
@@ -63,6 +64,14 @@ def main():
                 r["semantic_shadow_decision"]=sem.get("decision")
                 r["semantic_shadow_confidence"]=sem.get("confidence")
                 r["semantic_shadow_website_state"]=sem.get("website_state")
+                # Preserve the expensive Search->Qwen evidence into strict. The
+                # verifier may use this candidate only as an ownership-rejection
+                # accelerator. It can never certify no-website/HIGH by itself.
+                r["semantic_candidate_url"]=str(sem.get("candidate_url") or "")
+                r["semantic_candidate_host_class"]=str(sem.get("candidate_host_class") or "")
+                r["semantic_ownership_decision"]=str(sem.get("decision") or "")
+                if r["semantic_candidate_url"]:
+                    semantic_candidates_forwarded+=1
                 semantic_rechecks+=1
             else:
                 soft_waiting_semantic+=1
@@ -91,7 +100,7 @@ def main():
     (out/"pending.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in selected),encoding="utf-8")
     matrix={"include":[{"worker_index":i,"worker_count":workers} for i in range(workers)]}
     plan={
-        "schema_version":4,
+        "schema_version":5,
         "eligible":eligible_total,
         "selected":len(selected),
         "deferred":max(0,eligible_total-len(selected)),
@@ -101,6 +110,8 @@ def main():
         "retryable_or_pending_seen":retryable_or_pending,
         "semantic_rechecks_eligible":semantic_rechecks,
         "semantic_rechecks_selected":sum(1 for x in selected if x.get("semantic_resolution")),
+        "semantic_candidates_forwarded":sum(1 for x in selected if x.get("semantic_candidate_url")),
+        "semantic_candidates_available":semantic_candidates_forwarded,
         "soft_waiting_semantic":soft_waiting_semantic,
         "south_priority":list(SOUTH),
         "matrix":matrix,
