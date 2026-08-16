@@ -10,7 +10,9 @@ on:
       - 'tools/gws_pending_verify_*.py'
       - 'tools/gws_search_*.py'
       - 'tools/gws_ownership_gate.py'
+      - 'tools/global_capacity_broker.py'
       - 'config/gws_search_verify.json'
+      - 'config/global_fleet.json'
       - '.github/workflows/gws-pending-search-verify.yml'
 
 permissions:
@@ -23,15 +25,56 @@ concurrency:
 
 jobs:
   plan:
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     outputs:
       eligible: ${{ steps.plan.outputs.eligible }}
       workers: ${{ steps.plan.outputs.workers }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      allocated: ${{ steps.reserve.outputs.allocated }}
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: Preview useful pending-verification demand
+        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_preplan --max-workers 5 --per-worker 70
+      - id: reserve
+        name: Reserve fair-share global GWS capacity
+        env:
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUESTED=$(python -c 'import json; print(int(json.load(open("results/gws_verify_preplan/plan.json")).get("workers") or 0))')
+          if [ "$REQUESTED" -le 0 ]; then
+            mkdir -p results/gws_verify_preplan
+            echo '{"allocated":0}' > results/gws_verify_preplan/broker.json
+            echo 'allocated=0' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python tools/global_capacity_broker.py reserve \
+            --workload gws \
+            --requested "$REQUESTED" \
+            --demand-override "$REQUESTED" \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out results/gws_verify_preplan/broker.json
+          ALLOCATED=$(python -c 'import json; print(int(json.load(open("results/gws_verify_preplan/broker.json")).get("allocated") or 0))')
+          echo "allocated=$ALLOCATED" >> "$GITHUB_OUTPUT"
       - id: plan
-        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_plan --max-workers 5 --per-worker 70
+        name: Build final verification matrix from brokered capacity
+        env:
+          ALLOCATED: ${{ steps.reserve.outputs.allocated }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/gws_pending_verify_plan.py \
+            --outdir results/gws_verify_plan \
+            --max-workers "${ALLOCATED:-0}" \
+            --per-worker 70
       - uses: actions/upload-artifact@v4
         if: steps.plan.outputs.workers != '0'
         with:
@@ -145,3 +188,19 @@ jobs:
             sleep $((attempt * 3))
           done
           exit 1
+
+  release_capacity:
+    needs: [plan, verify, aggregate]
+    if: always()
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release global GWS capacity lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
