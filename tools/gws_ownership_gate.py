@@ -72,10 +72,10 @@ def assess(row: dict[str, Any], pass_ev: dict[str, Any] | None) -> dict[str, Any
     branded_host = bool(domain_overlap >= 0.50 or compact_brand_match or token_ratio >= 0.75)
 
     third_party = is_third_party(url)
-    # Identity on a page is not ownership. Require a branded host plus a strong
-    # first-party signal from the page itself. Postcode alone is insufficient:
-    # directories and unrelated homonyms routinely contain the same postcode.
-    strong_first_party_identity = bool(phone_exact or address_overlap >= 0.50)
+    # Identity on a page is not ownership. Require a branded host plus a very
+    # strong first-party signal. Postcode or partial street overlap is insufficient:
+    # directories and unrelated homonyms routinely satisfy those weaker signals.
+    strong_first_party_identity = bool(phone_exact or address_overlap >= 0.75)
     confident = bool(url and not third_party and branded_host and strong_first_party_identity)
 
     if not url:
