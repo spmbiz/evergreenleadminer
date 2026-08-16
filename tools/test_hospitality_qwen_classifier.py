@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from hospitality_qwen_classifier import classify_batch, compact_record
+
+HERE = Path(__file__).resolve().parent
 
 
 class FakeResponse:
@@ -38,7 +40,10 @@ def record(i: int) -> dict:
         'portfolio': {
             'homepage_excerpt': 'villa ' * 1000,
             'property_count_known': 12,
-            'first_party': {'contact_page': f'https://test-{i}.example/contact'},
+            'first_party': {
+                'contact_page': f'https://test-{i}.example/contact',
+                'portfolio_url': f'https://test-{i}.example/villas',
+            },
             'pms_fingerprints': ['guesty'],
         },
         'search_results': [
@@ -51,10 +56,16 @@ def record(i: int) -> dict:
 class QwenClassifierTests(unittest.TestCase):
     def test_compact_record_has_hard_evidence_bounds(self):
         c = compact_record(record(0))
-        self.assertLessEqual(len(c['homepage_excerpt']), 1100)
-        self.assertLessEqual(len(c['search_results']), 4)
-        self.assertTrue(all(len(x['snippet']) <= 260 for x in c['search_results']))
-        self.assertTrue(all(len(x['url']) <= 300 for x in c['search_results']))
+        self.assertLessEqual(len(c['homepage_excerpt']), 650)
+        self.assertLessEqual(len(c['search']), 3)
+        self.assertTrue(all(len(x['s']) <= 180 for x in c['search']))
+        self.assertTrue(all(len(x['u']) <= 220 for x in c['search']))
+        self.assertTrue(all(len(v) <= 180 for v in c['first_party'].values()))
+
+    def test_llama_server_uses_one_full_context_slot(self):
+        script = (HERE / 'start_qwen4b_ci.sh').read_text(encoding='utf-8')
+        self.assertIn('--ctx-size 8192 --parallel 1', script)
+        self.assertNotIn('--parallel 2', script)
 
     def test_http_400_batch_recursively_splits_instead_of_losing_accounts(self):
         calls = []
