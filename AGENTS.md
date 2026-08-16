@@ -2,119 +2,65 @@
 
 ## Read first
 
-Before making architectural or performance changes, read `docs/HARVESTER_SCALE_BLUEPRINT.md`.
+Before making architectural or performance changes, read:
+
+1. `skills/autonomous-harvest/SKILL.md` for canonical fleet/persistence/throughput rules;
+2. `skills/search-semantic-fleet/SKILL.md` for the **current V2 search + Qwen + incremental-intelligence architecture**;
+3. `docs/HARVESTER_SCALE_BLUEPRINT.md` for broader scaling direction.
+
+Where older local-LLM suggestions conflict with `skills/search-semantic-fleet/SKILL.md`, the newer skill wins. In particular, the current first implementation target is **parallel Qwen ~4B on GitHub-hosted runners after a seen/change ledger**, with no mandatory 0.5–0.8B tier unless measurement later proves it necessary.
 
 ### Real operating environment
 
-This project does **not** assume OpenAI API agents. The high-level controller is ChatGPT Web (currently GPT-5.6 Sol in the user's workflow) using native GitHub and Google Drive/Sheets connectivity to launch, inspect, edit, debug and steer work. GitHub Actions / CircleCI / scripts are execution workers.
+This project does **not** assume OpenAI API agents. The high-level controller is ChatGPT Web (currently GPT-5.6 Sol in the user's workflow) using native GitHub and Google Drive/Sheets connectivity to launch, inspect, edit, debug and steer work. GitHub Actions / scripts are execution workers.
 
 Design outputs for that reality: durable queues, checkpoints, JSON/CSV summaries, compact logs, deterministic executors and source-backed state that ChatGPT Web can inspect through native connectors. Do not introduce an OpenAI API dependency unless the user explicitly requests one.
 
 ## Strategic direction
 
-This repository should evolve from a mostly regex/rule-based lead miner into a **hybrid deterministic + local-LLM qualification system** that can run cheaply on free/ephemeral CI compute, while also implementing the broader scale architecture in the blueprint.
+Use deterministic bulk discovery and exact evidence first; use OpenSERP/DDGS/SearXNG as search-resolution tools; use Qwen ~4B only for semantic ambiguity; use GPT Web for valuable hard cases.
 
-The goal is NOT to replace deterministic checks with an LLM. Use a small open-source model only where semantic judgment adds value.
+Target architecture:
 
 ```text
-raw candidate
-  -> deterministic normalization / exact checks
-  -> cheap rules and hard evidence
-  -> local small-LLM classifier for ambiguous cases
-  -> confidence router
-      -> accept/reject when confidence is high
-      -> escalate uncertain/contradictory cases to GPT Web review
+broad public discovery
+  -> normalize / exact dedupe
+  -> seen/change ledger
+  -> new / unresolved / materially changed only
+  -> OpenSERP + DDGS search fabric
+  -> deterministic identity evidence
+  -> parallel Qwen ~4B GitHub workers for ambiguity
+  -> GPT Web for valuable / uncertain / contradictory cases
+  -> canonical state
 ```
 
 ## Primary GWS use case
 
-The highest-value near-term use is **official-site/entity matching**.
+Resolve whether a candidate website truly belongs to the target business, then classify website opportunity state. Exact phone/domain/address/name evidence belongs in code; semantic ambiguity belongs in the local model.
 
-Given a target business and a candidate website, determine whether the site truly belongs to that business using evidence such as:
+Useful states include `NO_SITE`, `DEAD_SITE`, `BROKEN_SITE`, `PARKED_DOMAIN`, `FACEBOOK_ONLY`, `DIRECTORY_ONLY`, `ANCIENT_SITE`, `NON_MOBILE_SITE`, `NO_SSL`, `ONE_PAGE_BAD_SITE`, `BAD_CONVERSION_SITE`, `GOOD_SITE`, and `UNCERTAIN`.
 
-- normalized business name;
-- city / market;
-- street address;
-- public phone;
-- email/domain identity;
-- service/category match;
-- legal/footer/about/contact-page text;
-- contradictions such as another city, another company name, unrelated niche, directory/listicle status.
+Search absence never proves no website. CAPTCHA/throttle/search failure must remain explicit.
 
-Desired machine-readable output:
+## Model/runtime direction
 
-```json
-{
-  "decision": "MATCH|PROBABLE|WRONG|UNCERTAIN",
-  "confidence": 0.0,
-  "matching_evidence": [],
-  "contradictions": [],
-  "reason": "short explanation"
-}
-```
+First benchmark a Qwen 3/3.5-class ~4B instruct GGUF under `llama.cpp` on actual GitHub-hosted runners. Cache model/runtime; do not commit model weights to Git. Process substantial shards and support compact batching. Keep the classifier interface model-agnostic for later alternatives.
 
-Do not allow an LLM to invent business facts. Evidence must come from fetched candidate text / structured input. UNKNOWN is valid.
+Do not add a tiny-model prefilter, 9B/24B ensemble, GLM/MiniCPM voting layer, or other complexity until a measured bottleneck or recall deficiency justifies it.
 
-## Secondary GWS uses
+## Security
 
-Small local models may help classify:
+This repository is public. Do not route arbitrary public-repo workflow execution to the user's personal self-hosted PC. Any personal runner should live behind a private control repository. The public repo may emit durable tasks/state for that private plane, but public PR/fork code must never gain arbitrary execution on the user's machine.
 
-- official site vs directory / social page / aggregator;
-- active real website vs placeholder / parked / broken / nearly empty site;
-- business niche / service fit;
-- whether a website is sufficiently poor/outdated to merit opportunity review;
-- structured extraction of name, phone, address, email, services and legal entity from already-fetched public text.
+## Core philosophy
 
-## Model/runtime preference
-
-Optimize first for CPU-friendly GGUF inference under `llama.cpp` on GitHub-hosted runners.
-
-Candidate families to benchmark rather than hard-code forever:
-
-- Qwen 3/3.5 class ~3B–4B instruct models;
-- Phi-4-mini class ~3.8B;
-- SmolLM3 ~3B;
-- sub-1B Qwen-class model only as an ultra-cheap garbage pre-filter.
-
-Prefer quantized 4-bit models where accuracy is sufficient. Keep prompts/context small.
-
-## CI design constraints
-
-- Do not make every runner repeatedly download multi-GB model weights if avoidable; use caching or a shared inference service when economics are better.
-- Keep local-LLM use optional/fail-open for discovery: a model failure must not destroy harvested data.
-- Cache model/runtime separately from lead outputs.
-- Measure RAM, model download time, inference latency and throughput.
-- Preserve deterministic fallbacks.
-- Prefer long-lived queue consumers, work stealing and adaptive batches where compatible with the current runtime.
-
-## Required benchmark before trusting automation
-
-Create a real project benchmark from labeled GWS examples rather than generic academic scores.
-
-Suggested initial test set: 200–500 actual business/site pairs with a trusted reference label.
-
-Track at minimum:
-
-- precision for MATCH;
-- recall for MATCH;
-- false-positive rate;
-- false-negative rate;
-- UNCERTAIN rate;
-- latency per candidate;
-- peak RAM;
-- throughput per runner.
-
-High-confidence autonomous acceptance should only be enabled once empirical precision is strong enough on our own data.
-
-## Implementation philosophy
-
-1. **Code first for facts.** Exact normalized phone/domain/address matches should not require an LLM.
-2. **LLM for semantic ambiguity.** Use it where textual/business-context judgment is needed.
-3. **GPT Web for high-level control and hard cases.** Persist its decisions as reusable labels.
-4. **Confidence routing, never blind trust.** Low-confidence or contradictory cases are escalated.
-5. **Structured machine-readable outputs.** Prefer validated JSON for decisions.
-6. **No hallucinated contacts or identities.** Blank/UNKNOWN beats guessing.
-7. **Cache and checkpoint.** Repeated runs should not redo unchanged work.
-8. **Measure yield.** Track source/query/geo performance and allocate compute accordingly.
-9. **Optimize commercial opportunity, not raw row count.**
-10. **Implement incrementally without breaking the current OSM/CommonCrawl -> dedupe -> fetch -> regex scoring pipeline.**
+1. Code first for facts.
+2. Search fabric for broad resolution.
+3. Qwen ~4B for semantic ambiguity.
+4. GPT Web for high-value hard cases and strategy.
+5. Backfill once; process new/unresolved/changed deltas thereafter.
+6. Cache what has already been learned.
+7. Persist model/prompt/version provenance.
+8. No hallucinated contacts or identities.
+9. Measure source/query/engine/geo yield.
+10. Optimize useful commercial opportunities, not raw rows.
