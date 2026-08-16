@@ -5,7 +5,7 @@ on:
     workflows: ["GWS Pending Search Verify Fleet"]
     types: [completed]
   schedule:
-    - cron: '9,29,49 * * * *'
+    - cron: '9 * * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [gws_semantic_refill]
@@ -32,6 +32,7 @@ env:
 
 jobs:
   plan:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     concurrency:
       group: ai-prod-global-capacity-broker
       cancel-in-progress: false
@@ -243,12 +244,6 @@ jobs:
               if ! git rebase origin/main; then git rebase --abort >/dev/null 2>&1 || true; exit 1; fi
               sleep $((attempt * 3))
             done
-          fi
-      - name: Hot-refill after gates while useful semantic backlog remains
-        run: |
-          python -c "import json; s=json.load(open('state/gws_semantic_rollout.json')); stage=s.get('stage',''); last=s.get('last_run') or {}; backlog=s.get('backlog') or {}; processed=int(last.get('processed') or 0); live=int(backlog.get('eligible_live') or 0); print('1' if ((stage in {'benchmark','benchmark_waiting'} and live>0) or (stage=='production' and live>processed)) else '0')" > /tmp/gws_semantic_refill
-          if [ "$(cat /tmp/gws_semantic_refill)" = "1" ]; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=gws_semantic_refill
           fi
 
   release_capacity:
