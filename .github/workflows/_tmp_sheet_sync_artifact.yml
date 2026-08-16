@@ -1,0 +1,23 @@
+name: tmp-sheet-sync-artifact
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_sheet_sync_artifact.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package current batch
+        run: |
+          mkdir -p /tmp/syncbatch
+          cp gpt/_tmp_sheet_sync_batch.tsv /tmp/syncbatch/batch.tsv
+          cp gpt/_tmp_sheet_sync_batch_manifest.json /tmp/syncbatch/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-sync-batch
+          path: /tmp/syncbatch
+          if-no-files-found: error
