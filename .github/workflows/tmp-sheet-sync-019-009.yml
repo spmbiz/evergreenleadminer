@@ -1,0 +1,129 @@
+name: TEMP Sheet Sync 019-009
+on:
+  push:
+    paths:
+      - control/tmp_sheet_sync_019_009.json
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build exact compact CSV
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, json, re, unicodedata
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          files = [
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-019.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-001.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-002.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-003.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-004.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-005.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-006.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-007.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-008.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31863169781-009.jsonl',
+          ]
+          for f in files:
+            if not Path(f).exists():
+              raise SystemExit(f'missing queue file: {f}')
+
+          generic = {
+            'google.com','app.google','gmail.com','facebook.com','instagram.com','airbnb.com','airbnb.mx','booking.com',
+            'tripadvisor.com','vrbo.com','expedia.com','yelp.com','linktr.ee','wixsite.com','wordpress.com','air.tl',
+            'maps.app.goo.gl','calendar.app.google','direct-book.com','go.com','homestead.com','itrip.net','org.uk'
+          }
+          cc2 = {'co.uk','org.uk','com.mx','com.au','com.br','co.nz','co.za','com.co','com.pa','com.ar','com.pe','com.ec','com.gt','com.do','com.pr','com.cr','co.cr','com.ni','com.hn','com.sv'}
+          bad_ig = {'wix','dewi11official','binkyboo0715','travelodge','itrip_vacations','jeevesfloridarentals','twntr4ever','guayabitosmx','pmimetrolakes'}
+
+          def norm_text(s):
+            s = unicodedata.normalize('NFKD', str(s or '')).encode('ascii','ignore').decode().lower()
+            return ' '.join(re.sub(r'[^a-z0-9]+',' ',s).split())
+          def phone(s):
+            d = re.sub(r'\D+','',str(s or ''))
+            return d if len(d) >= 7 else ''
+          def reg_domain(s):
+            s = str(s or '').strip().lower()
+            if not s: return ''
+            if '://' in s:
+              s = urlparse(s).hostname or ''
+            s = s.split('/')[0].split(':')[0].strip('.').removeprefix('www.')
+            if not s or '.' not in s: return ''
+            parts=s.split('.')
+            d='.'.join(parts[-2:])
+            if len(parts)>=3 and d in cc2: d='.'.join(parts[-3:])
+            return '' if d in generic else d
+          def ig_ok(url, name, domain):
+            if not url: return ''
+            m=re.search(r'instagram\.com/([^/?#]+)',url,re.I)
+            if not m: return ''
+            h=m.group(1).lower().strip()
+            if h in bad_ig: return ''
+            nt=set(norm_text(name).split())
+            dt=set(norm_text((domain or '').split('.')[0]).split())
+            ht=set(norm_text(h.replace('_',' ')).split())
+            meaningful={x for x in (nt|dt) if len(x)>=4 and x not in {'hotel','villas','villa','resort','property','management','vacation','rentals','rental','beach','homes','home'}}
+            if meaningful and not (meaningful & ht):
+              return ''
+            return url
+
+          rejects = {
+            '97a30a5c-d391-43c2-9852-66898e566f22':'bad identity: government domain mismatch',
+            '802821a2-2785-4409-9346-0bdbcde8b15c':'clear non-fit: condominium/HOA association identity',
+            'c6597ed3-80e2-4ba4-bd6a-e374bbdfc05d':'clear non-fit: vacation-rental software vendor, not lodging/operator',
+          }
+          out=Path('staging/tmp_sheet_sync_019_009.csv')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          cols=['chunk','line','pre','reject_reason','name','market','country','norm_name','domain','phone','category','address','website','email','contact_page','instagram','facebook','whatsapp','portfolio','source_ref','source_url','fit','live','ambiguous']
+          with out.open('w',newline='',encoding='utf-8') as fh:
+            w=csv.writer(fh); w.writerow(cols)
+            for f in files:
+              for i,line in enumerate(Path(f).read_text(encoding='utf-8').splitlines(),1):
+                r=json.loads(line)
+                oid=str(r.get('overture_id') or '')
+                reason=rejects.get(oid,'')
+                pre='REJECT' if reason else 'ACCEPT'
+                name=str(r.get('name') or '').strip()
+                city=str(r.get('city') or '').strip()
+                region=str(r.get('region') or '').strip()
+                market=city or region
+                country=str(r.get('country') or '').strip()
+                dom=reg_domain(r.get('domain') or r.get('website') or '')
+                ph=phone(r.get('public_phone'))
+                website=str(r.get('website') or '').strip()
+                if not dom: website=''
+                email=str(r.get('public_email') or '').strip()
+                cp=str(r.get('contact_page') or '').strip()
+                fb=str(r.get('facebook') or '').strip()
+                wa=str(r.get('whatsapp') or '').strip()
+                portfolio=str(r.get('portfolio_url') or '').strip()
+                orig=str(r.get('website') or '').strip()
+                if not website and orig and not portfolio:
+                  portfolio=orig
+                ig=ig_ok(str(r.get('instagram') or '').strip(),name,dom)
+                addr=', '.join(x for x in [str(r.get('street') or '').strip(),str(r.get('city') or '').strip(),str(r.get('state') or '').strip()] if x)
+                fit=str(r.get('fit_tier') or '').strip()
+                live=str(r.get('live_status') or '').strip()
+                cat=str(r.get('category') or '').strip()
+                ambiguous='1' if (live=='PERMISSIVE' or cat in {'property_management','real_estate_service','real_estate_agent','social_or_community_service','home_cleaning','contractor','tree_service','home_improvement_store','corporate_or_business_office','travel_service','rv_park'}) else '0'
+                src='overture:'+oid if oid else str(r.get('source_ref') or '').strip()
+                w.writerow([Path(f).name,i,pre,reason,name,market,country,norm_text(name),dom,ph,cat,addr,website,email,cp,ig,fb,wa,portfolio,src,str(r.get('source_url') or '').strip(),fit,live,ambiguous])
+          print('wrote',out)
+          PY
+      - name: Commit staging
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add staging/tmp_sheet_sync_019_009.csv
+          git diff --cached --quiet && exit 0
+          git commit -m 'tmp: publish exact sheet sync staging 019-009'
+          git push
