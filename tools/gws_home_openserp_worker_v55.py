@@ -150,21 +150,31 @@ def run_pass(c,endpoint,engines,pass_no,sleep_min,sleep_max):
     return {"search_queries":len(search_health),"search_usable_queries":usable,"search_resultful_queries":resultful,"search_health":search_health,"search_candidates":[x["url"] for x in serp_candidates],"healthy_providers":sorted(healthy),"direct_checked":len(direct_health),"direct_health":direct_health,"owned":owned,"owned_identity":owned_identity,"owned_via":owned_via,"candidate_seeds":seeds_for_pass(c,pass_no),"residential_pass":pass_no}
 
 
+def skipped_pass2(reason):
+    return {"residential_pass":2,"skipped":True,"skip_reason":reason,"search_queries":0,"search_usable_queries":0,"search_resultful_queries":0,"search_health":[],"search_candidates":[],"healthy_providers":[],"direct_checked":0,"direct_health":[],"owned":"","owned_identity":{},"owned_via":"","candidate_seeds":[]}
+
+
 def process_row(row,endpoint,engines,sleep_min,sleep_max):
     c=row["candidate"]; pe=row["place"]
     if prod.obvious_non_independent_entity(c):
         rec={"schema":"gws-home-openserp-observation-v3","r":row['r'],"candidate":c,"place":pe,"status":"REJECT","reason":"OUT_OF_SCOPE_NON_INDEPENDENT_PUBLIC_ENTITY","certificate_eligible":False}
         return rec, Counter()
-    p1=run_pass(c,endpoint,engines,1,sleep_min,sleep_max); p2=run_pass(c,endpoint,engines,2,sleep_min,sleep_max)
+    p1=run_pass(c,endpoint,engines,1,sleep_min,sleep_max)
     fam=Counter()
-    for p in (p1,p2):
-        for f in p["healthy_providers"]: fam[f]+=1
-    owned=p1.get("owned") or p2.get("owned"); cert=prod.v5.certificate(c,pe,p1,p2)
+    for f in p1["healthy_providers"]: fam[f]+=1
+    if p1.get("owned"):
+        p2=skipped_pass2("OWNED_SITE_CONFIRMED_PASS1")
+        cert={"certificate_version":"gws-home-terminal-reject-v1","verified":False,"terminal_reject":True,"terminal_reason":"OWNED_SITE_CONFIRMED_PASS1","owned_site":p1.get("owned") or "","unresolved_plausible_domains":[]}
+        rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":c,"place":pe,"pass1":p1,"pass2":p2,"certificate":cert,"owned_site":p1.get("owned") or "","status":"REJECT","reason":"OWNED_SITE_RESIDENTIAL_CONFIRMED_PASS1","certificate_eligible":False,"terminal_pass1_reject":True}
+        return rec,fam
+    p2=run_pass(c,endpoint,engines,2,sleep_min,sleep_max)
+    for f in p2["healthy_providers"]: fam[f]+=1
+    owned=p2.get("owned"); cert=prod.v5.certificate(c,pe,p1,p2)
     if owned: status,reason="REJECT","OWNED_SITE_RESIDENTIAL_CONFIRMED"
     elif cert.get("verified"): status,reason="EVIDENCE_COMPLETE","RESIDENTIAL_CERTIFICATE_GATES_COMPLETE"
     elif cert.get("unresolved_plausible_domains"): status,reason="EVIDENCE_INCOMPLETE","PLAUSIBLE_DOMAIN_UNRESOLVED"
     else: status,reason="EVIDENCE_INCOMPLETE","RESIDENTIAL_CERTIFICATE_GATES_INCOMPLETE"
-    rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":c,"place":pe,"pass1":p1,"pass2":p2,"certificate":cert,"owned_site":owned or "","status":status,"reason":reason,"certificate_eligible":bool(cert.get("verified"))}
+    rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":c,"place":pe,"pass1":p1,"pass2":p2,"certificate":cert,"owned_site":owned or "","status":status,"reason":reason,"certificate_eligible":bool(cert.get("verified")),"terminal_pass1_reject":False}
     return rec, fam
 
 
@@ -200,13 +210,14 @@ def main():
                     rec,rfam=fut.result()
                 except Exception as e:
                     row=rows[idx]
-                    rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":row["candidate"],"place":row["place"],"status":"ERROR_RETRYABLE","reason":"RESIDENTIAL_WORKER_EXCEPTION","certificate_eligible":False,"error":type(e).__name__,"error_detail":str(e)[:300]}
+                    rec={"schema":"gws-home-openserp-observation-v3","r":row["r"],"candidate":row["candidate"],"place":row["place"],"status":"ERROR_RETRYABLE","reason":"RESIDENTIAL_WORKER_EXCEPTION","certificate_eligible":False,"error":type(e).__name__,"error_detail":str(e)[:300],"terminal_pass1_reject":False}
                     rfam=Counter()
                 ordered[idx]=rec; counts[rec["status"]]+=1; fam.update(rfam); processed+=1
                 write_partial(d,ordered,processed,len(rows),counts,z)
     results=[x for x in ordered if x is not None]
     (d/"results.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,separators=(",",":"),default=str)+"\n" for x in results),encoding="utf-8")
-    summ={"schema":"gws-home-openserp-worker-v4","input_rows":len(all_rows),"attempted":len(rows),"shard_index":a.shard_index,"shard_count":a.shard_count,"engines":engines,"candidate_concurrency":concurrency,"statuses":dict(counts),"family_pass_observations":dict(fam),"owned_sites_found":counts.get("REJECT",0),"certificate_eligible":counts.get("EVIDENCE_COMPLETE",0),"elapsed_seconds":round(time.time()-z,2),"final_high":0,"note":"Evidence only. Downstream single-writer must independently re-evaluate certificate before any HIGH persistence."}
+    terminal_pass1_rejects=sum(1 for x in results if x.get("terminal_pass1_reject"))
+    summ={"schema":"gws-home-openserp-worker-v5","input_rows":len(all_rows),"attempted":len(rows),"shard_index":a.shard_index,"shard_count":a.shard_count,"engines":engines,"candidate_concurrency":concurrency,"statuses":dict(counts),"family_pass_observations":dict(fam),"owned_sites_found":counts.get("REJECT",0),"terminal_pass1_rejects":terminal_pass1_rejects,"certificate_eligible":counts.get("EVIDENCE_COMPLETE",0),"elapsed_seconds":round(time.time()-z,2),"final_high":0,"note":"Evidence only. Owned-site confirmation is terminal REJECT evidence; no no-site candidate skips pass2. Downstream single-writer remains authoritative for HIGH persistence."}
     (d/"summary.json").write_text(json.dumps(summ,indent=2)+"\n",encoding="utf-8"); print("GWS_HOME_SUMMARY="+json.dumps(summ,separators=(",",":")),flush=True)
 
 
