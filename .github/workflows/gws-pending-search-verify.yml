@@ -6,16 +6,6 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [gws_verify_refill]
-  push:
-    branches: [main]
-    paths:
-      - 'tools/gws_pending_verify_*.py'
-      - 'tools/gws_search_*.py'
-      - 'tools/gws_ownership_gate.py'
-      - 'tools/global_capacity_broker.py'
-      - 'config/gws_search_verify.json'
-      - 'config/global_fleet.json'
-      - '.github/workflows/gws-pending-search-verify.yml'
 
 permissions:
   contents: write
