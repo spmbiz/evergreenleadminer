@@ -113,7 +113,12 @@ def prepare(args):
         n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=max(1,int(rcfg.get('benchmark_shard_size') or 20))
         bsel,_,_=balanced_benchmark(bench,n)
         selected=(bsel+live[:max(0,n-len(bsel))])[:n]
-        desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
+        selected_benchmark=len(bsel)
+        selected_live=max(0,len(selected)-selected_benchmark)
+        benchmark_cap=max(1,int(rcfg.get('benchmark_workers') or 2)) if selected_benchmark else 0
+        live_cap=max(1,int(rcfg.get('live_max_workers_during_benchmark') or rcfg.get('production_max_workers') or 2)) if selected_live else 0
+        maxw=max(benchmark_cap,live_cap)
+        desired=min(maxw,max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
     else:
         stage_shard_size=max(1,int(rcfg.get('production_shard_size') or 80)); maxw=int(rcfg.get('production_max_workers') or 10); selected=live[:maxw*stage_shard_size]; desired=min(maxw,max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='production'
     out=Path(args.outdir);out.mkdir(parents=True,exist_ok=True)
