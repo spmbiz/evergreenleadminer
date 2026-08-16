@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Wrap the existing master planner with expiring in-flight work exclusions.
 
-The underlying yield ranking is unchanged. We simply request enough ranked
-candidates to replace currently leased units, remove overlaps, and trim back to
-the broker-allocated runner capacity.
+The underlying yield ranking is unchanged. We request enough ranked candidates
+to replace leased geographic units, remove overlaps, and trim to broker capacity.
+For capped external sources, replacement happens inside the source cap too: an
+in-flight fresh-search shard must not consume one of the two fresh slots and
+silently turn it into geo work.
 
 A deliberately bounded stress-test control may temporarily force one existing
 lane. Normal production ignores the control override unless the mode explicitly
@@ -13,10 +15,14 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime as dt
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import fleet_runtime as fr
+import hospitality_master_plan as hm
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +65,32 @@ def bounded_control_lane(cli_lane: str) -> str:
     return lane if lane in allowed else ""
 
 
+def fresh_replacements(excluded: set[str], kept: list[dict], capacity: int) -> list[dict]:
+    """Return due fresh shards that can replace fresh shards excluded in-flight."""
+    if capacity <= 0:
+        return []
+    try:
+        coverage = (fr.load_json(ROOT / "state/coverage.json", {}).get("shards") or {})
+        due, _errors, fresh_cap = hm.fresh_search_tasks(dt.datetime.now(dt.timezone.utc), coverage)
+    except Exception:
+        return []
+    current = sum(str(x.get("lane") or "") == "fresh_search" for x in kept)
+    need = max(0, min(int(fresh_cap or 0), capacity) - current)
+    if need <= 0:
+        return []
+    occupied = {k for item in kept for k in task_keys(item)}
+    out = []
+    for item in due:
+        keys = task_keys(item)
+        if not keys or (set(keys) & excluded) or (set(keys) & occupied):
+            continue
+        out.append(item)
+        occupied.update(keys)
+        if len(out) >= need:
+            break
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=("github", "circleci"), default="github")
@@ -72,8 +104,6 @@ def main():
     force_lane = bounded_control_lane(a.force_lane)
     excluded = read_keys(a.exclude_keys)
     capacity = max(0, int(a.capacity))
-    # In the worst case every currently leased unit would otherwise occupy a top
-    # rank. Ask for replacement depth without ever emitting the extra capacity.
     expanded = capacity + min(len(excluded), max(20, capacity * 3))
     if capacity == 0:
         expanded = 0
@@ -99,15 +129,26 @@ def main():
     kept = []
     excluded_tasks = 0
     excluded_units = 0
+    excluded_fresh = 0
     for item in plan.get("include") or []:
         keys = task_keys(item)
         overlap = set(keys) & excluded
         if overlap:
             excluded_tasks += 1
             excluded_units += len(overlap)
+            if str(item.get("lane") or "") == "fresh_search":
+                excluded_fresh += 1
             continue
         if len(kept) < capacity:
             kept.append(item)
+
+    replacements = []
+    if excluded_fresh:
+        replacements = fresh_replacements(excluded, kept, capacity)
+        if replacements:
+            # Fresh has the highest additive-source priority in the master plan.
+            # Put replacements back before geo fill and trim to physical capacity.
+            kept = (replacements + kept)[:capacity]
 
     for i, item in enumerate(kept):
         item["slot"] = i
@@ -122,6 +163,8 @@ def main():
         "inflight_keys_seen": len(excluded),
         "inflight_tasks_excluded": excluded_tasks,
         "inflight_work_units_excluded": excluded_units,
+        "inflight_fresh_tasks_excluded": excluded_fresh,
+        "fresh_inflight_replacements": len(replacements),
         "stress_force_lane": force_lane,
         "selected_lane_counts": lane_counts,
         "include": kept,
