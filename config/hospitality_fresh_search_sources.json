@@ -5,7 +5,7 @@
   "policy": {
     "benchmark_first": true,
     "canonical_mutation": "single-writer aggregate only",
-    "source_slot_cap_per_cycle": 2,
+    "source_slot_cap_per_cycle": 4,
     "production_shard_query_count": 30,
     "revisit_hours": 0.0833,
     "rotation_epoch_minutes": 5,
@@ -17,15 +17,19 @@
     "target_geographies": "US + Canada + Western Europe + Australia/New Zealand premium short-stay markets",
     "catalog_strategy": "stable 4-shard planner IDs rotated every 5 minutes through a structured long-tail catalog",
     "promotion_evidence": {
-      "run_id": 31955576484,
-      "raw_search_results": 132,
-      "canonical_unseen_candidate_domains": 55,
-      "live_ready": 50,
-      "recovered_public_emails": 23,
-      "instagram_found": 40,
-      "facebook_found": 35,
-      "unseen_to_live_ready_rate": 0.9091,
-      "provider_error_rate": 0.1549
+      "run_id": 31961438776,
+      "catalog_queries_total": 17628,
+      "raw_search_results": 144,
+      "candidate_domains_before_final_canonical_dedupe": 55,
+      "live_ready": 44,
+      "new_unique_after_canonical_dedupe": 29,
+      "recovered_public_emails": 16,
+      "instagram_found": 29,
+      "facebook_found": 33,
+      "contact_ready": 47,
+      "new_unique_per_worker_minute": 18.409,
+      "worker_errors": 0,
+      "note": "V3 production proof used an empty planner snapshot during a release replacement race; final single-writer aggregate still deduped safely. Fresh worker now retries durable canonical, falls back to LKG, and fails closed if no sane snapshot is available."
     },
     "promotion_gate": {
       "min_unseen_live_ready": 8,
