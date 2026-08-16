@@ -1,0 +1,105 @@
+name: GWS Semantic Live Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_qwen_semantic.py'
+      - 'tools/gws_semantic_worker.py'
+      - 'tools/gws_semantic_targeted_search.py'
+      - 'config/gws_semantic_v1.json'
+      - '.github/workflows/gws-semantic-live-canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gws-semantic-live-canary
+  cancel-in-progress: true
+
+jobs:
+  live-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests duckdb 'ddgs>=9,<10' aiohttp 'huggingface_hub>=0.34,<2'
+      - name: Select eight real live soft cases
+        run: |
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools')
+          from gws_semantic_plan import gather
+          cfg=json.load(open('config/gws_semantic_v1.json',encoding='utf-8'))
+          live,_=gather(cfg)
+          assert len(live)>=8, f'need >=8 live soft cases, got {len(live)}'
+          p=Path('results/live_canary'); p.mkdir(parents=True,exist_ok=True)
+          with (p/'input.jsonl').open('w',encoding='utf-8') as f:
+              for r in live[:8]: f.write(json.dumps(r,ensure_ascii=False,default=str)+'\n')
+          print('GWS_LIVE_CANARY_SELECTED=8')
+          print('GWS_LIVE_CANARY_ELIGIBLE='+str(len(live)))
+          PY
+      - id: model
+        name: Read model config
+        run: python -c "import json; q=json.load(open('config/gws_semantic_v1.json'))['qwen']; print('repo='+q['model_repo']); print('revision='+q['model_revision']); print('file='+q['model_file']); print('image='+q['llama_cpp_image'])" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-${{ steps.model.outputs.revision }}
+      - name: Recover model cache if necessary
+        env:
+          MODEL_REPO: ${{ steps.model.outputs.repo }}
+          MODEL_REVISION: ${{ steps.model.outputs.revision }}
+          MODEL_FILE: ${{ steps.model.outputs.file }}
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+        run: |
+          set -euo pipefail
+          if [ ! -s "model_cache/$MODEL_FILE" ]; then
+            mkdir -p model_cache
+            python -c "import os; from huggingface_hub import hf_hub_download; hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')"
+          fi
+          test -s "model_cache/$MODEL_FILE"
+      - name: Start OpenSERP
+        run: bash tools/start_openserp_ci.sh
+      - name: Start Qwen 4B
+        env:
+          LLAMA_CPP_IMAGE: ${{ steps.model.outputs.image }}
+          MODEL_FILE: ${{ steps.model.outputs.file }}
+        run: bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$MODEL_FILE"
+      - name: Run eight real live cases
+        env:
+          OPENSERP_URL: http://127.0.0.1:7000
+        run: |
+          python tools/gws_semantic_worker.py \
+            --input results/live_canary/input.jsonl \
+            --config config/gws_semantic_v1.json \
+            --qwen-url http://127.0.0.1:8080 \
+            --worker-index 0 \
+            --outdir results/live_canary/out
+      - name: Assert live integration health
+        run: |
+          python - <<'PY'
+          import json
+          s=json.load(open('results/live_canary/out/summary.json',encoding='utf-8'))
+          print('GWS_LIVE_CANARY_SUMMARY='+json.dumps(s,separators=(',',':')))
+          assert int(s.get('records_output') or 0)==8, s
+          assert int(s.get('targeted_search_records') or 0)==8, s
+          assert int(s.get('targeted_search_errors') or 0)==0, s
+          assert int(s.get('qwen_input') or 0)==8, s
+          assert int(s.get('qwen_classified') or 0)==8, s
+          assert int(s.get('qwen_unavailable_or_invalid') or 0)==0, s
+          assert int(s.get('hallucinated_contact_count') or 0)==0, s
+          print('GWS_SEMANTIC_LIVE_CANARY_OK=1')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-semantic-live-canary-${{ github.run_id }}
+          path: results/live_canary/
+          retention-days: 2
