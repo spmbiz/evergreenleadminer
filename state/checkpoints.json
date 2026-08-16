@@ -1,15 +1,7 @@
 {
   "schema_version": 1,
-  "last_cycle": "20260816T190215Z-github-multilane",
+  "last_cycle": "20260816T190548Z-github-multilane",
   "cycles": {
-    "20260815T235107Z-github-multilane": {
-      "finished_at": "2026-08-15T23:52:21.976641Z",
-      "provider": "github",
-      "new_unique": 0,
-      "canonical_total": 29468,
-      "partition_asset": "partition-20260815T235107Z-github-multilane.jsonl.gz",
-      "review_asset": null
-    },
     "20260815T235147Z-github-multilane": {
       "finished_at": "2026-08-15T23:53:22.324866Z",
       "provider": "github",
@@ -1121,6 +1113,14 @@
       "canonical_total": 32650,
       "partition_asset": "partition-20260816T190215Z-github-multilane.jsonl.gz",
       "review_asset": "gpt-review-20260816T190215Z-github-multilane.jsonl"
+    },
+    "20260816T190548Z-github-multilane": {
+      "finished_at": "2026-08-16T19:09:54.345118Z",
+      "provider": "github",
+      "new_unique": 32,
+      "canonical_total": 32682,
+      "partition_asset": "partition-20260816T190548Z-github-multilane.jsonl.gz",
+      "review_asset": "gpt-review-20260816T190548Z-github-multilane.jsonl"
     }
   }
 }
