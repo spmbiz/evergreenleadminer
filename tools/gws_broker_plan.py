@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run the existing GWS planner against a capacity already leased by the global broker.
+"""Run the existing GWS planner against capacity already leased by the global broker.
 
 The underlying planner normally re-measures account-wide GitHub activity. Once a
-capacity lease has been atomically reserved that second subtraction would count
-hospitality/tender work twice. This thin wrapper disables only the redundant
+capacity lease has been atomically reserved, that second subtraction would count
+hospitality/tender/GWS work twice. This thin wrapper disables only the redundant
 GitHub activity probe; all GWS source-health, task, lease and matrix logic stays
 inside gws_fleet_plan.py.
 """
@@ -48,9 +48,15 @@ def main():
         emit_zero(outdir)
         return
 
-    # Capacity is already reserved by global_capacity_broker.py under a shared
-    # planner concurrency group, so do not subtract active jobs a second time.
-    gp.github_active_jobs = lambda *args, **kwargs: (0, [])
+    # Capacity is already atomically reserved by global_capacity_broker.py.
+    # gws_fleet_plan.py currently calls github_repo_job_counts(), not the old
+    # github_active_jobs() helper. Stub the live probe so --fixed-capacity is
+    # consumed as the already-leased budget instead of subtracting account-wide
+    # jobs a second time. Keep the old symbol stub too for backward compatibility.
+    gp.github_repo_job_counts = lambda *args, **kwargs: (0, 0, [])
+    if hasattr(gp, "github_active_jobs"):
+        gp.github_active_jobs = lambda *args, **kwargs: (0, [])
+
     sys.argv = [
         "gws_fleet_plan.py",
         "--provider", "github",
