@@ -9,15 +9,6 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [gws_semantic_refill]
-  push:
-    branches: [main]
-    paths:
-      - 'config/gws_semantic_v1.json'
-      - 'tools/gws_semantic_*.py'
-      - 'tools/gws_qwen_semantic.py'
-      - 'tools/gws_residential_semantic_adapter.py'
-      - 'data/gws/residential_ingress/**'
-      - '.github/workflows/gws-semantic-fleet.yml'
 
 permissions:
   contents: write
