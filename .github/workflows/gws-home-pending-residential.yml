@@ -78,7 +78,7 @@ jobs:
         run: |
           $py=$env:GWS_HOME_PYTHON_EXE
           if (-not $py -or -not (Test-Path $py)) { throw 'Resolved Python path missing.' }
-          & $py tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
+          & $py tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 1
           if ($LASTEXITCODE -ne 0) { throw "Pending planner failed exit=$LASTEXITCODE" }
           $plan = Get-Content results\gws_home_pending_plan\plan.json -Raw | ConvertFrom-Json
           "selected=$($plan.selected)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -102,9 +102,9 @@ jobs:
             --outdir results\gws_home_pending_openserp `
             --endpoint http://127.0.0.1:7000 `
             --engines bing,duckduckgo `
-            --max-candidates 12 `
-            --sleep-min 0.25 `
-            --sleep-max 0.55
+            --max-candidates 1 `
+            --sleep-min 0.20 `
+            --sleep-max 0.40
           if ($LASTEXITCODE -ne 0) { throw "Residential OpenSERP worker failed exit=$LASTEXITCODE" }
 
       - name: Normalize residential observations for durable ingress
