@@ -1,16 +1,31 @@
 {
   "schema": "HOSPITALITY_WIKIDATA_SOURCE_V1",
   "enabled": true,
-  "production_enabled": false,
+  "production_enabled": true,
   "canary_enabled": true,
   "policy": {
     "source_slot_cap_per_cycle": 1,
     "revisit_hours": 168,
     "limit_per_shard": 300,
+    "pages_per_country": 3,
     "timeout_seconds": 30,
     "contact_workers": 24,
     "local_workers": 32,
-    "canonical_mutation": "single-writer aggregate only after promotion"
+    "canonical_mutation": "single-writer aggregate only",
+    "promotion_evidence": {
+      "run_id": 31967315831,
+      "country": "United States",
+      "raw_bindings": 300,
+      "canonical_known_rejected_early": 91,
+      "canonical_unseen_candidate_domains": 172,
+      "recovered_public_emails": 35,
+      "instagram_found": 63,
+      "facebook_found": 61,
+      "contact_ready": 93,
+      "live_ready": 90,
+      "elapsed_seconds": 53.2,
+      "worker_errors": 0
+    }
   },
   "classes": [
     {"qid": "Q27686", "label": "hotel"},
