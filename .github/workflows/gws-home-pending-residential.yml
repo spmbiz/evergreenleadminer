@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: gws-home-pending-residential
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   residential_pending:
@@ -46,10 +46,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $candidates = New-Object System.Collections.Generic.List[string]
-
           $pythonCmd = Get-Command python.exe -ErrorAction SilentlyContinue
           if ($pythonCmd) { $candidates.Add($pythonCmd.Source) }
-
           $patterns = @(
             'C:\Users\*\AppData\Local\Programs\Python\Python*\python.exe',
             'C:\Program Files\Python*\python.exe',
@@ -59,7 +57,6 @@ jobs:
           foreach ($pattern in $patterns) {
             Get-Item $pattern -ErrorAction SilentlyContinue | ForEach-Object { $candidates.Add($_.FullName) }
           }
-
           $selected = $null
           foreach ($candidate in ($candidates | Select-Object -Unique | Sort-Object -Descending)) {
             if (-not (Test-Path $candidate)) { continue }
@@ -72,10 +69,7 @@ jobs:
               }
             } catch {}
           }
-
-          if (-not $selected) {
-            throw 'No usable Python 3 installation found on gws-home runner, including user-local Python installs.'
-          }
+          if (-not $selected) { throw 'No usable Python 3 installation found on gws-home runner, including user-local Python installs.' }
           "GWS_HOME_PYTHON_EXE=$selected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - id: plan
