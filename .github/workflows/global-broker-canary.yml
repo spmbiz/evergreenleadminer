@@ -2,9 +2,13 @@ name: Global Capacity Broker Canary
 
 on:
   push:
-    branches: [main]
+    branches: [main, agent/global-broker-three-way-fairness]
     paths:
       - 'control/global_broker_canary.json'
+      - 'config/global_fleet.json'
+      - 'tools/global_capacity_broker.py'
+      - 'tools/global_capacity_broker_v3.py'
+      - '.github/workflows/global-broker-canary.yml'
   workflow_dispatch:
 
 permissions:
@@ -20,6 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Compile broker
+        run: python -m py_compile tools/global_capacity_broker.py tools/global_capacity_broker_v3.py
       - name: Dry-run live account allocation
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,7 +44,11 @@ jobs:
           python - <<'PY'
           import json
           b=json.load(open('canary/broker.json'))
-          tender=int((b.get('demand') or {}).get('tenders') or 0)
+          demand=b.get('demand') or {}
+          targets=b.get('fair_targets') or {}
+          hospitality=int(demand.get('hospitality') or 0)
+          tender=int(demand.get('tenders') or 0)
+          gws=int(demand.get('gws') or 0)
           reserve=((b.get('sibling_reservations') or {}).get('tenders') or {})
           tender_active=sum(int(x.get('active_jobs') or 0) for x in b.get('external_jobs') or [] if x.get('repo')=='walidgdg1-ai/tender-engine')
           tender_missing=int(reserve.get('missing_headroom') or 0)
@@ -47,10 +57,11 @@ jobs:
           report={
             'requested':b.get('requested'),
             'allocated':b.get('allocated'),
+            'demand':demand,
+            'fair_targets':targets,
             'external_slots':b.get('external_slots'),
             'leased_other_slots':b.get('leased_other_slots'),
             'lease_accounting':b.get('lease_accounting'),
-            'tender_demand':tender,
             'tender_active':tender_active,
             'tender_missing_headroom':tender_missing,
             'tender_protected':tender_protected,
@@ -59,10 +70,16 @@ jobs:
             'capacity':b.get('capacity'),
           }
           print(json.dumps(report,indent=2))
+          if hospitality < 20:
+              raise SystemExit(f'Broker regression: current Hospitality request was advertised as demand={hospitality}, expected >=20')
+          if int(targets.get('hospitality') or 0) < 5:
+              raise SystemExit(f'Broker regression: Hospitality fair target is {targets.get("hospitality")}, expected >=5')
           if tender <= 0:
               raise SystemExit('Canary invalid: durable Tender backlog was not detected')
-          if tender_protected < 6:
-              raise SystemExit(f'Broker regression: only {tender_protected} Tender slots protected')
+          if int(targets.get('tenders') or 0) < 5:
+              raise SystemExit(f'Broker regression: Tender fair target is {targets.get("tenders")}, expected >=5')
+          if gws > 0 and int(targets.get('gws') or 0) < 5:
+              raise SystemExit(f'Broker regression: GWS demand={gws} but fair target={targets.get("gws")}, expected >=5')
           if planned > int(b.get('capacity') or 20):
               raise SystemExit('Broker regression: planned occupancy exceeds account capacity')
           PY
