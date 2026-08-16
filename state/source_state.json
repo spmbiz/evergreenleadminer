@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "overture_hospitality_v6": {
-    "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.5,
+    "recommended_local_http_workers": 48,
+    "recent_error_rate": 0.0,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T15:32:07.109898Z"
+    "last_updated": "2026-08-16T15:35:44.746339Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -91,6 +91,27 @@
       "recommended_contact_workers": 24,
       "last_contact_ready": 4,
       "last_social_or_contact_without_email": 4
+    },
+    "fresh_search": {
+      "last_workers_completed": 4,
+      "last_workers_failed": 0,
+      "last_raw_discovered": 519,
+      "last_fast_ready": 144,
+      "last_live_ready": 139,
+      "last_recovery_candidates": 177,
+      "last_recovered_public_emails": 66,
+      "last_contact_ready": 144,
+      "last_social_or_contact_without_email": 78,
+      "last_live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      },
+      "last_contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      }
     }
   }
 }
