@@ -194,8 +194,8 @@ def main():
     fresh, fresh_errors, fresh_cap = fresh_search_tasks(now, coverage)
 
     # Enforce each source's own slot ceiling before applying the global source
-    # ceiling. This prevents one high-priority source from consuming the budget
-    # reserved for the other additive source rails.
+    # ceiling. The final selection below also reserves one bounded ATP slot when
+    # a GREEN ATP source is due, so FreshSearch cannot permanently starve it.
     source_due = (
         fresh[:max(0, fresh_cap)]
         + atp[:max(0, atp_cap)]
@@ -225,12 +225,30 @@ def main():
 
     source_n = min(max(0, int(a.capacity)), max(0, total_source_cap), len(source_due))
     selected_sources = source_due[:source_n]
-    geo_capacity = max(0, int(a.capacity) - source_n)
+
+    # Diversity reservation only in normal planning. It does not increase the
+    # source cap or worker count; at most one due ATP task replaces the lowest
+    # ranked selected source. With no ATP due, behavior is exactly unchanged.
     source_only_force = force in (
         "atp", "alltheplaces", "atp_directory_contact",
         "osm", "geofabrik", "osm_geofabrik",
         "fresh", "fresh_search", "search_fabric_fresh",
     )
+    if not source_only_force and atp and source_n > 0 and not any(x.get("task_type") == "atp_spider" for x in selected_sources):
+        ranked_atp = sorted(
+            atp[:max(0, atp_cap)],
+            key=lambda x: (
+                bool(x.get("source_changed")),
+                int(x.get("priority") or 0),
+                float(x.get("source_age_hours") or 0),
+                x["name"],
+            ),
+            reverse=True,
+        )
+        if ranked_atp:
+            selected_sources[-1] = ranked_atp[0]
+
+    geo_capacity = max(0, int(a.capacity) - len(selected_sources))
     if source_only_force:
         geo_capacity = 0
 
