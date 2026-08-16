@@ -14,6 +14,7 @@ on:
       - 'tools/start_openserp_ci.sh'
       - 'tools/test_hospitality_intelligence_v2.py'
       - 'tools/test_hospitality_qwen_classifier.py'
+      - 'tools/test_hospitality_plan_fanout.py'
       - '.github/workflows/hospitality-intelligence-v2*.yml'
   workflow_dispatch:
 
@@ -44,7 +45,8 @@ jobs:
             tools/hospitality_intelligence_aggregate.py \
             tools/apply_hospitality_intelligence_delta.py \
             tools/test_hospitality_intelligence_v2.py \
-            tools/test_hospitality_qwen_classifier.py
+            tools/test_hospitality_qwen_classifier.py \
+            tools/test_hospitality_plan_fanout.py
           bash -n tools/start_qwen4b_ci.sh
           bash -n tools/start_openserp_ci.sh
           python -m json.tool config/hospitality_intelligence_v2.json >/dev/null
@@ -52,4 +54,5 @@ jobs:
         run: |
           PYTHONPATH=tools python -m unittest -v \
             tools/test_hospitality_intelligence_v2.py \
-            tools/test_hospitality_qwen_classifier.py
+            tools/test_hospitality_qwen_classifier.py \
+            tools/test_hospitality_plan_fanout.py
