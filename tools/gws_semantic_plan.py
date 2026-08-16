@@ -7,8 +7,11 @@ from urllib.parse import urlparse
 
 KNOWN_THIRD_PARTY_HOSTS=(
     'facebook.','instagram.','linkedin.','tiktok.','youtube.','planity.','treatwell.','salonkee.',
-    'pagesdor.','goudengids.','infobel.','idgarages.','yelp.','tripadvisor.','booking.com','foursquare.',
-    'cybo.','worldplaces.','desocialekaart.','sociaal.brussels','fresha.','trustpilot.'
+    'pagesdor.','goudengids.','goldenpages.','infobel.','idgarages.','yelp.','tripadvisor.','booking.com','foursquare.',
+    'cybo.','worldplaces.','desocialekaart.','sociaal.brussels','fresha.','trustpilot.',
+    'information-bruxelles.be','topcoiffeur.be','openingsurengids.be','localservices.be','beautynailhairsalons.com',
+    'lorealprofessionnel.com','bizique.be','heures.be','hours.be','belgique.heures.info','atout-commerces.be','autonomia.org',
+    'groupon.','vlan.be','hotfrogbe.be','cleanall.be'
 )
 PROFILE_PATH_MARKERS=('/author/','/authors/','/profile/','/profiles/','/listing/','/listings/','/directory/','/business-directory/')
 
@@ -24,7 +27,6 @@ def iter_jsonl(pattern):
             for line in p.read_text(encoding='utf-8').splitlines():
                 if line.strip(): yield json.loads(line)
         except Exception: continue
-
 def host(u):
     try:return (urlparse(str(u or '')).hostname or '').lower().removeprefix('www.')
     except Exception:return ''
