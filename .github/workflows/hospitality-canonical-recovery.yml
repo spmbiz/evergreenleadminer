@@ -1,0 +1,163 @@
+name: Hospitality Canonical Recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_canonical_recovery*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: hospitality-canonical-writer
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RECOVERY_CUTOFF: '20260816T020658Z'
+      EXPECTED_ROWS: '31265'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download immutable Hospitality history
+        run: |
+          set -euo pipefail
+          mkdir -p history recovery_out corrupt_backup
+          for tag in \
+            harvest-history-2026-08-14 \
+            harvest-history-2026-08-15 \
+            harvest-history-2026-08-16
+          do
+            mkdir -p "history/$tag"
+            gh release download "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'hospitality-bundle-*.tar.gz' \
+              --dir "history/$tag" \
+              --clobber
+          done
+          COUNT=$(find history -type f -name 'hospitality-bundle-*.tar.gz' | wc -l)
+          echo "immutable_bundles_downloaded=$COUNT"
+          test "$COUNT" -gt 20
+
+      - name: Preserve current corrupt canonical for audit
+        run: |
+          set -euo pipefail
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir corrupt_backup \
+            --clobber
+          cp corrupt_backup/hospitality-canonical.sqlite \
+            recovery_out/hospitality-canonical-corrupt-before-recovery.sqlite
+          python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          p=Path('corrupt_backup/hospitality-canonical.sqlite')
+          n=-1
+          try:
+              c=sqlite3.connect(p); n=int(c.execute('select count(*) from leads').fetchone()[0]); c.close()
+          except Exception as e:
+              print({'corrupt_snapshot_error':type(e).__name__})
+          Path('recovery_out/corrupt-snapshot.json').write_text(json.dumps({'rows':n,'bytes':p.stat().st_size},indent=2)+'\n')
+          print({'corrupt_snapshot_rows':n,'bytes':p.stat().st_size})
+          PY
+
+      - name: Rebuild canonical from immutable partitions
+        run: |
+          set -euo pipefail
+          python tools/rebuild_hospitality_canonical_from_history.py \
+            --history-root history \
+            --out-db recovery_out/hospitality-canonical.sqlite \
+            --cutoff-cycle "$RECOVERY_CUTOFF" \
+            --expected-count "$EXPECTED_ROWS" \
+            --report recovery_out/recovery-report.json
+
+      - name: Independent pre-publish verification
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sqlite3
+          p='recovery_out/hospitality-canonical.sqlite'
+          c=sqlite3.connect(p)
+          n=int(c.execute('select count(*) from leads').fetchone()[0])
+          integrity=str(c.execute('pragma integrity_check').fetchone()[0])
+          unique=int(c.execute("select count(distinct domain) from leads where domain is not null and trim(domain)<>''").fetchone()[0])
+          c.close()
+          expected=int(os.environ['EXPECTED_ROWS'])
+          print(json.dumps({'rows':n,'unique_domains':unique,'integrity':integrity}))
+          if n != expected or unique != expected or integrity != 'ok':
+              raise SystemExit('PRE_PUBLISH_RECOVERY_VERIFICATION_FAILED')
+          PY
+
+      - name: Publish recovered canonical only after exact validation
+        run: |
+          set -euo pipefail
+          python tools/fleet_runtime.py upload \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag harvest-state \
+            --file recovery_out/hospitality-canonical.sqlite
+
+      - name: Read back durable Release and verify exact rows
+        run: |
+          set -euo pipefail
+          mkdir -p readback
+          OK=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            rm -f readback/hospitality-canonical.sqlite
+            if gh release download harvest-state \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'hospitality-canonical.sqlite' \
+              --dir readback \
+              --clobber; then
+              if python - <<'PY'
+          import os, sqlite3
+          p='readback/hospitality-canonical.sqlite'
+          c=sqlite3.connect(p)
+          n=int(c.execute('select count(*) from leads').fetchone()[0])
+          integrity=str(c.execute('pragma integrity_check').fetchone()[0])
+          c.close()
+          print({'readback_rows':n,'integrity':integrity})
+          raise SystemExit(0 if n==int(os.environ['EXPECTED_ROWS']) and integrity=='ok' else 1)
+          PY
+              then
+                OK=1
+                break
+              fi
+            fi
+            sleep $((attempt * 2))
+          done
+          test "$OK" -eq 1
+
+      - name: Persist recovery audit bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f recovery_out/recovery-report.json ]; then
+            tar -czf recovery_out/hospitality-canonical-recovery-20260816T020658Z.tar.gz \
+              -C recovery_out recovery-report.json corrupt-snapshot.json
+            python tools/fleet_runtime.py upload \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag harvest-history-2026-08-16 \
+              --file recovery_out/hospitality-canonical-recovery-20260816T020658Z.tar.gz
+          fi
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-canonical-recovery-${{ github.run_id }}
+          path: recovery_out/
+          retention-days: 14
+          compression-level: 6
