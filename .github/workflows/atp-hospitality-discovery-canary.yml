@@ -1,0 +1,41 @@
+name: ATP Hospitality Source Discovery Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/atp_hospitality_discovery.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atp-hospitality-source-discovery-canary
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal dependencies
+        run: python -m pip install --disable-pip-version-check requests ijson
+      - name: Discover promising hospitality spiders
+        run: |
+          mkdir -p canary
+          python tools/atp_hospitality_spider_discovery.py \
+            --max-spiders 40 \
+            --sample 8 \
+            --out canary/atp_hospitality_spider_discovery.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atp-hospitality-source-discovery-${{ github.run_id }}
+          path: canary/
+          if-no-files-found: error
+          retention-days: 3
