@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
-"""Ownership-safe wrapper around the parallel GWS search verifier.
+"""Ownership-safe GWS verifier with semantic-candidate acceleration.
 
-The legacy verifier can prove that a page contains the business identity, but that
-is not the same thing as proving that the business owns the host. This wrapper
-keeps the fast/checkpointed engine while adding a separate first-party ownership
-gate before any owned-site REJECT is allowed.
-
-Before any HIGH is emitted, a cheap final challenge searches exact phone/address
-identity and mines domain-looking strings from directory snippets. This catches
-owned website outlinks that a search engine exposes only inside a directory result.
-
-Semantic/Qwen candidate URLs are shadow evidence only. When present, they are
-probed directly before broad search to accelerate a safe owned-site REJECT. A
-semantic candidate can never certify HIGH/no-website; dead, third-party,
-ambiguous, or transient candidates simply fall through to the normal strict path.
+Only confident current first-party ownership can REJECT. Semantic candidates are
+shadow evidence and can never certify HIGH. HIGH still requires the normal strict
+passes plus the final exact-identity challenge.
 """
 from __future__ import annotations
 
@@ -45,13 +35,23 @@ def _sanitize_owned(row: dict[str, Any], p: dict[str, Any]) -> tuple[dict[str, A
     return q, assessment
 
 
-def _semantic_candidate_precheck(row: dict[str, Any], c: dict[str, Any]) -> dict[str, Any]:
-    """Probe a Search->Qwen candidate without allowing it to certify HIGH.
+def _blocking_ownership_ambiguity(a: dict[str, Any] | None) -> bool:
+    """Only a plausible branded first-party host may block a no-site decision.
 
-    Only a live, identity-matched, ownership-gate-confident first-party URL may
-    short-circuit to REJECT. Everything else is merely recorded and the normal
-    two-pass strict search + final HIGH challenge still runs.
+    Known third-party hosts and hosts not branded to the business are negative
+    ownership evidence, not ambiguity. Treating those as ambiguous was sending
+    obvious directory/unrelated results to hard review.
     """
+    a = a or {}
+    return bool(
+        a.get("url")
+        and not a.get("confident")
+        and not a.get("third_party")
+        and a.get("branded_host")
+    )
+
+
+def _semantic_candidate_precheck(row: dict[str, Any], c: dict[str, Any]) -> dict[str, Any]:
     url = str(row.get("semantic_candidate_url") or "").strip()
     route = str(row.get("semantic_resolution_route") or "").strip().upper()
     host_class = str(row.get("semantic_candidate_host_class") or "").strip()
@@ -68,16 +68,12 @@ def _semantic_candidate_precheck(row: dict[str, Any], c: dict[str, Any]) -> dict
     if own.is_third_party(url) or base.v2.platform(url):
         out["status"] = "THIRD_PARTY_OR_PLATFORM"
         return out
-
     out["attempted"] = True
     try:
         ev = base.home.probe_host(c, url)
     except Exception as exc:
         out.update({"status": "PROBE_EXCEPTION_FALLTHROUGH", "error": str(exc)[:240]})
         return out
-
-    # Keep a bounded evidence summary in the durable row; the full broad-search
-    # verifier remains authoritative for any no-website conclusion.
     out["probe"] = {
         "ok": bool(ev.get("ok")),
         "matched": bool(ev.get("matched")),
@@ -94,7 +90,6 @@ def _semantic_candidate_precheck(row: dict[str, Any], c: dict[str, Any]) -> dict
         else:
             out["status"] = "LIVE_NOT_IDENTITY_MATCHED_FALLTHROUGH"
         return out
-
     p = {
         "owned": str(ev.get("final") or url),
         "owned_identity": ev.get("identity") or {},
@@ -113,9 +108,6 @@ def _semantic_candidate_precheck(row: dict[str, Any], c: dict[str, Any]) -> dict
 
 def _challenge_queries(row: dict[str, Any], c: dict[str, Any]) -> tuple[list[str], str]:
     name = str(c.get("n") or "").strip()
-    # Hub rows often have no phone even after Overture resolved a current entity.
-    # Overture phone is allowed ONLY as a negative-search clue here. It is never
-    # injected into c, complete_identity(), or the no-website certificate.
     phone = str(c.get("ph") or row.get("overture_phone") or "").strip()
     phone_source = "hub" if c.get("ph") else ("overture_search_clue" if row.get("overture_phone") else "none")
     address = " ".join(str(c.get("a") or "").split()[:10]).strip()
@@ -130,7 +122,6 @@ def _challenge_queries(row: dict[str, Any], c: dict[str, Any]) -> tuple[list[str
 
 
 def _candidate_seeds(item) -> list[tuple[str, str]]:
-    """Return result URL plus domain-looking strings leaked by snippets/titles."""
     out: list[tuple[str, str]] = []
     direct = str(getattr(item, "url", "") or "").strip()
     if direct:
@@ -147,20 +138,12 @@ def _candidate_seeds(item) -> list[tuple[str, str]]:
 
 
 def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict[str, Any]:
-    """Search only HIGH survivors for hidden/linked websites.
-
-    Exact-identity directory results frequently contain an outbound website that
-    never ranks as its own SERP result. We mine candidate domains from the snippet,
-    probe them directly, and run the same ownership gate. Search transport failure
-    fails closed: a HIGH becomes retryable rather than being certified blindly.
-    """
     events: list[dict[str, Any]] = []
     probes: list[dict[str, Any]] = []
     ambiguous: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
     checked: set[str] = set()
     usable = 0
-
     queries, phone_source = _challenge_queries(row, c)
     for query in queries:
         results, event = fabric._openserp("high_exact_identity_challenge", query)
@@ -176,19 +159,14 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
             "results": len(results),
             "error": event.get("error"),
         })
-
         for item in results:
             for seed, source in _candidate_seeds(item):
                 host = base.v2.host(seed)
                 if not host or host in checked:
                     continue
                 checked.add(host)
-
-                # Third-party result pages are useful evidence but never ownership.
-                # We still mine their snippets above for explicit outbound domains.
                 if own.is_third_party(seed) or base.v2.platform(seed):
                     continue
-
                 hint_item = {
                     "url": seed,
                     "host": host,
@@ -198,15 +176,11 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
                 plausible, hint = base.home.plausible(c, hint_item)
                 if source == "serp_result" and not plausible:
                     continue
-
-                # Probe identity against the original source candidate. Overture phone
-                # was only a query clue and is deliberately NOT used as proof here.
                 ev = base.home.probe_host(c, seed)
                 ev["challenge_source"] = source
                 ev["challenge_query"] = query
                 ev["serp_hint"] = hint
                 probes.append(ev)
-
                 if ev.get("matched"):
                     p = {
                         "owned": str(ev.get("final") or seed),
@@ -225,11 +199,10 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
                             "unresolved": unresolved,
                             "phone_query_source": phone_source,
                         }
-                    ambiguous.append({"url": p["owned"], "assessment": assessment})
-                elif not ev.get("ok") and not ev.get("dns_negative"):
-                    if plausible:
-                        unresolved.append({"url": seed, "source": source, "hint": hint, "error": ev.get("error")})
-
+                    if _blocking_ownership_ambiguity(assessment):
+                        ambiguous.append({"url": p["owned"], "assessment": assessment})
+                elif not ev.get("ok") and not ev.get("dns_negative") and plausible:
+                    unresolved.append({"url": seed, "source": source, "hint": hint, "error": ev.get("error")})
     if queries and usable < min(2, len(queries)):
         status = "SEARCH_INCOMPLETE"
     elif ambiguous or unresolved:
@@ -289,7 +262,7 @@ def classify_strict_safe(row: dict[str, Any], c: dict[str, Any], pe: dict[str, A
     p2_raw = base.strict_pass(c, fabric, 2, max_queries)
     p2, a2 = _sanitize_owned(row, p2_raw)
     cert = base.prod.v5.certificate(c, pe, p1, p2)
-    ambiguous = [a for a in (a1, a2) if a.get("url") and not a.get("confident")]
+    ambiguous = [a for a in (a1, a2) if _blocking_ownership_ambiguity(a)]
     high_challenge: dict[str, Any] = {}
 
     if p2.get("owned") and a2.get("confident"):
