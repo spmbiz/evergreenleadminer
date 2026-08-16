@@ -1,0 +1,27 @@
+{
+  "schema": "HOSPITALITY_DATATOURISME_SOURCE_V1",
+  "enabled": true,
+  "production_enabled": false,
+  "canary_enabled": true,
+  "policy": {
+    "source_slot_cap_per_cycle": 1,
+    "revisit_hours": 24,
+    "contact_workers": 24,
+    "local_workers": 32,
+    "max_candidates": 1500,
+    "canonical_mutation": "single-writer aggregate only after promotion"
+  },
+  "dataset_api": "https://www.data.gouv.fr/api/1/datasets/datatourisme-la-base-nationale-des-donnees-publiques-dinformation-touristique-en-open-data/",
+  "preferred_resource_names": [
+    "datatourisme-place.csv",
+    "datatourisme-reg-pac.csv",
+    "datatourisme-reg-occ.csv",
+    "datatourisme-reg-cor.csv",
+    "datatourisme-reg-naq.csv"
+  ],
+  "hospitality_type_keywords": [
+    "hotel", "resort", "accommodation", "lodging", "hebergement", "hébergement",
+    "holidayrental", "vacationrental", "furnished", "meuble", "meublé", "gite", "gîte",
+    "guesthouse", "bedandbreakfast", "chambre", "villa", "chalet", "apartment", "appartement"
+  ]
+}
