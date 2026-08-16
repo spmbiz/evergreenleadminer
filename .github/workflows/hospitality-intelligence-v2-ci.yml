@@ -1,0 +1,50 @@
+name: Hospitality Intelligence V2 CI
+
+on:
+  push:
+    branches: [main, hospitality-intelligence-v2]
+    paths:
+      - 'config/hospitality_intelligence_v2.json'
+      - 'tools/hospitality_intelligence_*.py'
+      - 'tools/hospitality_search_fabric.py'
+      - 'tools/hospitality_portfolio_expand.py'
+      - 'tools/hospitality_qwen_classifier.py'
+      - 'tools/apply_hospitality_intelligence_delta.py'
+      - 'tools/start_qwen4b_ci.sh'
+      - 'tools/start_openserp_ci.sh'
+      - 'tools/test_hospitality_intelligence_v2.py'
+      - '.github/workflows/hospitality-intelligence-v2*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Static compile and shell validation
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            tools/hospitality_intelligence_db.py \
+            tools/hospitality_intelligence_plan.py \
+            tools/hospitality_search_fabric.py \
+            tools/hospitality_portfolio_expand.py \
+            tools/hospitality_qwen_classifier.py \
+            tools/hospitality_intelligence_worker.py \
+            tools/hospitality_intelligence_aggregate.py \
+            tools/apply_hospitality_intelligence_delta.py \
+            tools/test_hospitality_intelligence_v2.py
+          bash -n tools/start_qwen4b_ci.sh
+          bash -n tools/start_openserp_ci.sh
+          python -m json.tool config/hospitality_intelligence_v2.json >/dev/null
+      - name: Run deterministic V2 tests
+        run: PYTHONPATH=tools python -m unittest -v tools/test_hospitality_intelligence_v2.py

@@ -2,7 +2,7 @@ name: Hospitality Sheet Queue Bridge
 
 on:
   workflow_run:
-    workflows: ["Hospitality Autonomous Fleet 24/7"]
+    workflows: ["Hospitality Autonomous Fleet 24/7", "Hospitality Intelligence V2"]
     types: [completed]
   push:
     branches: [main]
