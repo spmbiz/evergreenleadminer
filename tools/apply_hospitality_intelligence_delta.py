@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -14,6 +15,15 @@ INTEL_RAW = (
 )
 
 
+def canonical_health(con: sqlite3.Connection) -> tuple[int, str]:
+    exists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='leads'").fetchone()
+    if not exists:
+        return 0, 'missing_leads_table'
+    count = int(con.execute('SELECT COUNT(*) FROM leads').fetchone()[0])
+    integrity = str(con.execute('PRAGMA integrity_check').fetchone()[0])
+    return count, integrity
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--canonical-db', required=True)
@@ -21,8 +31,20 @@ def main() -> None:
     ap.add_argument('--out-summary', required=True)
     a = ap.parse_args()
 
+    # Production canonical is always named hospitality-canonical.sqlite. Tests
+    # and isolated fixtures can opt into floor=0 or use another filename.
+    default_floor = 10000 if Path(a.canonical_db).name == 'hospitality-canonical.sqlite' else 0
+    safety_floor = int(os.environ.get('HOSPITALITY_CANONICAL_SAFETY_FLOOR', str(default_floor)))
+
     con = sqlite3.connect(a.canonical_db)
     con.row_factory = sqlite3.Row
+    before_count, before_integrity = canonical_health(con)
+    if before_integrity != 'ok' or before_count < safety_floor:
+        con.close()
+        raise SystemExit(
+            f'REFUSING_V2_CANONICAL_MERGE: rows={before_count} integrity={before_integrity} floor={safety_floor}'
+        )
+
     seen = updated = missing = email_filled = instagram_filled = 0
     with gzip.open(a.delta, 'rt', encoding='utf-8') as f:
         for line in f:
@@ -74,8 +96,28 @@ def main() -> None:
                             (public_email, instagram, json.dumps(raw, ensure_ascii=False), domain))
                 updated += 1
     con.commit()
+
+    after_count, after_integrity = canonical_health(con)
+    if after_integrity != 'ok' or after_count != before_count or after_count < safety_floor:
+        con.rollback()
+        con.close()
+        raise SystemExit(
+            f'REFUSING_V2_CANONICAL_PERSIST: before={before_count} after={after_count} '
+            f'integrity={after_integrity} floor={safety_floor}'
+        )
     con.close()
-    summary = {'delta_rows': seen, 'canonical_rows_updated': updated, 'canonical_missing': missing, 'public_emails_filled': email_filled, 'instagram_filled': instagram_filled}
+
+    summary = {
+        'delta_rows': seen,
+        'canonical_rows_updated': updated,
+        'canonical_missing': missing,
+        'public_emails_filled': email_filled,
+        'instagram_filled': instagram_filled,
+        'canonical_rows_before': before_count,
+        'canonical_rows_after': after_count,
+        'canonical_integrity': after_integrity,
+        'canonical_safety_floor': safety_floor,
+    }
     p = Path(a.out_summary)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
