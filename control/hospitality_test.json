@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T19:13:00Z",
+  "requested_at": "2026-08-16T19:27:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "fresh-search-v3-intra-worker-parallel-benchmark",
+  "mode": "validate-wikidata-promotion-plus-intra-worker-parallelism",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Benchmark 4-way bounded query parallelism inside fresh_search workers under normal global broker/autoscaler. Canonical single-writer and snapshot guard unchanged."
+  "note": "Normal broker/autoscaler. Expect max one wikidata_hospitality source task plus fresh/geo mix; fresh workers use bounded 4-way intra-worker query parallelism. Canonical remains single-writer."
 }
