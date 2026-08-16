@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'control/hospitality_intelligence_trigger.json'
+      - 'control/hospitality_intelligence_trigger*.json'
   workflow_dispatch:
     inputs:
       force_reclassify:
@@ -128,12 +128,7 @@ jobs:
           python - <<'PY'
           import os
           from huggingface_hub import hf_hub_download
-          p=hf_hub_download(
-              repo_id=os.environ['MODEL_REPO'],
-              filename=os.environ['MODEL_FILE'],
-              revision=os.environ['MODEL_REVISION'],
-              local_dir='model_cache',
-          )
+          p=hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')
           print(p)
           PY
       - name: Verify model payload
@@ -231,16 +226,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p canonical aggregate_out
-          gh release download harvest-state \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'hospitality-canonical.sqlite' \
-            --dir canonical \
-            --clobber
-          gh release download harvest-state \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'hospitality-intelligence.sqlite' \
-            --dir canonical \
-            --clobber || true
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical.sqlite' --dir canonical --clobber
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-intelligence.sqlite' --dir canonical --clobber || true
       - name: Aggregate account + asset intelligence ledger
         run: |
           set -euo pipefail
@@ -265,15 +252,8 @@ jobs:
       - name: Preserve intelligence audit bundle
         run: |
           set -euo pipefail
-          tar -czf "aggregate_out/hospitality-intelligence-${INTEL_CYCLE_ID}.tar.gz" \
-            aggregate_out/intelligence-summary.json \
-            aggregate_out/canonical-fill-summary.json \
-            aggregate_out/gpt-review.jsonl \
-            aggregate_out/canonical-fill-delta.jsonl.gz
-          python tools/fleet_runtime.py upload \
-            --repo "$GITHUB_REPOSITORY" \
-            --tag "harvest-history-$(date -u +%F)" \
-            --file "aggregate_out/hospitality-intelligence-${INTEL_CYCLE_ID}.tar.gz"
+          tar -czf "aggregate_out/hospitality-intelligence-${INTEL_CYCLE_ID}.tar.gz" aggregate_out/intelligence-summary.json aggregate_out/canonical-fill-summary.json aggregate_out/gpt-review.jsonl aggregate_out/canonical-fill-delta.jsonl.gz
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag "harvest-history-$(date -u +%F)" --file "aggregate_out/hospitality-intelligence-${INTEL_CYCLE_ID}.tar.gz"
       - name: Upload aggregate audit
         uses: actions/upload-artifact@v4
         with:
