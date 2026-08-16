@@ -1,0 +1,26 @@
+{
+  "schema": "gws-home-openserp-worker-v5",
+  "input_rows": 12,
+  "attempted": 12,
+  "shard_index": 0,
+  "shard_count": 1,
+  "engines": [
+    "bing",
+    "duckduckgo"
+  ],
+  "candidate_concurrency": 6,
+  "statuses": {
+    "REJECT": 9,
+    "EVIDENCE_INCOMPLETE": 3
+  },
+  "family_pass_observations": {
+    "bing": 15,
+    "duckduckgo": 15
+  },
+  "owned_sites_found": 9,
+  "terminal_pass1_rejects": 9,
+  "certificate_eligible": 0,
+  "elapsed_seconds": 154.47,
+  "final_high": 0,
+  "note": "Evidence only. Owned-site confirmation is terminal REJECT evidence; no no-site candidate skips pass2. Downstream single-writer remains authoritative for HIGH persistence."
+}
