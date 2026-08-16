@@ -1,17 +1,18 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "enabled": true,
   "mode": "strict_exclusion_and_precertification",
   "max_candidates_per_shard": 300,
   "search": {
     "openserp_ci_enabled": true,
-    "openserp_engines": "google,bing,duckduckgo,ecosia,yandex",
+    "openserp_engines": "google,bing,duckduckgo,yandex",
     "ddgs_enabled": true,
     "searxng_url": "",
     "max_results": 8,
     "max_queries_per_candidate": 5,
+    "candidate_concurrency": 4,
     "timeout_seconds": 20,
-    "provider_delay_seconds": 0.1,
+    "provider_delay_seconds": 0.0,
     "stop_after_first_successful_provider": true
   },
   "strict": {
@@ -19,7 +20,8 @@
     "fallback_can_reject_owned_site": true,
     "fallback_can_certify_high": false,
     "openserp_two_pass_required_for_high": true,
-    "independent_certificate_recheck": true
+    "independent_certificate_recheck": true,
+    "skip_second_pass_after_owned_site_confirmed": true
   },
   "residential": {
     "preferred_when_available": true,
