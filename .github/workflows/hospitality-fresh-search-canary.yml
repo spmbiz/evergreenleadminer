@@ -1,0 +1,134 @@
+name: Hospitality Fresh Search Source Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'config/hospitality_fresh_search_sources.json'
+      - 'tools/hospitality_fresh_search_source.py'
+      - '.github/workflows/hospitality-fresh-search-canary.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hospitality-fresh-search-canary
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install lightweight source dependencies
+        run: python -m pip install --disable-pip-version-check requests ddgs
+      - name: Restore read-only canonical domain snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p canonical canary/source canary/recovery
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir canonical \
+            --clobber
+          python - <<'PY'
+          import gzip,sqlite3
+          con=sqlite3.connect('canonical/hospitality-canonical.sqlite')
+          rows=[str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''")]
+          con.close()
+          with gzip.open('canary/canonical-domains.txt.gz','wt',encoding='utf-8') as f:
+              for d in sorted(set(rows)): f.write(d+'\n')
+          print({'canonical_domains':len(set(rows))})
+          PY
+      - name: Discover canonical-unseen premium/operator domains
+        run: |
+          set -euo pipefail
+          python tools/hospitality_fresh_search_source.py \
+            --canonical-domains canary/canonical-domains.txt.gz \
+            --outdir canary/source \
+            --max-queries 30
+          cp canary/source/v6_recovery_candidates.csv canary/recovery/v6_recovery_candidates.csv
+      - name: Recover explicit public contact routes
+        run: |
+          set -euo pipefail
+          python tools/v6_public_contact_enrich.py \
+            --input canary/recovery/v6_recovery_candidates.csv \
+            --outdir canary/recovery \
+            --workers 32 \
+            --timeout 8 \
+            --max-pages 3 \
+            --max-bytes 700000
+          python tools/promote_contact_ready.py \
+            --input canary/recovery/v6_recovery_enriched.csv \
+            --output canary/recovery/v6_fast_ready.csv \
+            --summary canary/recovery/v6_contact_ready_summary.json
+      - name: Apply existing permissive V1 live gate
+        run: |
+          set -euo pipefail
+          python tools/v6_live_verify.py \
+            --input canary/recovery/v6_fast_ready.csv \
+            --outdir canary/recovery \
+            --workers 32 \
+            --timeout 8
+      - name: Build incremental-yield benchmark
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          def read(p):
+              q=pathlib.Path(p)
+              return json.loads(q.read_text()) if q.exists() else {}
+          src=read('canary/source/fresh_search_summary.json')
+          contact=read('canary/recovery/v6_contact_recovery_summary.json')
+          ready=read('canary/recovery/v6_contact_ready_summary.json')
+          live=read('canary/recovery/v6_live_summary.json')
+          unseen=int(src.get('canonical_unseen_candidate_domains') or 0)
+          live_ready=int(live.get('live_ready') or 0)
+          provider_events=read('canary/source/provider_events.json')
+          provider_errors=sum(1 for x in provider_events if x.get('status') not in ('OK','DISABLED')) if isinstance(provider_events,list) else 0
+          provider_total=len(provider_events) if isinstance(provider_events,list) else 0
+          payload={
+            'schema':'HOSPITALITY_FRESH_SEARCH_BENCHMARK_V1',
+            'raw_search_results':int(src.get('raw_search_results') or 0),
+            'canonical_known_rejected_early':int(src.get('canonical_known_rejected_early') or 0),
+            'canonical_unseen_candidate_domains':unseen,
+            'recovered_public_emails':int(contact.get('recovered_public_emails') or 0),
+            'instagram_found':int(contact.get('instagram_found') or 0),
+            'facebook_found':int(contact.get('facebook_found') or 0),
+            'contact_pages_found':int(contact.get('contact_pages_found') or 0),
+            'contact_ready':int(ready.get('contact_ready') or 0),
+            'live_high':int(live.get('live_high') or 0),
+            'live_medium':int(live.get('live_medium') or 0),
+            'live_ready':live_ready,
+            'unseen_to_live_ready_rate':round(live_ready/unseen,4) if unseen else 0.0,
+            'provider_error_rate':round(provider_errors/provider_total,4) if provider_total else 0.0,
+            'canonical_mutation':False,
+          }
+          gate_cfg=json.load(open('config/hospitality_fresh_search_sources.json'))['policy']['promotion_gate']
+          payload['promotion_gate']={
+            'min_unseen_live_ready':gate_cfg['min_unseen_live_ready'],
+            'min_unseen_live_ready_rate':gate_cfg['min_unseen_live_ready_rate'],
+            'max_error_rate':gate_cfg['max_error_rate'],
+          }
+          payload['promote_candidate']=bool(
+            live_ready >= int(gate_cfg['min_unseen_live_ready']) and
+            payload['unseen_to_live_ready_rate'] >= float(gate_cfg['min_unseen_live_ready_rate']) and
+            payload['provider_error_rate'] <= float(gate_cfg['max_error_rate'])
+          )
+          pathlib.Path('canary/benchmark_summary.json').write_text(json.dumps(payload,indent=2)+'\n')
+          print(json.dumps(payload,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hospitality-fresh-search-canary-${{ github.run_id }}
+          path: canary/
+          if-no-files-found: warn
+          retention-days: 7
