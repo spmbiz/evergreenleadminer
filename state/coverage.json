@@ -31806,11 +31806,11 @@
       "bbox": "fresh-search:0",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T17:47:38.541505Z",
-      "last_success": "2026-08-16T17:47:38.541505Z",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
       "consecutive_failures": 0,
-      "last_live_ready": 15,
-      "last_elapsed_seconds": 71.59
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 130.81
     },
     "9264cb45112059e4": {
       "name": "FRESH_SEARCH::60",
@@ -31819,11 +31819,11 @@
       "bbox": "fresh-search:60",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T17:47:38.541505Z",
-      "last_success": "2026-08-16T17:47:38.541505Z",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
       "consecutive_failures": 0,
-      "last_live_ready": 3,
-      "last_elapsed_seconds": 51.25
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 59.03
     },
     "c3eb840720ac1e49": {
       "name": "FRESH_SEARCH::30",
@@ -31832,11 +31832,11 @@
       "bbox": "fresh-search:30",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T17:47:38.541505Z",
-      "last_success": "2026-08-16T17:47:38.541505Z",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
       "consecutive_failures": 0,
-      "last_live_ready": 14,
-      "last_elapsed_seconds": 62.35
+      "last_live_ready": 10,
+      "last_elapsed_seconds": 62.9
     },
     "79b996efb119f732": {
       "name": "FRESH_SEARCH::90",
@@ -31845,11 +31845,11 @@
       "bbox": "fresh-search:90",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T17:47:38.541505Z",
-      "last_success": "2026-08-16T17:47:38.541505Z",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
       "consecutive_failures": 0,
-      "last_live_ready": 20,
-      "last_elapsed_seconds": 84.95
+      "last_live_ready": 7,
+      "last_elapsed_seconds": 63.2
     },
     "46dd88b415655826": {
       "name": "atlas-13-25--site-recovery",
@@ -34398,6 +34398,58 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 3.69
+    },
+    "bcc11c93332c975f": {
+      "name": "atlas-18-31--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::europe-north-africa::18-31::lane=site-recovery",
+      "bbox": "-25.000000,30.000000,-20.000000,35.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 4.51
+    },
+    "bc633da0b2ef1926": {
+      "name": "atlas-14-32--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::africa::14-32::lane=site-recovery",
+      "bbox": "-20.000000,10.000000,-15.000000,15.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 2,
+      "last_elapsed_seconds": 17.98
+    },
+    "bca13f613c3c54af": {
+      "name": "atlas-26-53--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::asia::26-53::lane=site-recovery",
+      "bbox": "85.000000,70.000000,90.000000,75.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 3.21
+    },
+    "bc77cec2ccdaf3be": {
+      "name": "atlas-13-37--site-recovery",
+      "country": "AUTO",
+      "region": "World-Atlas::africa::13-37::lane=site-recovery",
+      "bbox": "5.000000,5.000000,10.000000,10.000000",
+      "release": "2026-06-17.0",
+      "status": "complete",
+      "last_attempt": "2026-08-16T17:51:45.500643Z",
+      "last_success": "2026-08-16T17:51:45.500643Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 2,
+      "last_elapsed_seconds": 21.32
     }
   }
 }
