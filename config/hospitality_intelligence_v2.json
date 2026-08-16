@@ -51,6 +51,17 @@
     "max_assets": 250,
     "sample_count": 5
   },
+  "outreach_gate": {
+    "enabled": true,
+    "mode": "v1-permissive-v2-commercial",
+    "min_confidence": 0.7,
+    "premium_signal_score": 24,
+    "strong_premium_score": 42,
+    "portfolio_signal_count": 3,
+    "strong_portfolio_count": 10,
+    "good_b_contactability_min": 48,
+    "ready_policy": "S/A plus strong B with at least one explicit public contact route"
+  },
   "safety": {
     "auto_reject": false,
     "canonical_contact_merge": "first_party_fill_only",
