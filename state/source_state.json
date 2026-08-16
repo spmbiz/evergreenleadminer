@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 96,
-    "recent_error_rate": 0.01562,
+    "recent_error_rate": 0.04,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T18:32:28.963873Z"
+    "last_updated": "2026-08-16T18:35:30.932396Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -73,15 +73,15 @@
     "site_recovery": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 442,
-      "last_fast_ready": 2,
-      "last_live_ready": 1,
-      "last_recovery_candidates": 2,
-      "last_recovered_public_emails": 1,
+      "last_raw_discovered": 41,
+      "last_fast_ready": 1,
+      "last_live_ready": 0,
+      "last_recovery_candidates": 1,
+      "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.5
+        "error_rate": 1.0
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -89,19 +89,19 @@
         "error_rate": 0.0
       },
       "recommended_contact_workers": 16,
-      "last_contact_ready": 2,
+      "last_contact_ready": 1,
       "last_social_or_contact_without_email": 1
     },
     "fresh_search": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 324,
-      "last_fast_ready": 62,
-      "last_live_ready": 55,
-      "last_recovery_candidates": 88,
-      "last_recovered_public_emails": 28,
-      "last_contact_ready": 62,
-      "last_social_or_contact_without_email": 34,
+      "last_raw_discovered": 430,
+      "last_fast_ready": 24,
+      "last_live_ready": 18,
+      "last_recovery_candidates": 53,
+      "last_recovered_public_emails": 12,
+      "last_contact_ready": 24,
+      "last_social_or_contact_without_email": 12,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
