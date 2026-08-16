@@ -92,6 +92,9 @@ jobs:
     if: needs.plan.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    outputs:
+      model_revision: ${{ steps.model.outputs.revision }}
+      model_file: ${{ steps.model.outputs.file }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,11 +134,14 @@ jobs:
           p=hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')
           print(p)
           PY
-      - name: Verify model payload
+      - name: Verify model payload and exported outputs
         env:
           MODEL_FILE: ${{ steps.model.outputs.file }}
+          MODEL_REVISION: ${{ steps.model.outputs.revision }}
         run: |
           set -euo pipefail
+          test -n "$MODEL_FILE"
+          test -n "$MODEL_REVISION"
           test -s "model_cache/$MODEL_FILE"
           ls -lh "model_cache/$MODEL_FILE"
 
@@ -160,19 +166,32 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: model_cache
-          key: qwen3-4b-q4km-${{ matrix.model_revision }}
+          key: qwen3-4b-q4km-${{ needs.prepare_model.outputs.model_revision }}
           fail-on-cache-miss: true
       - name: Download Intelligence plan
         uses: actions/download-artifact@v4
         with:
           name: hospitality-intelligence-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: intelligence_plan
-      - name: Start local Qwen server
+      - name: Validate worker wiring
         env:
-          MODEL_FILE: ${{ matrix.model_file }}
+          MODEL_FILE: ${{ needs.prepare_model.outputs.model_file }}
+          SHARD_FILE: ${{ matrix.path }}
+          SHARD_ID: ${{ matrix.shard }}
         run: |
           set -euo pipefail
-          bash tools/start_qwen4b_ci.sh "model_cache/$MODEL_FILE" qwen_runtime
+          test -n "$MODEL_FILE"
+          test -n "$SHARD_FILE"
+          test -n "$SHARD_ID"
+          test -s "model_cache/$MODEL_FILE"
+          test -s "intelligence_plan/$SHARD_FILE"
+          echo "Qwen=$MODEL_FILE shard=$SHARD_ID input=$SHARD_FILE"
+      - name: Start local Qwen server
+        env:
+          MODEL_FILE: ${{ needs.prepare_model.outputs.model_file }}
+        run: |
+          set -euo pipefail
+          bash tools/start_qwen4b_ci.sh model_cache "$MODEL_FILE"
       - name: Start local OpenSERP when available
         continue-on-error: true
         run: bash tools/start_openserp_ci.sh openserp_runtime
@@ -183,18 +202,19 @@ jobs:
           OPENSERP_URL: http://127.0.0.1:7000
         run: |
           set -euo pipefail
-          mkdir -p "results/${{ matrix.key }}"
+          WORKER_KEY="shard-${{ matrix.shard }}"
+          mkdir -p "results/$WORKER_KEY"
           python tools/hospitality_intelligence_worker.py \
-            --input "intelligence_plan/${{ matrix.input_file }}" \
+            --input "intelligence_plan/${{ matrix.path }}" \
             --config "$INTEL_CONFIG" \
-            --outdir "results/${{ matrix.key }}" \
-            --worker-key "${{ matrix.key }}"
+            --outdir "results/$WORKER_KEY" \
+            --worker-key "$WORKER_KEY"
       - name: Upload intelligence shard
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hospitality-intelligence-worker-${{ github.run_id }}-${{ matrix.key }}
-          path: results/${{ matrix.key }}/
+          name: hospitality-intelligence-worker-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: results/shard-${{ matrix.shard }}/
           if-no-files-found: warn
           retention-days: 2
           compression-level: 6
