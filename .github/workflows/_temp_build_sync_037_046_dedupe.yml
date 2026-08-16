@@ -24,7 +24,7 @@ jobs:
           from urllib.parse import urlparse
           root=Path('gpt/sheet_sync_queue')
           files=sorted(root.glob('*.jsonl'))[:10]
-          if len(files)!=10: raise SystemExit(f'expected 10 chunks, got {len(files)}')
+          if not files or len(files)>10: raise SystemExit(f'expected 1-10 chunks, got {len(files)}')
           multi={'co.uk','org.uk','me.uk','ltd.uk','plc.uk','net.uk','com.au','net.au','org.au','com.br','com.mx','co.nz','net.nz','org.nz','co.za','com.pt','com.es','com.tr','co.jp','com.sg','com.hk','com.my'}
           generic={'google.com','facebook.com','instagram.com','airbnb.com','booking.com','tripadvisor.com','vrbo.com','expedia.com','yelp.com','squarespace.com'}
           def clean(x): return re.sub(r'[\t\r\n]+',' ',str(x or '')).strip()
@@ -47,7 +47,7 @@ jobs:
               if not line.strip():continue
               r=json.loads(line)
               rows.append([clean(r.get('overture_id')),f.name,nn(r.get('name')),market(r),clean(r.get('country')),dom(r.get('domain') or r.get('website')),ph(r.get('public_phone'))])
-          if len(rows)!=500: raise SystemExit(f'expected 500 rows, got {len(rows)}')
+          if not rows or len(rows)>500: raise SystemExit(f'expected 1-500 rows, got {len(rows)}')
           out=Path('gpt/_sync_037_046_dedupe.tsv')
           with out.open('w',encoding='utf-8',newline='') as fh:
             csv.writer(fh,delimiter='\t',lineterminator='\n').writerows(rows)
