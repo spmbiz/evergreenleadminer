@@ -1,0 +1,34 @@
+name: tmp-sheet-public-probe
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_sheet_public_probe.yml'
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe unauthenticated gviz export
+        run: |
+          set -euo pipefail
+          u='https://docs.google.com/spreadsheets/d/18yRdeJOfgYc-gnQTFTzZCbsZZ9mYUY_CxHPKijLswRQ/gviz/tq?tqx=out:csv&sheet=Dedupe%20Index'
+          code=$(curl -L -sS -o /tmp/d.csv -w '%{http_code}' "$u" || true)
+          python - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path('/tmp/d.csv')
+          raw=p.read_bytes() if p.exists() else b''
+          out={'bytes':len(raw),'head':raw[:300].decode('utf-8','replace')}
+          pathlib.Path('gpt/_tmp_sheet_public_probe.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          PY
+      - name: Commit probe
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gpt/_tmp_sheet_public_probe.json
+          git commit -m 'chore: sheet export probe [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push
