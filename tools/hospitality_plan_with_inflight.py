@@ -4,8 +4,9 @@
 The underlying yield ranking is unchanged. We request enough ranked candidates
 to replace leased geographic units, remove overlaps, and trim to broker capacity.
 For capped external sources, replacement happens inside the source cap too: an
-in-flight fresh-search shard must not consume one of the two fresh slots and
-silently turn it into geo work.
+in-flight fresh-search shard must not consume one of the fresh slots and silently
+turn it into geo work. A bounded Wikidata overlay may then replace one selected
+unit with an independent structured-source exploration task.
 
 A deliberately bounded stress-test control may temporarily force one existing
 lane. Normal production ignores the control override unless the mode explicitly
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import fleet_runtime as fr
 import hospitality_master_plan as hm
+import hospitality_wikidata_plan as hw
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -146,9 +148,15 @@ def main():
     if excluded_fresh:
         replacements = fresh_replacements(excluded, kept, capacity)
         if replacements:
-            # Fresh has the highest additive-source priority in the master plan.
-            # Put replacements back before geo fill and trim to physical capacity.
             kept = (replacements + kept)[:capacity]
+
+    # Independent structured discovery is injected only after normal master-plan
+    # selection/in-flight filtering. It stays bounded to its own source cap and
+    # does not increase the broker allocation or total runner count.
+    plan["include"] = kept
+    if not force_lane:
+        plan = hw.inject(plan, excluded)
+    kept = list(plan.get("include") or [])[:capacity]
 
     for i, item in enumerate(kept):
         item["slot"] = i
