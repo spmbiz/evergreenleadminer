@@ -10,6 +10,8 @@ Supported lanes:
   followed by the same V1 contact recovery and permissive live gate.
 - wikidata_hospitality: structured Wikidata hotel/resort entities with explicit
   official websites, then the same canonical prefilter/contact/live gate.
+- datatourisme_hospitality: official French tourism accommodation inventory,
+  strict taxonomy gate, canonical prefilter, contact enrichment and live gate.
 - batch64:<payload> bbox: runner-local queue of ordinary geo cells.
 
 Final canonicalization remains the single writer.
@@ -96,6 +98,19 @@ def worker(a):
             "--country-code", country_code,
             "--offset", str(offset),
             "--limit", str(max(1, int(a.max_rows or 300))),
+            "--canonical-domains", a.canonical_domains,
+            "--local-workers", str(a.local_workers),
+            "--contact-workers", str(a.contact_workers),
+            "--outdir", str(out),
+        ])
+        return
+
+    if a.lane == "datatourisme_hospitality" or str(a.bbox).startswith("datatourisme:"):
+        fr.run([
+            sys.executable,
+            "tools/hospitality_datatourisme_worker.py",
+            "--provider", a.provider,
+            "--cycle-id", a.cycle_id,
             "--canonical-domains", a.canonical_domains,
             "--local-workers", str(a.local_workers),
             "--contact-workers", str(a.contact_workers),
@@ -248,7 +263,7 @@ def main():
     ap.add_argument("--bbox", required=True)
     ap.add_argument("--release", default="2026-06-17.0")
     ap.add_argument("--max-rows", type=int, default=250000)
-    ap.add_argument("--lane", choices=("fast_email", "site_recovery", "fresh_search", "wikidata_hospitality"), default="fast_email")
+    ap.add_argument("--lane", choices=("fast_email", "site_recovery", "fresh_search", "wikidata_hospitality", "datatourisme_hospitality"), default="fast_email")
     ap.add_argument("--canonical-domains", default="")
     ap.add_argument("--local-workers", type=int, default=64)
     ap.add_argument("--contact-workers", type=int, default=48)
