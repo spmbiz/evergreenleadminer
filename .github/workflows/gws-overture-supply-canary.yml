@@ -29,14 +29,16 @@ jobs:
             --out-candidates results/overture_supply_canary/candidates.jsonl \
             --plan-dir results/overture_supply_canary \
             --threads 16
-      - name: Measure expanded-family supply
+      - name: Measure expanded-family and task-level South supply
         run: |
           python - <<'PY'
           import collections, json
           from pathlib import Path
+          from tools.gws_fleet_worker import target_row
 
           p=Path('results/overture_supply_canary/candidates.jsonl')
           rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          cfg=json.loads(Path('config/gws_fleet.json').read_text(encoding='utf-8'))
           old_types={
             'Hairdresser','Beauty salon','Bakery','Butcher','Dry cleaning','Laundry','Tailor','Shoe repair',
             'Florist','Garden center','Pet grooming','Optician','Mobile phones','Printing','Photo studio','Garage',
@@ -46,12 +48,28 @@ jobs:
           expanded=[r for r in rows if r.get('type_en') not in old_types]
           by_type=collections.Counter(r.get('type_en') for r in expanded)
           by_south=collections.Counter(south.get(str(r.get('postalcode'))) for r in expanded if str(r.get('postalcode')) in south)
+
+          matrix={}
+          for territory in cfg['territories']:
+              if not territory.get('south'):
+                  continue
+              pcs=set(territory['postal_codes'])
+              for family in cfg['families']:
+                  count=sum(1 for r in rows if target_row(r, pcs, tuple(family['keywords'])))
+                  matrix[f"{territory['name']}::{family['name']}"]=count
+
+          nonzero={k:v for k,v in matrix.items() if v>0}
+          zero=[k for k,v in matrix.items() if v==0]
           summary={
             'all_materialized':len(rows),
             'expanded_materialized':len(expanded),
             'expanded_types':dict(by_type.most_common()),
             'south_expanded_materialized':sum(by_south.values()),
             'south_by_territory':dict(by_south),
+            'south_task_nonzero_count':len(nonzero),
+            'south_task_zero_count':len(zero),
+            'south_task_counts':dict(sorted(nonzero.items(), key=lambda kv:(-kv[1],kv[0]))),
+            'south_zero_tasks':zero,
           }
           Path('results/overture_supply_canary/expanded_summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
           print('GWS_OVERTURE_EXPANDED_CANARY='+json.dumps(summary,separators=(',',':'),ensure_ascii=False))
