@@ -163,7 +163,10 @@ def safe_get(url: str, allowed_root: str, timeout: float, max_bytes: int, max_re
             nxt = r.headers.get("Location")
             if not nxt:
                 return None, f"HTTP_{r.status_code}_NO_LOCATION"
-            current = urljoin(current, nxt)
+            try:
+                current = urljoin(current, nxt)
+            except (TypeError, ValueError):
+                return None, "INVALID_REDIRECT_URL"
             continue
         if r.status_code >= 400:
             return None, f"HTTP_{r.status_code}"
@@ -197,7 +200,14 @@ def extract_links(raw_html: str, base_url: str):
         href = htmlmod.unescape(href).strip()
         if not href:
             continue
-        yield href, urljoin(base_url, href)
+        try:
+            joined = urljoin(base_url, href)
+        except (TypeError, ValueError):
+            # Public pages frequently contain malformed pseudo-URLs, broken IPv6
+            # literals, template fragments, or tracking junk. One bad href must
+            # never abort enrichment for the whole property/shard.
+            continue
+        yield href, joined
 
 
 def extract_emails(raw_html: str):
