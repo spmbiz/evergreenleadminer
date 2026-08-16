@@ -1,0 +1,33 @@
+{
+  "backlog": {
+    "eligible_benchmark": 5,
+    "eligible_live": 519
+  },
+  "last_run": {
+    "benchmark_passed": 2,
+    "benchmark_total": 2,
+    "classified": 7,
+    "decisions": {
+      "PROBABLE": 5,
+      "UNCERTAIN": 3
+    },
+    "errors": 1,
+    "hallucinated_contact_count": 0,
+    "processed": 8,
+    "schema_valid_rate": 0.875,
+    "selected": 8,
+    "trusted_agreement": 1.0,
+    "website_states": {
+      "DIRECTORY_ONLY": 1,
+      "GOOD_SITE": 4,
+      "UNCERTAIN": 3
+    }
+  },
+  "model": "qwen3-4b-q4_k_m",
+  "previous_stage": "smoke",
+  "prompt_version": "gws-semantic-v1-shadow-ownership-2",
+  "reason": "smoke_not_ready",
+  "schema_version": 1,
+  "stage": "smoke",
+  "updated_at": "2026-08-16T03:18:35+00:00"
+}
