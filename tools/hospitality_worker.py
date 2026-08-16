@@ -5,16 +5,14 @@ Supported lanes:
 - fast_email: zero-HTTP Overture website+email discovery, canonical-domain
   prefilter, then live verification.
 - site_recovery: Overture website-first discovery, canonical-domain prefilter,
-  bounded first-party public contact recovery, then the same live gate. Any
-  explicit public outreach route (email/phone/Instagram/Facebook/contact page)
-  may advance to the gate; email is no longer mandatory.
-- fresh_search: canonical-unseen premium/operator discovery through the existing
-  SearchFabric, followed by the same V1 contact recovery and permissive live gate.
-- batch64:<payload> bbox: runner-local queue of ordinary geo cells, processed
-  sequentially to amortize VM startup while preserving per-shard artifacts.
+  bounded first-party public contact recovery, then the same live gate.
+- fresh_search: canonical-unseen premium/operator discovery through SearchFabric,
+  followed by the same V1 contact recovery and permissive live gate.
+- wikidata_hospitality: structured Wikidata hotel/resort entities with explicit
+  official websites, then the same canonical prefilter/contact/live gate.
+- batch64:<payload> bbox: runner-local queue of ordinary geo cells.
 
-The domain snapshot is only an optimization. Final canonicalization remains the
-single writer, so a stale/missing snapshot can never create a false append.
+Final canonicalization remains the single writer.
 """
 from __future__ import annotations
 
@@ -69,6 +67,35 @@ def worker(a):
             "--cycle-id", a.cycle_id,
             "--cursor", str(cursor),
             "--max-queries", str(max(1, int(a.max_rows or 30))),
+            "--canonical-domains", a.canonical_domains,
+            "--local-workers", str(a.local_workers),
+            "--contact-workers", str(a.contact_workers),
+            "--outdir", str(out),
+        ])
+        return
+
+    if a.lane == "wikidata_hospitality" or str(a.bbox).startswith("wikidata:"):
+        parts = str(a.bbox).split(":")
+        qid = parts[1] if len(parts) > 1 else ""
+        try:
+            offset = int(parts[2]) if len(parts) > 2 else 0
+        except Exception:
+            offset = 0
+        country_code = ""
+        if str(a.region).startswith("WIKIDATA::"):
+            bits = str(a.region).split("::")
+            if len(bits) > 1:
+                country_code = bits[1]
+        fr.run([
+            sys.executable,
+            "tools/hospitality_wikidata_worker.py",
+            "--provider", a.provider,
+            "--cycle-id", a.cycle_id,
+            "--country-qid", qid,
+            "--country", a.country,
+            "--country-code", country_code,
+            "--offset", str(offset),
+            "--limit", str(max(1, int(a.max_rows or 300))),
             "--canonical-domains", a.canonical_domains,
             "--local-workers", str(a.local_workers),
             "--contact-workers", str(a.contact_workers),
@@ -221,7 +248,7 @@ def main():
     ap.add_argument("--bbox", required=True)
     ap.add_argument("--release", default="2026-06-17.0")
     ap.add_argument("--max-rows", type=int, default=250000)
-    ap.add_argument("--lane", choices=("fast_email", "site_recovery", "fresh_search"), default="fast_email")
+    ap.add_argument("--lane", choices=("fast_email", "site_recovery", "fresh_search", "wikidata_hospitality"), default="fast_email")
     ap.add_argument("--canonical-domains", default="")
     ap.add_argument("--local-workers", type=int, default=64)
     ap.add_argument("--contact-workers", type=int, default=48)
