@@ -61,7 +61,7 @@ def main() -> None:
     retry_hours = int(cfg.get('retry_hours') or 48)
     refresh_days = int(cfg.get('refresh_days') or 30)
     configured_max_accounts = int(cfg.get('max_accounts_per_pass') or 10000)
-    max_accounts = int(a.max_accounts) if int(a.max_accounts or 0) > 0 else configured_max_accounts
+    requested_max_accounts = int(a.max_accounts) if int(a.max_accounts or 0) > 0 else configured_max_accounts
     candidates = []
     counts = {'canonical_total': len(rows), 'new': 0, 'changed': 0, 'retry': 0, 'stale': 0, 'unchanged_skipped': 0}
 
@@ -106,20 +106,31 @@ def main() -> None:
         candidates.append(rec)
 
     candidates.sort(key=lambda r: (-int(r['_priority']), r['domain']))
-    if max_accounts > 0:
-        candidates = candidates[:max_accounts]
 
-    configured_max_workers = max(1, int(cfg.get('max_workers') or 10))
+    configured_max_workers = max(1, int(cfg.get('max_workers') or 20))
     explicit_workers = int(a.max_workers or 0)
     max_workers = min(configured_max_workers, max(1, explicit_workers)) if explicit_workers > 0 else configured_max_workers
-    shard_size = max(1, int(cfg.get('shard_size') or 250))
+    shard_size = max(1, int(cfg.get('shard_size') or 20))
+
+    # Critical broker-safety invariant: a pass may never plan more records than
+    # the workers actually allocated can carry at the configured shard target.
+    # This keeps a 1-slot allocation at ~20 records instead of silently creating
+    # a 400-record single-worker job that risks timeout. More available slots
+    # automatically lift the cap: 10 -> 200, 20 -> 400 with the current config.
+    capacity_account_cap = max_workers * shard_size
+    if requested_max_accounts > 0:
+        effective_max_accounts = min(requested_max_accounts, capacity_account_cap)
+    else:
+        effective_max_accounts = capacity_account_cap
+    if effective_max_accounts > 0:
+        candidates = candidates[:effective_max_accounts]
 
     if not candidates:
         worker_count = 0
     elif explicit_workers > 0:
         # An explicit smoke/canary fanout is a request to validate parallelism,
         # not merely a ceiling. Spread the bounded candidate set across as many
-        # requested workers as possible so 20x4 really means four ~5-row shards.
+        # requested workers as possible.
         worker_count = min(max_workers, len(candidates))
     else:
         worker_count = min(max_workers, max(1, math.ceil(len(candidates) / shard_size)))
@@ -149,7 +160,9 @@ def main() -> None:
         'config': {
             'max_workers': max_workers,
             'explicit_workers': explicit_workers,
-            'max_accounts': max_accounts,
+            'requested_max_accounts': requested_max_accounts,
+            'effective_max_accounts': effective_max_accounts,
+            'capacity_account_cap': capacity_account_cap,
             'shard_size': shard_size,
             'retry_hours': retry_hours,
             'refresh_days': refresh_days,
