@@ -93,6 +93,29 @@ jobs:
             echo "Trigger overrides: file=$TRIGGER force=$FORCE max_accounts=$MAX_ACCOUNTS max_workers=$MAX_WORKERS"
           fi
 
+          # Automatic standalone Qwen is overflow-only. Normal harvest demand
+          # always wins because Qwen is already piggybacked inside harvest jobs.
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            HARVEST_REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 20)
+            HARVEST_REQUESTED=$(python -c 'import json,sys; print(int(json.load(sys.stdin).get("chosen") or 0))' <<<"$HARVEST_REQUEST_JSON")
+            if [ "$HARVEST_REQUESTED" -gt 0 ]; then
+              python - <<PY
+          import json
+          p={
+            'enabled':False,'accounts_planned':0,'worker_count':0,'include':[],
+            'reason':'harvest_priority_compound_sidecar','counts':{},
+            'config':{'harvest_requested':int('$HARVEST_REQUESTED'),'broker_allocated':0}
+          }
+          open('intelligence_plan/plan.json','w').write(json.dumps(p,indent=2)+'\n')
+          PY
+              echo "Standalone Intelligence idle: harvest requests $HARVEST_REQUESTED slots and compound Qwen will run inside those workers."
+              exit 0
+            fi
+            MAX_WORKERS=$(python -c "import json; d=json.load(open('$INTEL_CONFIG')); print(int((d.get('compound_sidecar') or {}).get('standalone_overflow_max_workers') or 4))")
+            MAX_ACCOUNTS=$(python -c "import json; d=json.load(open('$INTEL_CONFIG')); print(int((d.get('compound_sidecar') or {}).get('standalone_overflow_max_accounts') or 80))")
+            echo "Standalone Intelligence overflow mode: harvest_request=0 max_workers=$MAX_WORKERS max_accounts=$MAX_ACCOUNTS"
+          fi
+
           CONFIG_MAX=$(python -c "import json; print(int(json.load(open('$INTEL_CONFIG')).get('max_workers') or 20))")
           if [ "${MAX_WORKERS:-0}" -gt 0 ]; then
             REQUESTED=$MAX_WORKERS
