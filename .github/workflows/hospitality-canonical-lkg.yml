@@ -1,0 +1,109 @@
+name: Hospitality Canonical Last Known Good
+
+on:
+  schedule:
+    - cron: '23,53 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_canonical_lkg*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: hospitality-canonical-backup-writer
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SAFETY_FLOOR: '10000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download current canonical and prior LKG if available
+        run: |
+          set -euo pipefail
+          mkdir -p current prior audit
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir current \
+            --clobber
+          gh release download harvest-state-backup \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical-lkg.sqlite' \
+            --dir prior \
+            --clobber || true
+      - name: Validate current is healthy and non-regressive
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sqlite3
+          from pathlib import Path
+          floor=int(os.environ['SAFETY_FLOOR'])
+          def inspect(p):
+              c=sqlite3.connect(p)
+              n=int(c.execute('select count(*) from leads').fetchone()[0])
+              integrity=str(c.execute('pragma integrity_check').fetchone()[0])
+              unique=int(c.execute("select count(distinct domain) from leads where domain is not null and trim(domain)<>''").fetchone()[0])
+              c.close(); return n,unique,integrity
+          cur=Path('current/hospitality-canonical.sqlite')
+          n,u,i=inspect(cur)
+          prior=Path('prior/hospitality-canonical-lkg.sqlite')
+          pn=0
+          if prior.exists():
+              pn,pu,pi=inspect(prior)
+              if pi!='ok' or pu!=pn:
+                  raise SystemExit('PRIOR_LKG_INVALID')
+          report={'current_rows':n,'current_unique_domains':u,'current_integrity':i,'prior_lkg_rows':pn}
+          Path('audit/lkg-report.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report))
+          if i!='ok' or n!=u or n<floor or (pn and n<pn):
+              raise SystemExit('REFUSING_TO_OVERWRITE_LKG_WITH_REGRESSION')
+          PY
+      - name: Publish validated last-known-good snapshot
+        run: |
+          set -euo pipefail
+          cp current/hospitality-canonical.sqlite audit/hospitality-canonical-lkg.sqlite
+          python tools/fleet_runtime.py upload \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag harvest-state-backup \
+            --file audit/hospitality-canonical-lkg.sqlite
+      - name: Read back LKG and verify
+        run: |
+          set -euo pipefail
+          mkdir -p readback
+          OK=0
+          EXPECTED=$(python -c "import json; print(json.load(open('audit/lkg-report.json'))['current_rows'])")
+          export EXPECTED
+          for attempt in 1 2 3 4 5; do
+            rm -f readback/hospitality-canonical-lkg.sqlite
+            if gh release download harvest-state-backup --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical-lkg.sqlite' --dir readback --clobber; then
+              if python - <<'PY'
+          import os, sqlite3
+          c=sqlite3.connect('readback/hospitality-canonical-lkg.sqlite')
+          n=int(c.execute('select count(*) from leads').fetchone()[0]); i=c.execute('pragma integrity_check').fetchone()[0]; c.close()
+          print({'lkg_readback_rows':n,'integrity':i})
+          raise SystemExit(0 if n==int(os.environ['EXPECTED']) and i=='ok' else 1)
+          PY
+              then OK=1; break; fi
+            fi
+            sleep $((attempt*2))
+          done
+          test "$OK" -eq 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-canonical-lkg-${{ github.run_id }}
+          path: audit/lkg-report.json
+          retention-days: 14
