@@ -12,11 +12,17 @@ keeps the hot loop alive when a run was denied capacity and therefore had no rea
 lease to release.
 
 Hospitality discovery is the source-of-growth lane. Its demand is derived from the
-same multi-lane planner used by the V1 autonomous fleet, not the older grid-only
-coverage heuristic. While discovery backlog exists, normal Intelligence V2 runs
-are capped to one hospitality slot so V2 cannot consume the base Hospitality
-share that should keep finding/recovering new accounts. Explicit manual V2 worker
-overrides remain available for canaries.
+same multi-lane planner used by the V1 autonomous fleet, including bounded local
+external-source overlays such as FreshSearch, Wikidata and DATAtourisme. While
+discovery backlog exists, normal Intelligence V2 runs are capped to one
+hospitality slot so V2 cannot consume the base Hospitality share that should keep
+finding/recovering new accounts. Explicit manual V2 worker overrides remain
+available for canaries.
+
+Every concrete reserve request is also a floor for the requesting workload's
+current demand. A run may therefore no longer request real runners while being
+advertised to fair-share accounting as demand=0. Sibling headroom and max-slot
+rules still apply, so Hospitality, Tenders and GWS can make progress together.
 
 GWS demand includes the strict pending-verification backlog, not only the older
 geographic task signal. This makes the five-slot GWS fair-share floor real while
@@ -51,20 +57,43 @@ def _infer_workload(matched_leases: list[dict]) -> str:
 
 
 def _hospitality_discovery_demand() -> int:
-    """Return the V1 multi-lane geographic backlog used by production planning."""
+    """Return useful Hospitality backlog using only local/read-only planner signals.
+
+    Geo work remains the backbone. External-source demand is deliberately limited
+    to planners that can be evaluated from repository config/state without remote
+    source probes, so broker admission never waits on ATP/OSM network lookups.
+    """
     try:
+        import hospitality_datatourisme_plan as datatourisme
         import hospitality_grid_plan as gp
+        import hospitality_master_plan as master
         import hospitality_multilane_plan as mp
+        import hospitality_wikidata_plan as wikidata
 
         coverage = (fr.load_json(v3.ROOT / "state/coverage.json", {}).get("shards") or {})
         atlas_cfg = fr.load_json(v3.ROOT / "config/hospitality_world_atlas.json", {})
         now = v3.now_utc()
         useful = 0
+
         for cell in mp.lane_catalog():
             prior = coverage.get(cell["key"]) or {}
             if gp.rank_cell(cell, prior, now, atlas_cfg, False) is not None:
                 useful += 1
-        return useful
+
+        fresh, _fresh_errors, fresh_cap = master.fresh_search_tasks(now, coverage)
+        useful += min(len(fresh), max(0, int(fresh_cap or 0)))
+
+        wikidata_cfg = fr.load_json(wikidata.CFG, {})
+        wikidata_cap = max(0, int((wikidata_cfg.get("policy") or {}).get("source_slot_cap_per_cycle") or 0))
+        if wikidata_cap:
+            useful += min(len(wikidata.due_tasks(now, coverage, set())), wikidata_cap)
+
+        datatourisme_cfg = fr.load_json(datatourisme.CFG, {})
+        datatourisme_cap = max(0, int((datatourisme_cfg.get("policy") or {}).get("source_slot_cap_per_cycle") or 0))
+        if datatourisme_cap:
+            useful += min(len(datatourisme.due_tasks(now, coverage, set())), datatourisme_cap)
+
+        return max(0, useful)
     except Exception:
         try:
             return max(0, int(v3.useful_hospitality_count() or 0))
@@ -204,7 +233,7 @@ def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: i
 
 
 def _reserve_with_optional_demand_override(args) -> None:
-    """Reserve capacity with truthful Hospitality and strict-GWS demand."""
+    """Reserve capacity with truthful local demand and request-floor fairness."""
     override = max(0, int(getattr(args, "demand_override", 0) or 0))
     strict_gws_demand = _strict_gws_demand()
 
@@ -238,6 +267,12 @@ def _reserve_with_optional_demand_override(args) -> None:
     ):
         args.requested = min(max(0, int(args.requested)), 1)
         override = min(override, 1) if override > 0 else 0
+
+    # A concrete admission request is itself current runnable demand. Apply this
+    # after the Intelligence cap so an automatic Qwen-only pass cannot inflate
+    # itself back above one slot while discovery is waiting.
+    request_floor = max(0, int(getattr(args, "requested", 0) or 0))
+    override = max(override, request_floor)
 
     original_local_demand = v3.local_demand
 
