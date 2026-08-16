@@ -21,16 +21,21 @@ CRITICAL OWNERSHIP SEMANTICS:
 - MATCH or PROBABLE means candidate_url is a FIRST-PARTY web property controlled by the named business.
 - A page that accurately mentions the business is NOT automatically owned by the business.
 - direct_identity_evidence.matched proves only that the page content matches the entity. It does NOT prove domain ownership or control.
-- If candidate_host_class is KNOWN_THIRD_PARTY or EDITORIAL_OR_PROFILE_PAGE, candidate_url is not an owned site: use decision WRONG and website_state DIRECTORY_ONLY unless supplied evidence explicitly proves the business controls that domain.
-- Directories, marketplaces, booking/lead aggregators, editorial pages, author/profile pages, social networks and listing pages are third-party even when name/address/postcode/phone match exactly.
-- Examples of non-owned evidence patterns include Infobel, idGarages, Cybo, Foursquare, Yelp, TripAdvisor, Booking, Pagesdor/Goudengids, and URL shapes such as /author/, /profile/, /listing/ on unrelated domains.
+- match_mode=legacy_identity is especially weak and NEVER proves first-party ownership by itself.
+- A domain-name or business-name resemblance alone NEVER proves ownership.
+- If candidate_host_class is KNOWN_THIRD_PARTY or EDITORIAL_OR_PROFILE_PAGE, candidate_url is not an owned site: use decision WRONG and website_state DIRECTORY_ONLY unless supplied deterministic evidence explicitly proves the business controls that domain.
+- Directories, marketplaces, booking/lead aggregators, editorial pages, author/profile pages, salon locators, social networks and listing pages are third-party even when name/address/postcode/phone match exactly.
+- Examples of non-owned evidence patterns include Infobel, idGarages, Cybo, Foursquare, Yelp, TripAdvisor, Booking, Pagesdor/Goudengids, Information-Bruxelles, TopCoiffeur, LocalServices, OpeningsurenGids, L'Oréal salon locator and URL shapes such as /author/, /profile/, /listing/ on unrelated domains.
+- If the candidate domain belongs to an unrelated foreign company, institution, product page, dictionary, media site or business in a different geography, use WRONG even if a weak text token or legacy matcher fired.
+- PROBABLE requires positive evidence of first-party control. Lack of a contradiction is NOT positive ownership evidence.
+- If deterministic ownership_assessments say the candidate is third-party, host-not-branded, identity-not-strong-enough, or otherwise not confident, do not promote it to MATCH/PROBABLE without stronger supplied first-party evidence.
 
 Rules:
 - Decide whether candidate_url is a first-party owned site of the named business: MATCH, PROBABLE, WRONG, or UNCERTAIN.
 - Classify website_state only from supplied evidence.
 - Search absence NEVER proves NO_SITE. If there is no positive website evidence, prefer UNCERTAIN unless supplied deterministic page evidence supports another state.
 - Facebook, Instagram, directories, booking aggregators and listing pages are not owned websites.
-- Strong phone/address/name contradictions outweigh weak name resemblance.
+- Strong phone/address/name/geography contradictions outweigh weak name resemblance.
 - Preserve unusual or potentially valuable businesses for review.
 - Never invent or output an email, phone, address, social profile, domain, URL, company identity, or fact.
 - You are SHADOW ONLY. You cannot certify VERIFIED_NO_WEBSITE and cannot override deterministic HIGH/REJECT decisions.
@@ -59,7 +64,6 @@ def validate_item(item:dict[str,Any], expected:dict[str,str])->dict[str,Any]|Non
     state=str(item.get("website_state") or "UNCERTAIN").upper()
     if decision not in DECISIONS: decision="UNCERTAIN"
     if state not in WEBSITE_STATES: state="UNCERTAIN"
-    # Candidate URL is identity-bearing input, never model-created output.
     candidate_url=expected[bid]
     try: conf=max(0.0,min(1.0,float(item.get("confidence") or 0.0)))
     except Exception: conf=0.0
@@ -95,7 +99,7 @@ def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, t
         payload.append({k:r.get(k) for k in (
             "business_id","name","address","postcode","public_phone_present","candidate_url","candidate_host","candidate_host_class",
             "overture_name","overture_resolved","name_similarity","address_overlap","postcode_match","phone_exact",
-            "search_candidates","direct_identity_evidence","unresolved_plausible_domains","platform_only_signals"
+            "search_candidates","direct_identity_evidence","ownership_assessments","unresolved_plausible_domains","platform_only_signals"
         )})
     user="/no_think\nResolve these ambiguous GWS business/site cases. Use only supplied evidence. Treat identity presence separately from first-party ownership.\nINPUT="+json.dumps(payload,ensure_ascii=False,separators=(",",":"))
     body={
