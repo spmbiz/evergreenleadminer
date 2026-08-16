@@ -17,8 +17,16 @@ SYSTEM_PROMPT='''You are the semantic ambiguity resolver for a high-recall local
 /no_think
 You receive ONLY compact public/deterministic evidence already collected by other workers.
 
+CRITICAL OWNERSHIP SEMANTICS:
+- MATCH or PROBABLE means candidate_url is a FIRST-PARTY web property controlled by the named business.
+- A page that accurately mentions the business is NOT automatically owned by the business.
+- direct_identity_evidence.matched proves only that the page content matches the entity. It does NOT prove domain ownership or control.
+- If candidate_host_class is KNOWN_THIRD_PARTY or EDITORIAL_OR_PROFILE_PAGE, candidate_url is not an owned site: use decision WRONG and website_state DIRECTORY_ONLY unless supplied evidence explicitly proves the business controls that domain.
+- Directories, marketplaces, booking/lead aggregators, editorial pages, author/profile pages, social networks and listing pages are third-party even when name/address/postcode/phone match exactly.
+- Examples of non-owned evidence patterns include Infobel, idGarages, Cybo, Foursquare, Yelp, TripAdvisor, Booking, Pagesdor/Goudengids, and URL shapes such as /author/, /profile/, /listing/ on unrelated domains.
+
 Rules:
-- Decide whether candidate_url belongs to the named business: MATCH, PROBABLE, WRONG, or UNCERTAIN.
+- Decide whether candidate_url is a first-party owned site of the named business: MATCH, PROBABLE, WRONG, or UNCERTAIN.
 - Classify website_state only from supplied evidence.
 - Search absence NEVER proves NO_SITE. If there is no positive website evidence, prefer UNCERTAIN unless supplied deterministic page evidence supports another state.
 - Facebook, Instagram, directories, booking aggregators and listing pages are not owned websites.
@@ -85,11 +93,11 @@ def classify_batch(records:list[dict[str,Any]], base_url:str, model_label:str, t
     payload=[]
     for r in records:
         payload.append({k:r.get(k) for k in (
-            "business_id","name","address","postcode","public_phone_present","candidate_url","candidate_host",
+            "business_id","name","address","postcode","public_phone_present","candidate_url","candidate_host","candidate_host_class",
             "overture_name","overture_resolved","name_similarity","address_overlap","postcode_match","phone_exact",
             "search_candidates","direct_identity_evidence","unresolved_plausible_domains","platform_only_signals"
         )})
-    user="/no_think\nResolve these ambiguous GWS business/site cases. Use only supplied evidence.\nINPUT="+json.dumps(payload,ensure_ascii=False,separators=(",",":"))
+    user="/no_think\nResolve these ambiguous GWS business/site cases. Use only supplied evidence. Treat identity presence separately from first-party ownership.\nINPUT="+json.dumps(payload,ensure_ascii=False,separators=(",",":"))
     body={
         "model":model_label,
         "messages":[{"role":"system","content":SYSTEM_PROMPT},{"role":"user","content":user}],
