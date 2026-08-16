@@ -7,10 +7,8 @@ import math
 from pathlib import Path
 
 SOUTH=("Uccle","Ixelles","Saint-Gilles","Forest","Auderghem","Watermael-Boitsfort")
-# Only statuses that represent a completed strict-search disposition may suppress
-# an unchanged source fingerprint. PENDING_SEARCH_VERIFY must never disappear
-# from the queue merely because an aggregate checkpoint saw it.
-TERMINAL_SEARCH_STATUSES={"HIGH","MEDIUM","REJECT","DUPLICATE","UNCERTAIN","ERROR_HARD"}
+HARD_TERMINAL_SEARCH_STATUSES={"HIGH","REJECT","DUPLICATE","ERROR_HARD"}
+SOFT_SEARCH_STATUSES={"MEDIUM","UNCERTAIN"}
 
 
 def load(path,default):
@@ -20,7 +18,9 @@ def load(path,default):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--outdir",default="results/gws_verify_plan"); ap.add_argument("--max-workers",type=int,default=6); ap.add_argument("--per-worker",type=int,default=70); a=ap.parse_args()
-    pending=load("gpt/gws_pending_batches.json",{"batches":[]}); index=load("state/gws_verify_index.json",{"records":{}}).get("records",{})
+    pending=load("gpt/gws_pending_batches.json",{"batches":[]})
+    index=load("state/gws_verify_index.json",{"records":{}}).get("records",{})
+    semantic=load("state/gws_semantic_index.json",{"records":{}}).get("records",{})
     latest={}
     for batch in pending.get("batches") or []:
         if batch.get("status")!="pending" or not batch.get("batch"): continue
@@ -31,19 +31,56 @@ def main():
             r=json.loads(line); key=str(r.get("record_key") or "")
             if not key: continue
             r["source_batch"]=str(p); latest[key]=r
+
     rows=[]
-    suppressed_terminal=0; retryable_or_pending=0
+    suppressed_terminal=0; retryable_or_pending=0; semantic_rechecks=0; soft_waiting_semantic=0
     for key,r in latest.items():
         prior=index.get(key) or {}; fp=str(r.get("fingerprint") or "")
         prior_status=str(prior.get("verification_status") or "").strip().upper()
-        if prior.get("source_fingerprint")==fp and prior_status in TERMINAL_SEARCH_STATUSES:
+        same=prior.get("source_fingerprint")==fp
+
+        if same and prior_status in HARD_TERMINAL_SEARCH_STATUSES:
             suppressed_terminal+=1
             continue
+
+        semantic_recheck=False
+        if same and prior_status in SOFT_SEARCH_STATUSES:
+            sem=semantic.get(key) or {}
+            sem_fp=str(sem.get("semantic_fingerprint") or "")
+            sem_status=str(sem.get("resolution_status") or "").upper()
+            prior_sem_fp=str(prior.get("semantic_resolution_fingerprint") or "")
+            prior_attempt=int(prior.get("semantic_resolution_attempt") or 0)
+            # Qwen/GPT semantic stage is shadow-only. A QUEUED semantic verdict
+            # authorizes exactly one new strict-search pass for that semantic
+            # fingerprint; it never directly changes HIGH/REJECT.
+            if sem_status=="QUEUED" and sem_fp and sem_fp!=prior_sem_fp and prior_attempt<2:
+                semantic_recheck=True
+                r=dict(r)
+                r["semantic_resolution"]=True
+                r["semantic_resolution_fingerprint"]=sem_fp
+                r["semantic_resolution_route"]=str(sem.get("resolution_route") or "GPT_SEARCH_REVIEW")
+                r["semantic_resolution_attempt"]=prior_attempt+1
+                r["semantic_shadow_decision"]=sem.get("decision")
+                r["semantic_shadow_confidence"]=sem.get("confidence")
+                r["semantic_shadow_website_state"]=sem.get("website_state")
+                semantic_rechecks+=1
+            else:
+                soft_waiting_semantic+=1
+                continue
+
         if prior_status in {"PENDING_SEARCH_VERIFY","ERROR_RETRYABLE","SEARCH_INCOMPLETE",""}:
             retryable_or_pending+=1
-        if r.get("outcome")=="REJECT": continue
+        if r.get("outcome")=="REJECT" and not semantic_recheck: continue
         rows.append(r)
-    rows.sort(key=lambda r:(0 if str(r.get("territory") or "") in SOUTH else 1, str(r.get("territory") or ""), str(r.get("hub_name") or "")))
+
+    # Resolve South Brussels first; within each geography prioritize semantic
+    # rechecks so already-expensive UNCERTAIN records actually converge.
+    rows.sort(key=lambda r:(
+        0 if str(r.get("territory") or "") in SOUTH else 1,
+        0 if r.get("semantic_resolution") else 1,
+        str(r.get("territory") or ""),
+        str(r.get("hub_name") or ""),
+    ))
 
     eligible_total=len(rows)
     per_worker=max(1,int(a.per_worker))
@@ -54,7 +91,7 @@ def main():
     (out/"pending.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in selected),encoding="utf-8")
     matrix={"include":[{"worker_index":i,"worker_count":workers} for i in range(workers)]}
     plan={
-        "schema_version":3,
+        "schema_version":4,
         "eligible":eligible_total,
         "selected":len(selected),
         "deferred":max(0,eligible_total-len(selected)),
@@ -62,6 +99,9 @@ def main():
         "per_worker_target":per_worker,
         "suppressed_terminal":suppressed_terminal,
         "retryable_or_pending_seen":retryable_or_pending,
+        "semantic_rechecks_eligible":semantic_rechecks,
+        "semantic_rechecks_selected":sum(1 for x in selected if x.get("semantic_resolution")),
+        "soft_waiting_semantic":soft_waiting_semantic,
         "south_priority":list(SOUTH),
         "matrix":matrix,
     }
