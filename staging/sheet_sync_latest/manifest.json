@@ -1,22 +1,22 @@
 {
   "schema_version": 1,
-  "raw_rows": 90133,
-  "unique_rows": 32339,
-  "within_queue_collapsed": 57794,
+  "raw_rows": 90752,
+  "unique_rows": 32706,
+  "within_queue_collapsed": 58046,
   "collapse_reasons": {
-    "source_ref": 56603,
+    "source_ref": 56850,
     "domain": 38,
     "phone": 879,
-    "name_market_country": 274
+    "name_market_country": 279
   },
   "fit_counts": {
-    "A": 17741,
-    "B": 14598
+    "A": 17804,
+    "B": 14902
   },
   "live_status_counts": {
-    "HIGH": 18900,
-    "MEDIUM": 4382,
-    "PERMISSIVE": 9057
+    "HIGH": 19117,
+    "MEDIUM": 4462,
+    "PERMISSIVE": 9127
   },
   "column_count": 46,
   "parts": [
@@ -342,8 +342,13 @@
     },
     {
       "file": "part-064.tsv",
-      "rows": 339,
+      "rows": 500,
       "start_index": 32000
+    },
+    {
+      "file": "part-065.tsv",
+      "rows": 206,
+      "start_index": 32500
     }
   ]
 }
