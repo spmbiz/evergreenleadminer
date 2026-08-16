@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.0,
+    "recent_error_rate": 0.11111,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T17:15:27.141114Z"
+    "last_updated": "2026-08-16T17:18:23.853352Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -71,17 +71,17 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 3,
+      "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 45,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
+      "last_raw_discovered": 151,
+      "last_fast_ready": 5,
+      "last_live_ready": 2,
+      "last_recovery_candidates": 5,
       "last_recovered_public_emails": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.2
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -89,19 +89,19 @@
         "error_rate": 0.0
       },
       "recommended_contact_workers": 16,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0
+      "last_contact_ready": 5,
+      "last_social_or_contact_without_email": 5
     },
     "fresh_search": {
       "last_workers_completed": 2,
       "last_workers_failed": 0,
-      "last_raw_discovered": 297,
-      "last_fast_ready": 9,
-      "last_live_ready": 6,
-      "last_recovery_candidates": 25,
-      "last_recovered_public_emails": 7,
-      "last_contact_ready": 9,
-      "last_social_or_contact_without_email": 2,
+      "last_raw_discovered": 183,
+      "last_fast_ready": 4,
+      "last_live_ready": 1,
+      "last_recovery_candidates": 16,
+      "last_recovered_public_emails": 4,
+      "last_contact_ready": 4,
+      "last_social_or_contact_without_email": 0,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
