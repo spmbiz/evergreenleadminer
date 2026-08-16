@@ -5,6 +5,13 @@ import argparse, hashlib, json, math, os
 from pathlib import Path
 from urllib.parse import urlparse
 
+KNOWN_THIRD_PARTY_HOSTS=(
+    'facebook.','instagram.','linkedin.','tiktok.','youtube.','planity.','treatwell.','salonkee.',
+    'pagesdor.','goudengids.','infobel.','idgarages.','yelp.','tripadvisor.','booking.com','foursquare.',
+    'cybo.','worldplaces.','desocialekaart.','sociaal.brussels','fresha.','trustpilot.'
+)
+PROFILE_PATH_MARKERS=('/author/','/authors/','/profile/','/profiles/','/listing/','/listings/','/directory/','/business-directory/')
+
 
 def load(path,default):
     try:return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -22,6 +29,13 @@ def iter_jsonl(pattern):
 def host(u):
     try:return (urlparse(str(u or '')).hostname or '').lower().removeprefix('www.')
     except Exception:return ''
+def candidate_host_class(u):
+    u=str(u or '').strip(); h=host(u)
+    try:path=(urlparse(u).path or '').lower()
+    except Exception:path=''
+    if any(x in h for x in KNOWN_THIRD_PARTY_HOSTS): return 'KNOWN_THIRD_PARTY'
+    if any(x in path for x in PROFILE_PATH_MARKERS): return 'EDITORIAL_OR_PROFILE_PAGE'
+    return 'UNKNOWN'
 def candidate_urls(row):
     out=[]
     def add(u):
@@ -50,10 +64,9 @@ def compact(row,model,prompt):
         for d in (w.get('direct_health') or [])[:10]:
             ide=d.get('identity') or {}; direct.append({'url':d.get('final') or d.get('seed'),'status':d.get('status'),'matched':bool(ide.get('matched')),'match_mode':ide.get('match_mode'),'dns_negative':bool(d.get('dns_negative'))})
         for u in w.get('search_candidates') or []:
-            h=host(u)
-            if any(x in h for x in ('facebook.','instagram.','planity.','treatwell.','salonkee.','pagesdor.','goudengids.')): platforms.append(u)
+            if candidate_host_class(u)!='UNKNOWN': platforms.append(u)
     cert=row.get('certificate') or {}
-    rec={'business_id':str(row.get('record_key') or ''),'name':row.get('hub_name') or '','address':row.get('hub_address') or '','postcode':row.get('hub_postalcode') or '','public_phone_present':bool(row.get('hub_phone') or row.get('overture_phone')),'candidate_url':candidate,'candidate_host':host(candidate),'overture_name':row.get('overture_name') or '','overture_resolved':bool(row.get('overture_resolved') or row.get('overture_id')),'name_similarity':row.get('name_similarity') or 0,'address_overlap':row.get('address_overlap') or 0,'postcode_match':bool(row.get('postcode_match')),'phone_exact':bool(row.get('phone_exact')),'search_candidates':urls[:8],'direct_identity_evidence':direct[:12],'unresolved_plausible_domains':cert.get('unresolved_plausible_domains') or [],'platform_only_signals':platforms[:8],'semantic_fingerprint':semantic_fp(row,model,prompt),'source_outcome':row.get('outcome'),'source_reason':row.get('reason'),'source_verification_status':row.get('verification_status'),'source_verification_provider':row.get('verification_provider'),'territory':row.get('territory') or '','source_fingerprint':row.get('fingerprint') or '','certificate_digest':row.get('certificate_digest') or '','source':row}
+    rec={'business_id':str(row.get('record_key') or ''),'name':row.get('hub_name') or '','address':row.get('hub_address') or '','postcode':row.get('hub_postalcode') or '','public_phone_present':bool(row.get('hub_phone') or row.get('overture_phone')),'candidate_url':candidate,'candidate_host':host(candidate),'candidate_host_class':candidate_host_class(candidate),'overture_name':row.get('overture_name') or '','overture_resolved':bool(row.get('overture_resolved') or row.get('overture_id')),'name_similarity':row.get('name_similarity') or 0,'address_overlap':row.get('address_overlap') or 0,'postcode_match':bool(row.get('postcode_match')),'phone_exact':bool(row.get('phone_exact')),'search_candidates':urls[:8],'direct_identity_evidence':direct[:12],'unresolved_plausible_domains':cert.get('unresolved_plausible_domains') or [],'platform_only_signals':platforms[:8],'semantic_fingerprint':semantic_fp(row,model,prompt),'source_outcome':row.get('outcome'),'source_reason':row.get('reason'),'source_verification_status':row.get('verification_status'),'source_verification_provider':row.get('verification_provider'),'territory':row.get('territory') or '','source_fingerprint':row.get('fingerprint') or '','certificate_digest':row.get('certificate_digest') or '','source':row}
     if row.get('outcome')=='REJECT' and row.get('owned_website'):
         rec['benchmark_kind']='OWNED_SITE_POSITIVE'; rec['benchmark_expected']='OWNED_MATCH'
     elif strict_high:
