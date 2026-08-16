@@ -31806,11 +31806,11 @@
       "bbox": "fresh-search:0",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T21:31:15.198708Z",
-      "last_success": "2026-08-16T21:31:15.198708Z",
+      "last_attempt": "2026-08-16T23:15:44.144187Z",
+      "last_success": "2026-08-16T23:15:44.144187Z",
       "consecutive_failures": 0,
-      "last_live_ready": 1,
-      "last_elapsed_seconds": 20.98
+      "last_live_ready": 20,
+      "last_elapsed_seconds": 34.91
     },
     "9264cb45112059e4": {
       "name": "FRESH_SEARCH::60",
@@ -31832,11 +31832,11 @@
       "bbox": "fresh-search:30",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T21:31:15.198708Z",
-      "last_success": "2026-08-16T21:31:15.198708Z",
+      "last_attempt": "2026-08-16T23:15:44.144187Z",
+      "last_success": "2026-08-16T23:15:44.144187Z",
       "consecutive_failures": 0,
-      "last_live_ready": 4,
-      "last_elapsed_seconds": 24.18
+      "last_live_ready": 11,
+      "last_elapsed_seconds": 34.76
     },
     "79b996efb119f732": {
       "name": "FRESH_SEARCH::90",
@@ -38636,6 +38636,32 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 5.05
+    },
+    "0121ddba39657998": {
+      "name": "WIKIDATA::CA::600",
+      "country": "Canada",
+      "region": "WIKIDATA::CA::600",
+      "bbox": "wikidata:Q16:600",
+      "release": "2026-08-16",
+      "status": "failed_retryable",
+      "last_attempt": "2026-08-16T23:15:44.144187Z",
+      "last_success": null,
+      "consecutive_failures": 1,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 123.24
+    },
+    "e93754e5d90b7784": {
+      "name": "WIKIDATA::NZ::300",
+      "country": "New Zealand",
+      "region": "WIKIDATA::NZ::300",
+      "bbox": "wikidata:Q664:300",
+      "release": "2026-08-16",
+      "status": "complete",
+      "last_attempt": "2026-08-16T23:15:44.144187Z",
+      "last_success": "2026-08-16T23:15:44.144187Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 0,
+      "last_elapsed_seconds": 11.9
     }
   }
 }
