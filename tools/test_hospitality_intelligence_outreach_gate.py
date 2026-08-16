@@ -13,6 +13,8 @@ CFG = {
     'portfolio_signal_count': 3,
     'strong_portfolio_count': 10,
     'good_b_contactability_min': 48,
+    'premium_property_score_min': 60,
+    'premium_property_commercial_min': 58,
 }
 
 
@@ -23,6 +25,7 @@ def base_v2(**overrides):
         'name': 'Example Luxury Villas',
         'fit_decision': 'STRONG_FIT',
         'entity_match': 'MATCH',
+        'business_type': 'SHORT_STAY_OPERATOR',
         'confidence': 0.95,
         'commercial_score': 88,
         'contactability_score': 88,
@@ -70,6 +73,21 @@ class OutreachGateTests(unittest.TestCase):
         v1 = base_v1(operator_score=62, premium_score=24)
         r = evaluate(v2, v1, CFG)
         self.assertEqual(r['commercial_tier'], 'B')
+        self.assertTrue(r['outreach_ready'])
+
+    def test_premium_standalone_hotel_does_not_need_portfolio_count(self):
+        v2 = base_v2(
+            name='Alpine Design Hotel', business_type='BOUTIQUE_HOTEL', commercial_score=61,
+            portfolio_leverage_score=25, property_count_known=0, sample_property_urls=[],
+            matching_evidence=['verified boutique hotel'], classification_reason='premium boutique hotel',
+        )
+        v1 = base_v1(
+            name='Alpine Design Hotel', operator_score=45, premium_score=75,
+            raw={'brand':'Alpine Design Hotel', 'category':'boutique hotel'},
+        )
+        r = evaluate(v2, v1, CFG)
+        self.assertEqual(r['commercial_tier'], 'A')
+        self.assertTrue(r['premium_property_path'])
         self.assertTrue(r['outreach_ready'])
 
     def test_non_premium_operator_stays_out_of_outreach(self):
