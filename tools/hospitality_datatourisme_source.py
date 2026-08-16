@@ -149,6 +149,7 @@ def main() -> None:
     max_candidates = int(a.max_candidates or policy.get("max_candidates") or 1500)
     strict_categories = [norm_key(x) for x in (cfg.get("strict_accommodation_category_keywords") or []) if x]
     excluded_categories = [norm_key(x) for x in (cfg.get("excluded_category_keywords") or []) if x]
+    excluded_names = [norm_key(x) for x in (cfg.get("excluded_name_keywords") or []) if x]
     if not strict_categories:
         raise RuntimeError("DATAtourisme strict accommodation category allowlist is empty")
     preferred = list(cfg.get("preferred_resource_names") or [])
@@ -174,7 +175,7 @@ def main() -> None:
         raise RuntimeError("Chosen DATAtourisme resource has no URL or id")
 
     raw_rows = hospitality_rows = no_site = canonical_rejected = duplicate_domain = 0
-    taxonomy_rejected = taxonomy_excluded = 0
+    taxonomy_rejected = taxonomy_excluded = name_excluded = 0
     rows_by_domain: dict[str, dict] = {}
     observed_types: dict[str, int] = {}
 
@@ -192,23 +193,26 @@ def main() -> None:
                     "categories_de_poi", "categoriesdupoi", "categorie_du_poi",
                 )
                 type_norm = norm_key(type_value)
+                label = get_value(row, "label", "nom", "name", "titre", "nom_du_poi", "nomdupoi")
+                label_norm = norm_key(label)
                 if type_value:
                     for token in str(type_value).split("|")[:8]:
                         token = token.strip()
                         if token:
                             observed_types[token] = observed_types.get(token, 0) + 1
-                # Positive accommodation taxonomy is mandatory, and explicit
-                # negative types win. This prevents multi-tagged campgrounds or
-                # museums from entering simply because they also carry a generic
-                # rental/accommodation class.
+                # Precision-first quality gate. Explicit non-lodging taxonomy or
+                # unmistakable campground naming wins over generic accommodation
+                # tags that can coexist on multi-tagged tourism records.
                 if excluded_categories and any(k in type_norm for k in excluded_categories):
                     taxonomy_excluded += 1
+                    continue
+                if excluded_names and any(k in label_norm for k in excluded_names):
+                    name_excluded += 1
                     continue
                 if not any(k in type_norm for k in strict_categories):
                     taxonomy_rejected += 1
                     continue
                 hospitality_rows += 1
-                label = get_value(row, "label", "nom", "name", "titre", "nom_du_poi", "nomdupoi")
                 urls = urls_from_row(row)
                 if not urls:
                     no_site += 1
@@ -271,6 +275,7 @@ def main() -> None:
         "raw_rows_scanned": raw_rows,
         "taxonomy_rejected": taxonomy_rejected,
         "taxonomy_excluded": taxonomy_excluded,
+        "name_excluded": name_excluded,
         "hospitality_rows": hospitality_rows,
         "no_public_site": no_site,
         "canonical_known_rejected_early": canonical_rejected,
