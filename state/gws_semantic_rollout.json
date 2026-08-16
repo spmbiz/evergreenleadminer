@@ -1,34 +1,33 @@
 {
   "backlog": {
-    "eligible_benchmark": 6,
-    "eligible_live": 715
+    "eligible_benchmark": 2,
+    "eligible_live": 718
   },
   "last_run": {
-    "benchmark_passed": 6,
-    "benchmark_total": 6,
+    "benchmark_passed": 2,
+    "benchmark_total": 2,
     "classified": 0,
     "decisions": {
-      "UNCERTAIN": 24
+      "UNCERTAIN": 72
     },
-    "errors": 24,
+    "errors": 72,
     "hallucinated_contact_count": 0,
-    "processed": 24,
-    "resolution_queued": 18,
+    "processed": 72,
+    "resolution_queued": 70,
     "resolution_routes": {
-      "GPT_SEARCH_REVIEW": 11,
-      "STRICT_NO_SITE_RECHECK": 5,
-      "TARGETED_OWNERSHIP_RECHECK": 2
+      "GPT_SEARCH_REVIEW": 55,
+      "STRICT_NO_SITE_RECHECK": 15
     },
     "schema_valid_rate": 0.0,
     "selected": 250,
-    "targeted_candidates": 216,
-    "targeted_first_party_confirmed": 3,
-    "targeted_probes": 63,
+    "targeted_candidates": 833,
+    "targeted_first_party_confirmed": 0,
+    "targeted_probes": 264,
     "targeted_search_errors": 0,
-    "targeted_search_records": 18,
+    "targeted_search_records": 70,
     "trusted_agreement": 1.0,
     "website_states": {
-      "UNCERTAIN": 24
+      "UNCERTAIN": 72
     }
   },
   "model": "qwen3-4b-q4_k_m",
@@ -37,5 +36,5 @@
   "reason": "benchmark_gate_not_met_live_shadow_continues",
   "schema_version": 1,
   "stage": "benchmark_waiting",
-  "updated_at": "2026-08-16T11:12:13+00:00"
+  "updated_at": "2026-08-16T11:53:28+00:00"
 }
