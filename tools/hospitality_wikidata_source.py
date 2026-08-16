@@ -4,6 +4,11 @@
 Uses WDQS structured data to find hotels/resorts with an explicitly published
 official website (P856). It does not scrape OTA pages and never mutates canonical
 state. Canonical-known domains are rejected before contact enrichment.
+
+WDQS is a shared public query service, so production reads are intentionally
+bounded: one logical page is split into smaller requests, transient timeouts/
+429/5xx responses are retried with backoff, and a failed chunk fails the worker
+rather than silently marking an incomplete country page as fully covered.
 """
 from __future__ import annotations
 
@@ -19,7 +24,9 @@ from urllib.parse import urlparse
 import requests
 
 ENDPOINT = "https://query.wikidata.org/sparql"
-UA = "AIProd-Hospitality-Wikidata/1.0 (public-business-research; contact via GitHub repo)"
+UA = "AIProd-Hospitality-Wikidata/1.1 (public-business-research; contact via GitHub repo)"
+DEFAULT_CHUNK_SIZE = 150
+DEFAULT_ATTEMPTS = 3
 MULTI = (
     "co.uk","org.uk","me.uk","ltd.uk","plc.uk","net.uk","com.au","net.au","org.au",
     "co.nz","net.nz","org.nz","com.pt","com.es","co.za","co.jp","com.sg","com.hk","com.my"
@@ -94,6 +101,70 @@ OFFSET {int(offset)}
 """.strip()
 
 
+def fetch_chunk(
+    session: requests.Session,
+    *,
+    country_qid: str,
+    class_qids: list[str],
+    limit: int,
+    offset: int,
+    timeout: float,
+    attempts: int,
+) -> tuple[list[dict], list[dict]]:
+    query = build_query(country_qid, class_qids, limit, offset)
+    events: list[dict] = []
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        started = time.time()
+        try:
+            r = session.post(
+                ENDPOINT,
+                data={"query": query, "format": "json"},
+                timeout=(8, timeout),
+            )
+            elapsed = round(time.time() - started, 2)
+            event = {
+                "offset": offset,
+                "limit": limit,
+                "attempt": attempt,
+                "status_code": r.status_code,
+                "elapsed_seconds": elapsed,
+            }
+            events.append(event)
+            if r.status_code == 429 or 500 <= r.status_code < 600:
+                retry_after = r.headers.get("Retry-After")
+                try:
+                    delay = float(retry_after) if retry_after else min(12.0, 1.5 * (2 ** (attempt - 1)))
+                except Exception:
+                    delay = min(12.0, 1.5 * (2 ** (attempt - 1)))
+                if attempt < attempts:
+                    time.sleep(max(1.0, delay))
+                    continue
+            r.raise_for_status()
+            data = r.json()
+            return ((data.get("results") or {}).get("bindings") or []), events
+        except (requests.Timeout, requests.ConnectionError, requests.HTTPError, ValueError) as exc:
+            last_exc = exc
+            elapsed = round(time.time() - started, 2)
+            if not events or events[-1].get("attempt") != attempt:
+                events.append({
+                    "offset": offset,
+                    "limit": limit,
+                    "attempt": attempt,
+                    "status_code": 0,
+                    "elapsed_seconds": elapsed,
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+            else:
+                events[-1]["error"] = f"{type(exc).__name__}: {exc}"
+            if attempt < attempts:
+                time.sleep(min(12.0, 1.5 * (2 ** (attempt - 1))))
+    raise RuntimeError(
+        f"WDQS chunk failed after {attempts} attempts offset={offset} limit={limit}: "
+        f"{type(last_exc).__name__ if last_exc else 'UnknownError'}: {last_exc}"
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--country-qid", required=True)
@@ -102,7 +173,9 @@ def main() -> None:
     ap.add_argument("--classes", default="Q27686,Q875157")
     ap.add_argument("--limit", type=int, default=300)
     ap.add_argument("--offset", type=int, default=0)
-    ap.add_argument("--timeout", type=float, default=30)
+    ap.add_argument("--timeout", type=float, default=40)
+    ap.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
+    ap.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
     ap.add_argument("--canonical-domains", default="")
     ap.add_argument("--outdir", required=True)
     a = ap.parse_args()
@@ -112,21 +185,34 @@ def main() -> None:
     t0 = time.time()
     canonical = read_domains(a.canonical_domains)
     class_qids = [x.strip() for x in a.classes.split(",") if re.fullmatch(r"Q\d+", x.strip())]
-    query = build_query(a.country_qid, class_qids, max(1, a.limit), max(0, a.offset))
+    total_limit = max(1, int(a.limit))
+    chunk_size = max(25, min(int(a.chunk_size or DEFAULT_CHUNK_SIZE), total_limit))
 
-    headers = {
+    session = requests.Session()
+    session.headers.update({
         "User-Agent": UA,
         "Accept": "application/sparql-results+json",
-    }
-    r = requests.post(
-        ENDPOINT,
-        data={"query": query, "format": "json"},
-        headers=headers,
-        timeout=(8, a.timeout),
-    )
-    r.raise_for_status()
-    data = r.json()
-    bindings = ((data.get("results") or {}).get("bindings") or [])
+    })
+
+    bindings: list[dict] = []
+    request_events: list[dict] = []
+    remaining = total_limit
+    cursor = max(0, int(a.offset))
+    while remaining > 0:
+        size = min(chunk_size, remaining)
+        chunk, events = fetch_chunk(
+            session,
+            country_qid=a.country_qid,
+            class_qids=class_qids,
+            limit=size,
+            offset=cursor,
+            timeout=float(a.timeout),
+            attempts=max(1, int(a.attempts)),
+        )
+        bindings.extend(chunk)
+        request_events.extend(events)
+        cursor += size
+        remaining -= size
 
     rows_by_domain: dict[str, dict] = {}
     canonical_rejected = invalid_website = duplicate_domain = 0
@@ -199,14 +285,20 @@ def main() -> None:
     with (out / "source_observations.jsonl").open("w", encoding="utf-8") as f:
         for row in observations:
             f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    (out / "wdqs_request_events.json").write_text(json.dumps(request_events, indent=2) + "\n", encoding="utf-8")
 
+    retries = sum(1 for e in request_events if int(e.get("attempt") or 0) > 1)
     summary = {
-        "schema": "HOSPITALITY_WIKIDATA_SOURCE_V1",
+        "schema": "HOSPITALITY_WIKIDATA_SOURCE_V1_1",
         "country_qid": a.country_qid,
         "country": a.country,
         "classes": class_qids,
         "limit": a.limit,
         "offset": a.offset,
+        "chunk_size": chunk_size,
+        "chunks": (total_limit + chunk_size - 1) // chunk_size,
+        "request_events": len(request_events),
+        "retry_events": retries,
         "raw_bindings": len(bindings),
         "invalid_website": invalid_website,
         "canonical_known_rejected_early": canonical_rejected,
