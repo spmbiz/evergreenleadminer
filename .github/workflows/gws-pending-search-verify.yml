@@ -2,7 +2,7 @@ name: GWS Pending Search Verify Fleet
 
 on:
   schedule:
-    - cron: '4 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [gws_verify_refill]
