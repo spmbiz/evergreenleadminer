@@ -1,0 +1,45 @@
+name: GWS Search Fast Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-search-fast-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install verifier dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - name: Build 8-record canary plan
+        run: python tools/gws_pending_verify_plan.py --outdir results/gws_fast_canary_plan --max-workers 1 --per-worker 8
+      - name: Start hosted OpenSERP
+        shell: bash
+        run: |
+          bash tools/start_openserp_ci.sh
+          echo 'OPENSERP_URL=http://127.0.0.1:7000' >> "$GITHUB_ENV"
+      - name: Refresh identity
+        run: |
+          python tools/gws_pending_verify_worker.py \
+            --input results/gws_fast_canary_plan/pending.jsonl \
+            --worker-index 0 --worker-count 1 \
+            --outdir results/gws_fast_canary/shard \
+            --threads 8
+      - name: Run parallel strict verifier
+        run: python tools/gws_search_verify_fast.py --shard-dir results/gws_fast_canary/shard --config config/gws_search_verify.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-search-fast-canary-${{ github.run_id }}
+          path: results/gws_fast_canary/shard/
+          retention-days: 1
