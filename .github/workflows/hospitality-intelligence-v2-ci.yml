@@ -5,6 +5,8 @@ on:
     branches: [main, hospitality-intelligence-v2]
     paths:
       - 'config/hospitality_intelligence_v2.json'
+      - 'config/global_fleet.json'
+      - 'tools/global_capacity_broker.py'
       - 'tools/hospitality_intelligence_*.py'
       - 'tools/hospitality_search_fabric.py'
       - 'tools/hospitality_portfolio_expand.py'
@@ -15,6 +17,7 @@ on:
       - 'tools/test_hospitality_intelligence_v2.py'
       - 'tools/test_hospitality_qwen_classifier.py'
       - 'tools/test_hospitality_plan_fanout.py'
+      - 'tools/test_hospitality_dynamic_capacity.py'
       - '.github/workflows/hospitality-intelligence-v2*.yml'
   workflow_dispatch:
 
@@ -36,23 +39,29 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile \
+            tools/global_capacity_broker.py \
             tools/hospitality_intelligence_db.py \
             tools/hospitality_intelligence_plan.py \
             tools/hospitality_search_fabric.py \
             tools/hospitality_portfolio_expand.py \
             tools/hospitality_qwen_classifier.py \
             tools/hospitality_intelligence_worker.py \
+            tools/hospitality_intelligence_worker_fast.py \
             tools/hospitality_intelligence_aggregate.py \
             tools/apply_hospitality_intelligence_delta.py \
             tools/test_hospitality_intelligence_v2.py \
             tools/test_hospitality_qwen_classifier.py \
-            tools/test_hospitality_plan_fanout.py
+            tools/test_hospitality_plan_fanout.py \
+            tools/test_hospitality_dynamic_capacity.py
           bash -n tools/start_qwen4b_ci.sh
           bash -n tools/start_openserp_ci.sh
           python -m json.tool config/hospitality_intelligence_v2.json >/dev/null
+          python -m json.tool config/global_fleet.json >/dev/null
+          python tools/global_capacity_broker.py reserve --help | grep -q -- '--demand-override'
       - name: Run deterministic V2 tests
         run: |
           PYTHONPATH=tools python -m unittest -v \
             tools/test_hospitality_intelligence_v2.py \
             tools/test_hospitality_qwen_classifier.py \
-            tools/test_hospitality_plan_fanout.py
+            tools/test_hospitality_plan_fanout.py \
+            tools/test_hospitality_dynamic_capacity.py
