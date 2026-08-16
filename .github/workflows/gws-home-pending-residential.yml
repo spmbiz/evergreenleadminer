@@ -14,8 +14,6 @@ on:
 permissions:
   contents: write
 
-actionlint:
-
 concurrency:
   group: gws-home-pending-residential
   cancel-in-progress: false
@@ -123,7 +121,8 @@ jobs:
           Copy-Item results\gws_home_pending_openserp\summary.json "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID/worker_summary.json"
           Copy-Item results\gws_home_pending_openserp\results.jsonl "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID/residential_observations.jsonl"
           git add $dest "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID"
-          if (-not (git diff --cached --quiet)) {
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
             git commit -m "[gws-residential] evidence ingress $env:GITHUB_RUN_ID [skip ci]"
             $pushed=$false
             foreach ($attempt in 1..3) {
