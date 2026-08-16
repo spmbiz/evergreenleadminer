@@ -90,7 +90,7 @@ jobs:
         if: steps.plan.outputs.selected_count != '0'
         run: |
           set -euo pipefail
-          python tools/gws_source_overture.py prepare \
+          python tools/gws_source_overture_extended.py prepare \
             --input-candidates results/fleet_plan/gws_candidates_hub_osm.jsonl \
             --out-candidates results/fleet_plan/gws_candidates_current.jsonl \
             --plan-dir results/fleet_plan \
