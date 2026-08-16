@@ -31806,11 +31806,11 @@
       "bbox": "fresh-search:0",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T23:15:44.144187Z",
-      "last_success": "2026-08-16T23:15:44.144187Z",
+      "last_attempt": "2026-08-16T23:24:35.197698Z",
+      "last_success": "2026-08-16T23:24:35.197698Z",
       "consecutive_failures": 0,
-      "last_live_ready": 20,
-      "last_elapsed_seconds": 34.91
+      "last_live_ready": 21,
+      "last_elapsed_seconds": 40.15
     },
     "9264cb45112059e4": {
       "name": "FRESH_SEARCH::60",
@@ -31832,11 +31832,11 @@
       "bbox": "fresh-search:30",
       "release": "daily",
       "status": "complete",
-      "last_attempt": "2026-08-16T23:15:44.144187Z",
-      "last_success": "2026-08-16T23:15:44.144187Z",
+      "last_attempt": "2026-08-16T23:24:35.197698Z",
+      "last_success": "2026-08-16T23:24:35.197698Z",
       "consecutive_failures": 0,
-      "last_live_ready": 11,
-      "last_elapsed_seconds": 34.76
+      "last_live_ready": 26,
+      "last_elapsed_seconds": 39.55
     },
     "79b996efb119f732": {
       "name": "FRESH_SEARCH::90",
@@ -38643,12 +38643,12 @@
       "region": "WIKIDATA::CA::600",
       "bbox": "wikidata:Q16:600",
       "release": "2026-08-16",
-      "status": "failed_retryable",
-      "last_attempt": "2026-08-16T23:15:44.144187Z",
-      "last_success": null,
-      "consecutive_failures": 1,
+      "status": "complete",
+      "last_attempt": "2026-08-16T23:24:35.197698Z",
+      "last_success": "2026-08-16T23:24:35.197698Z",
+      "consecutive_failures": 0,
       "last_live_ready": 0,
-      "last_elapsed_seconds": 123.24
+      "last_elapsed_seconds": 52.11
     },
     "e93754e5d90b7784": {
       "name": "WIKIDATA::NZ::300",
@@ -38662,6 +38662,19 @@
       "consecutive_failures": 0,
       "last_live_ready": 0,
       "last_elapsed_seconds": 11.9
+    },
+    "185657a92924271b": {
+      "name": "WIKIDATA::GB::600",
+      "country": "United Kingdom",
+      "region": "WIKIDATA::GB::600",
+      "bbox": "wikidata:Q145:600",
+      "release": "2026-08-16",
+      "status": "complete",
+      "last_attempt": "2026-08-16T23:24:35.197698Z",
+      "last_success": "2026-08-16T23:24:35.197698Z",
+      "consecutive_failures": 0,
+      "last_live_ready": 124,
+      "last_elapsed_seconds": 96.21
     }
   }
 }
