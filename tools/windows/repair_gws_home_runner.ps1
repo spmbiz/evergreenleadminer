@@ -55,6 +55,44 @@ function Fresh-RunnerDirectory([string]$Base) {
   return $runnerDir
 }
 
+function Get-GwsRunnerService {
+  return Get-Service | Where-Object { $_.Name -like 'actions.runner.walidgdg1-ai-evergreenleadminer.gws-home-*' } | Select-Object -First 1
+}
+
+function Start-GwsRunnerServiceResilient([string]$RunnerDir) {
+  $svc=Get-GwsRunnerService
+  if (-not $svc) { throw 'Runner service not found after fresh configuration' }
+
+  Set-Service -Name $svc.Name -StartupType Automatic
+  $svc=Get-Service -Name $svc.Name
+  if ($svc.Status -eq 'Running') { return $svc }
+
+  try {
+    Start-Service -Name $svc.Name -ErrorAction Stop
+  }
+  catch {
+    Write-Warning "GWS_HOME_REPAIR normal service start failed; applying verified LocalSystem fallback. error=$($_.Exception.Message)"
+    & sc.exe config $svc.Name obj= LocalSystem | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "sc.exe LocalSystem fallback failed with exit code $LASTEXITCODE" }
+    Start-Sleep -Seconds 1
+    Start-Service -Name $svc.Name -ErrorAction Stop
+  }
+
+  $deadline=(Get-Date).AddSeconds(20)
+  do {
+    $svc=Get-Service -Name $svc.Name
+    if ($svc.Status -eq 'Running') { return $svc }
+    Start-Sleep -Seconds 1
+  } while ((Get-Date) -lt $deadline)
+
+  Write-Host 'GWS_HOME_REPAIR_SERVICE_START_FAILED'
+  Write-Host "SERVICE=$($svc.Name)"
+  & sc.exe qc $svc.Name | Out-Host
+  $diag=Get-ChildItem (Join-Path $RunnerDir '_diag') -Filter 'Runner_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($diag) { Write-Host "LAST_DIAG=$($diag.FullName)"; Get-Content $diag.FullName -Tail 80 | Out-Host }
+  throw "Runner service failed to reach Running state"
+}
+
 function Install-FreshRunner([string]$Base,[string]$Url,[string]$Token,[string]$Name,[string]$RunnerLabels) {
   $runnerDir=Fresh-RunnerDirectory $Base
   $asset=Get-LatestAsset 'actions/runner' 'actions-runner-win-x64-.*\.zip$'
@@ -65,28 +103,24 @@ function Install-FreshRunner([string]$Base,[string]$Url,[string]$Token,[string]$
 
   & icacls $runnerDir /grant '*S-1-5-20:(OI)(CI)F' /T /C | Out-Null
 
+  $configExit=0
   Push-Location $runnerDir
   try {
     & .\config.cmd --unattended --replace --url $Url --token $Token --name $Name --labels $RunnerLabels --work _work --runasservice
-    if ($LASTEXITCODE -ne 0) { throw "config.cmd failed with exit code $LASTEXITCODE" }
+    $configExit=$LASTEXITCODE
   } finally { Pop-Location }
 
-  $svc=Get-Service | Where-Object { $_.Name -like 'actions.runner.walidgdg1-ai-evergreenleadminer.gws-home-*' } | Select-Object -First 1
-  if (-not $svc) { throw 'Runner service not found after fresh configuration' }
-  Set-Service -Name $svc.Name -StartupType Automatic
-  if ($svc.Status -ne 'Running') {
-    try { Start-Service -Name $svc.Name -ErrorAction Stop }
-    catch {
-      Write-Host 'GWS_HOME_REPAIR_SERVICE_START_FAILED'
-      Write-Host "SERVICE=$($svc.Name)"
-      & sc.exe qc $svc.Name | Out-Host
-      $diag=Get-ChildItem (Join-Path $runnerDir '_diag') -Filter 'Runner_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-      if ($diag) { Write-Host "LAST_DIAG=$($diag.FullName)"; Get-Content $diag.FullName -Tail 80 | Out-Host }
-      throw
-    }
+  $svc=Get-GwsRunnerService
+  if ($configExit -ne 0 -and -not $svc) {
+    throw "config.cmd failed with exit code $configExit and no runner service was installed"
   }
-  $svc=Get-Service -Name $svc.Name
-  Write-Host "GWS_HOME_RUNNER_OK service=$($svc.Name) status=$($svc.Status) name=$Name labels=$RunnerLabels"
+  if ($configExit -ne 0 -and $svc) {
+    Write-Warning "GWS_HOME_REPAIR config.cmd returned $configExit but service exists; attempting resilient service recovery"
+  }
+
+  $svc=Start-GwsRunnerServiceResilient -RunnerDir $runnerDir
+  $svcCim=Get-CimInstance Win32_Service -Filter "Name='$($svc.Name)'"
+  Write-Host "GWS_HOME_RUNNER_OK service=$($svc.Name) status=$($svc.Status) account=$($svcCim.StartName) name=$Name labels=$RunnerLabels"
 }
 
 Assert-Admin
