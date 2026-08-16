@@ -74,22 +74,30 @@ def gather(cfg):
         if outcome in live_out or status in live_st: live.append(rec)
         if rec.get('benchmark_expected'): bench.append(rec)
     live.sort(key=lambda x:(south.get(str(x.get('territory')),99),0 if x.get('candidate_url') else 1,x['business_id']))
-    bench.sort(key=lambda x:(0 if x.get('benchmark_kind')=='OWNED_SITE_POSITIVE' else 1,x['business_id']))
+    bench.sort(key=lambda x:x['business_id'])
     return live,bench
+def balanced_benchmark(bench,n):
+    owned=[x for x in bench if x.get('benchmark_kind')=='OWNED_SITE_POSITIVE']
+    no_site=[x for x in bench if x.get('benchmark_kind')=='STRICT_NO_SITE']
+    half=max(1,n//2); selected=owned[:half]+no_site[:half]
+    seen={x['business_id'] for x in selected}
+    if len(selected)<n:
+        selected.extend(x for x in owned[half:]+no_site[half:] if x['business_id'] not in seen and not seen.add(x['business_id']))
+    return selected[:n],len(owned),len(no_site)
 def prepare(args):
     cfg=load(args.config,{})
     if not cfg.get('enabled',True): dump(Path(args.outdir)/'plan.json',{'enabled':False}); return
-    rollout=load('state/gws_semantic_rollout.json',{}); stage=str(rollout.get('stage') or 'smoke'); live,bench=gather(cfg); rcfg=cfg['rollout']
+    rollout=load('state/gws_semantic_rollout.json',{}); stage=str(rollout.get('stage') or 'smoke'); live,bench=gather(cfg); rcfg=cfg['rollout']; owned_total=sum(x.get('benchmark_kind')=='OWNED_SITE_POSITIVE' for x in bench); no_site_total=sum(x.get('benchmark_kind')=='STRICT_NO_SITE' for x in bench)
     if stage=='smoke':
-        n=int(rcfg.get('smoke_records') or 32); selected=(live[:max(1,n*3//4)]+bench[:max(1,n//4)])[:n]; desired=1; stage_shard_size=n
+        n=int(rcfg.get('smoke_records') or 32); bsel,_,_=balanced_benchmark(bench,max(2,n//4)); selected=(live[:max(1,n-len(bsel))]+bsel)[:n]; desired=1; stage_shard_size=n
     elif stage in {'benchmark','benchmark_waiting'}:
-        n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=125; selected=bench[:n]; desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
+        n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=125; selected,_,_=balanced_benchmark(bench,n); desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
     else:
         stage_shard_size=max(1,int(rcfg.get('production_shard_size') or 80)); maxw=int(rcfg.get('production_max_workers') or 10); selected=live[:maxw*stage_shard_size]; desired=min(maxw,max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='production'
     out=Path(args.outdir);out.mkdir(parents=True,exist_ok=True)
     with (out/'selected.jsonl').open('w',encoding='utf-8') as f:
         for r in selected:f.write(json.dumps(r,ensure_ascii=False,default=str)+'\n')
-    plan={'enabled':bool(selected),'stage':stage,'eligible_live':len(live),'eligible_benchmark':len(bench),'selected':len(selected),'desired_workers':desired,'stage_shard_size':stage_shard_size,'model':cfg['qwen']['model_label'],'prompt_version':cfg['qwen']['prompt_version']}
+    plan={'enabled':bool(selected),'stage':stage,'eligible_live':len(live),'eligible_benchmark':len(bench),'benchmark_owned_site':owned_total,'benchmark_strict_no_site':no_site_total,'selected':len(selected),'desired_workers':desired,'stage_shard_size':stage_shard_size,'model':cfg['qwen']['model_label'],'prompt_version':cfg['qwen']['prompt_version']}
     dump(out/'plan.json',plan);print('GWS_SEMANTIC_PLAN='+json.dumps(plan,separators=(',',':')))
     gh=os.environ.get('GITHUB_OUTPUT')
     if gh:
