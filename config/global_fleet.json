@@ -4,8 +4,8 @@
     "capacity": 20,
     "lease_ttl_minutes": 55,
     "planner_concurrency_group": "ai-prod-global-capacity-broker",
-    "exploit_share": 0.70,
-    "explore_share": 0.30,
+    "exploit_share": 0.7,
+    "explore_share": 0.3,
     "idle_capacity_policy": "borrow_immediately",
     "preemption_policy": "natural_completion_only"
   },
