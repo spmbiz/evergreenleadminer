@@ -1,0 +1,43 @@
+name: tmp-sheet-sync-prepare
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_sheet_sync_prepare.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build compact staging for oldest 10 queue chunks
+        shell: python
+        run: |
+          import csv, json, pathlib
+          q = pathlib.Path('gpt/sheet_sync_queue')
+          files = sorted(q.glob('*.jsonl'), key=lambda p: p.name)[:10]
+          fields = ['queue_file','source','overture_id','country','region','name','category','brand','website','domain','public_email','public_phone','city','state','street','confidence','operator_score','premium_score','fit_tier','source_url','notes','live_status','http_status','final_url','hospitality_hits','identity_hits','email_on_homepage','contact_page','instagram','facebook','whatsapp','portfolio_url','instagram_source_url','live_reason','_sheet_sync_kind']
+          out = pathlib.Path('gpt/_tmp_sheet_sync_batch.tsv')
+          rows=[]
+          counts={}
+          for p in files:
+            n=0
+            with p.open(encoding='utf-8') as f:
+              for line in f:
+                line=line.strip()
+                if not line: continue
+                r=json.loads(line); r['queue_file']=p.name
+                rows.append({k:r.get(k,'') for k in fields}); n+=1
+            counts[p.name]=n
+          with out.open('w',encoding='utf-8',newline='') as f:
+            w=csv.DictWriter(f, fieldnames=fields, delimiter='\t', lineterminator='\n'); w.writeheader(); w.writerows(rows)
+          manifest={'files':[p.name for p in files],'counts':counts,'records':len(rows)}
+          pathlib.Path('gpt/_tmp_sheet_sync_batch_manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+      - name: Commit staging
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gpt/_tmp_sheet_sync_batch.tsv gpt/_tmp_sheet_sync_batch_manifest.json
+          git commit -m 'chore: stage oldest hospitality sync chunks [skip ci]' || exit 0
+          git push
