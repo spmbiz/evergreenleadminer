@@ -1,0 +1,49 @@
+name: Global Capacity Lease Reaper
+
+on:
+  workflow_run:
+    workflows:
+      - "Hospitality Intelligence V2"
+      - "GWS Qwen Semantic Fleet"
+      - "GWS Pending Search Verify Fleet"
+    types: [completed]
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ai-prod-global-capacity-broker
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Idempotently release completed run lease
+        if: github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_RUN_ID"
+          python tools/global_capacity_broker.py release \
+            --run-id "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY"
+      - name: Reap expired or no-longer-active leases and refresh broker snapshot
+        if: github.event_name != 'workflow_run'
+        run: |
+          set -euo pipefail
+          python tools/global_capacity_broker.py snapshot \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY"
+      - name: Explain cleanup contract
+        if: always()
+        run: |
+          echo 'Lease release is idempotent. workflow_run finalization covers cleanup-only cancellations; scheduled snapshot is a second safety net for expired/stale leases.' >> "$GITHUB_STEP_SUMMARY"
