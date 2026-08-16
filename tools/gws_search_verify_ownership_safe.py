@@ -40,9 +40,13 @@ def _sanitize_owned(row: dict[str, Any], p: dict[str, Any]) -> tuple[dict[str, A
     return q, assessment
 
 
-def _challenge_queries(c: dict[str, Any]) -> list[str]:
+def _challenge_queries(row: dict[str, Any], c: dict[str, Any]) -> tuple[list[str], str]:
     name = str(c.get("n") or "").strip()
-    phone = str(c.get("ph") or "").strip()
+    # Hub rows often have no phone even after Overture resolved a current entity.
+    # Overture phone is allowed ONLY as a negative-search clue here. It is never
+    # injected into c, complete_identity(), or the no-website certificate.
+    phone = str(c.get("ph") or row.get("overture_phone") or "").strip()
+    phone_source = "hub" if c.get("ph") else ("overture_search_clue" if row.get("overture_phone") else "none")
     address = " ".join(str(c.get("a") or "").split()[:10]).strip()
     out: list[str] = []
     if name and phone:
@@ -51,7 +55,7 @@ def _challenge_queries(c: dict[str, Any]) -> list[str]:
         out.append(f'"{name}" "{address}" website')
     if phone:
         out.append(f'"{phone}" website')
-    return out[:3]
+    return out[:3], phone_source
 
 
 def _candidate_seeds(item) -> list[tuple[str, str]]:
@@ -86,7 +90,7 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
     checked: set[str] = set()
     usable = 0
 
-    queries = _challenge_queries(c)
+    queries, phone_source = _challenge_queries(row, c)
     for query in queries:
         results, event = fabric._openserp("high_exact_identity_challenge", query)
         meta = event.get("meta") or {}
@@ -124,6 +128,8 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
                 if source == "serp_result" and not plausible:
                     continue
 
+                # Probe identity against the original source candidate. Overture phone
+                # was only a query clue and is deliberately NOT used as proof here.
                 ev = base.home.probe_host(c, seed)
                 ev["challenge_source"] = source
                 ev["challenge_query"] = query
@@ -146,12 +152,10 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
                             "probes": probes,
                             "ambiguous": ambiguous,
                             "unresolved": unresolved,
+                            "phone_query_source": phone_source,
                         }
                     ambiguous.append({"url": p["owned"], "assessment": assessment})
                 elif not ev.get("ok") and not ev.get("dns_negative"):
-                    # Only block on transient failure when the candidate domain itself
-                    # is plausibly related to the business. DNS-negative/dead domains
-                    # are historical evidence and do not count as a current website.
                     if plausible:
                         unresolved.append({"url": seed, "source": source, "hint": hint, "error": ev.get("error")})
 
@@ -169,6 +173,7 @@ def final_high_challenge(row: dict[str, Any], c: dict[str, Any], fabric) -> dict
         "ambiguous": ambiguous,
         "unresolved": unresolved,
         "usable_queries": usable,
+        "phone_query_source": phone_source,
     }
 
 
