@@ -1,0 +1,33 @@
+name: Hospitality Premium Outreach Gate CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/hospitality_intelligence_v2.json'
+      - 'tools/hospitality_intelligence_outreach_gate.py'
+      - 'tools/test_hospitality_intelligence_outreach_gate.py'
+      - '.github/workflows/hospitality-outreach-gate*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Static validation
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/hospitality_intelligence_outreach_gate.py tools/test_hospitality_intelligence_outreach_gate.py
+          python -m json.tool config/hospitality_intelligence_v2.json >/dev/null
+          grep -q 'workflow_run:' .github/workflows/hospitality-outreach-gate.yml
+          grep -q 'hospitality-outreach-ready.jsonl' .github/workflows/hospitality-outreach-gate.yml
+      - name: Run outreach gate tests
+        run: PYTHONPATH=tools python -m unittest -v tools/test_hospitality_intelligence_outreach_gate.py
