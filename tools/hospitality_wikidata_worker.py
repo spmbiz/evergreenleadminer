@@ -104,17 +104,29 @@ def main() -> None:
     rec = fr.load_json(recovery / "v6_contact_recovery_summary.json", {})
     ready = fr.load_json(recovery / "v6_contact_ready_summary.json", {})
     live = fr.load_json(recovery / "v6_live_summary.json", {})
+    bbox = f"wikidata:{a.country_qid}:{a.offset}"
+    region = f"WIKIDATA::{a.country_code or a.country_qid}::{a.offset}"
     summary = {
         "provider": a.provider,
         "cycle_id": a.cycle_id,
         "lane": "wikidata_hospitality",
         "task_type": "wikidata_hospitality",
+        "shard": {
+            "name": region,
+            "country": a.country,
+            "region": region,
+            "bbox": bbox,
+            "release": time.strftime("%Y-%m-%d", time.gmtime()),
+            "lane": "wikidata_hospitality"
+        },
         "country": a.country,
         "country_qid": a.country_qid,
         "offset": a.offset,
         "status": status,
         "error": error,
         "canonical_snapshot_domains": count,
+        "local_workers": a.local_workers,
+        "contact_workers": a.contact_workers,
         "elapsed_seconds": round(time.time() - t0, 2),
         "raw_site_email_rows": int(src.get("raw_bindings") or 0),
         "canonical_prefilter_rejected": int(src.get("canonical_known_rejected_early") or 0),
@@ -122,9 +134,17 @@ def main() -> None:
         "recovery_candidates": int(src.get("canonical_unseen_candidate_domains") or 0),
         "recovered_public_emails": int(rec.get("recovered_public_emails") or 0),
         "contact_ready": int(ready.get("contact_ready") or 0),
+        "social_or_contact_without_email": int(ready.get("social_or_contact_without_email") or 0),
+        "fast_ready": int(live.get("input_fast_ready") or 0),
         "live_ready": int(live.get("live_ready") or 0),
         "instagram_found": int(rec.get("instagram_found") or live.get("instagram_found") or 0),
         "facebook_found": int(rec.get("facebook_found") or 0),
+        "http_429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0 if status == "success" else 1.0,
+        "contact_429_rate": 0.0,
+        "contact_timeout_rate": 0.0,
+        "contact_error_rate": 0.0,
         "worker_errors": 0 if status == "success" else 1,
     }
     fr.write_json(root / "worker_summary.json", summary)
