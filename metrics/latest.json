@@ -1,31 +1,31 @@
 {
-  "cycle_id": "20260816T022230Z-github-multilane",
+  "cycle_id": "20260816T022943Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T02:23:13.913015Z",
+  "finished_at": "2026-08-16T02:31:02.440803Z",
   "workers_completed": 2,
   "workers_failed": 0,
-  "raw_discovered": 38,
-  "live_ready_before_canonical_dedupe": 0,
-  "new_unique": 0,
+  "raw_discovered": 77,
+  "live_ready_before_canonical_dedupe": 1,
+  "new_unique": 1,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 0,
+  "instagram_found": 1,
   "gpt_review_pending": 0,
   "errors": 0,
-  "peak_wall_seconds": 8.14,
-  "new_unique_per_worker_minute": 0.0,
-  "canonical_total": 4,
+  "peak_wall_seconds": 33.63,
+  "new_unique_per_worker_minute": 1.578,
+  "canonical_total": 31266,
   "health": {
     "429_rate": 0.0,
     "timeout_rate": 0.0,
-    "error_rate": 0.0
+    "error_rate": 0.5
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 2,
+      "workers_completed": 1,
       "workers_failed": 0,
-      "raw_discovered": 38,
+      "raw_discovered": 0,
       "fast_ready": 0,
       "live_ready": 0,
       "recovery_candidates": 0,
@@ -38,6 +38,29 @@
         "429_rate": 0.0,
         "timeout_rate": 0.0,
         "error_rate": 0.0
+      },
+      "contact_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.0
+      }
+    },
+    "osm_geofabrik": {
+      "workers_completed": 1,
+      "workers_failed": 0,
+      "raw_discovered": 77,
+      "fast_ready": 4,
+      "live_ready": 1,
+      "recovery_candidates": 0,
+      "recovered_public_emails": 1,
+      "contact_ready": 0,
+      "social_or_contact_without_email": 0,
+      "instagram_found": 1,
+      "facebook_found": 0,
+      "live_health": {
+        "429_rate": 0.0,
+        "timeout_rate": 0.0,
+        "error_rate": 0.5
       },
       "contact_health": {
         "429_rate": 0.0,
