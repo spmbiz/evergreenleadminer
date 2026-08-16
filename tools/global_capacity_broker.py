@@ -10,6 +10,13 @@ Release also emits a repository_dispatch refill signal whenever the workload sti
 has useful demand, including the important zero-lease / zero-capacity case. This
 keeps the hot loop alive when a run was denied capacity and therefore had no real
 lease to release.
+
+Hospitality discovery is the source-of-growth lane. Its demand is derived from the
+same multi-lane planner used by the V1 autonomous fleet, not the older grid-only
+coverage heuristic. While discovery backlog exists, normal Intelligence V2 runs
+are capped to one hospitality slot so V2 cannot consume the base Hospitality
+share that should keep finding/recovering new accounts. Explicit manual V2 worker
+overrides remain available for canaries.
 """
 from __future__ import annotations
 
@@ -35,6 +42,45 @@ def _infer_workload(matched_leases: list[dict]) -> str:
     return ""
 
 
+def _hospitality_discovery_demand() -> int:
+    """Return the V1 multi-lane geographic backlog used by production planning.
+
+    This deliberately mirrors hospitality_multilane_plan's eligibility/ranking
+    inputs without selecting workers or touching canonical state. It fixes the
+    regression where the broker's older grid-only heuristic returned zero while
+    the production V1 planner still had hundreds of site-recovery work units.
+    """
+    try:
+        import hospitality_grid_plan as gp
+        import hospitality_multilane_plan as mp
+
+        coverage = (fr.load_json(v3.ROOT / "state/coverage.json", {}).get("shards") or {})
+        atlas_cfg = fr.load_json(v3.ROOT / "config/hospitality_world_atlas.json", {})
+        now = v3.now_utc()
+        useful = 0
+        for cell in mp.lane_catalog():
+            prior = coverage.get(cell["key"]) or {}
+            if gp.rank_cell(cell, prior, now, atlas_cfg, False) is not None:
+                useful += 1
+        return useful
+    except Exception:
+        # Never turn an inability to compute the new signal into false zero
+        # demand. Fall back to the broker's legacy signal instead.
+        try:
+            return max(0, int(v3.useful_hospitality_count() or 0))
+        except Exception:
+            return 1
+
+
+def _effective_local_demand() -> dict:
+    demand = dict(v3.local_demand() or {})
+    demand["hospitality"] = max(
+        int(demand.get("hospitality", 0) or 0),
+        _hospitality_discovery_demand(),
+    )
+    return demand
+
+
 def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: int) -> dict:
     if workload not in {"hospitality", "gws"}:
         return {"emitted": False, "reason": "unknown_workload"}
@@ -47,7 +93,7 @@ def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: i
     if not bool(workload_cfg.get("enabled", True)):
         return {"emitted": False, "reason": "workload_disabled"}
 
-    demand = v3.local_demand()
+    demand = _effective_local_demand()
     useful = int(demand.get(workload, 0) or 0)
     if useful <= 0:
         return {"emitted": False, "reason": "no_useful_demand", "demand": useful}
@@ -98,26 +144,43 @@ def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: i
 
 
 def _reserve_with_optional_demand_override(args) -> None:
-    """Let a sub-lane declare bounded real demand without bypassing fair-share.
+    """Reserve capacity with truthful V1 demand and V1-before-V2 priority.
 
     The v3 broker still owns all physical-capacity accounting, sibling headroom,
-    max_slots and borrowing rules. This only raises the current workload's demand
-    signal to the explicitly requested bounded value, which is useful for a
-    hospitality intelligence backlog that is distinct from discovery backlog.
+    max_slots and borrowing rules. A sub-lane may raise its own bounded demand via
+    --demand-override, but it cannot erase the real V1 discovery backlog.
     """
     override = max(0, int(getattr(args, "demand_override", 0) or 0))
-    if override <= 0:
-        v3.reserve(args)
-        return
+    discovery_demand = _hospitality_discovery_demand()
+
+    # Intelligence V2 is downstream of discovery. As long as V1 still has useful
+    # geographic/recovery work, keep normal V2 to one slot so V1 can own the base
+    # Hospitality share and borrow elastic capacity. An explicit manual worker
+    # override remains a deliberate operator canary escape hatch.
+    workflow = str(os.environ.get("GITHUB_WORKFLOW") or "").lower()
+    manual_v2_workers = max(0, int(os.environ.get("MAX_WORKERS_INPUT") or 0))
+    if (
+        args.workload == "hospitality"
+        and "intelligence" in workflow
+        and discovery_demand > 0
+        and manual_v2_workers <= 0
+    ):
+        args.requested = min(max(0, int(args.requested)), 1)
+        override = min(override, 1) if override > 0 else 0
 
     original_local_demand = v3.local_demand
 
-    def local_demand_with_override():
+    def local_demand_with_truthful_hospitality():
         demand = dict(original_local_demand() or {})
-        demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
+        demand["hospitality"] = max(
+            int(demand.get("hospitality", 0) or 0),
+            discovery_demand,
+        )
+        if override > 0:
+            demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
         return demand
 
-    v3.local_demand = local_demand_with_override
+    v3.local_demand = local_demand_with_truthful_hospitality
     try:
         v3.reserve(args)
     finally:
