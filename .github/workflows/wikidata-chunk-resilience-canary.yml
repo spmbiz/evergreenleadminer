@@ -1,0 +1,63 @@
+name: Wikidata Hospitality Chunk Resilience Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/wikidata_chunk_canary.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wikidata-hospitality-chunk-resilience-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check requests
+      - name: Restore read-only canonical snapshot
+        run: |
+          mkdir -p canary/canonical canary/out
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical.sqlite' --dir canary/canonical --clobber
+          python - <<'PY'
+          import gzip,sqlite3
+          db='canary/canonical/hospitality-canonical.sqlite'
+          con=sqlite3.connect(db)
+          domains=sorted({str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''") if r and str(r[0]).strip()})
+          con.close()
+          if len(domains)<10000: raise SystemExit('canonical snapshot too small')
+          with gzip.open('canary/canonical-domains.txt.gz','wt',encoding='utf-8') as f:
+              for d in domains:f.write(d+'\n')
+          print({'canonical_domains':len(domains)})
+          PY
+          rm -rf canary/canonical
+      - name: Query Canada with smaller chunks
+        run: |
+          python tools/hospitality_wikidata_source.py \
+            --country-qid Q16 \
+            --country Canada \
+            --country-code CA \
+            --offset 0 \
+            --limit 300 \
+            --chunk-size 75 \
+            --attempts 3 \
+            --canonical-domains canary/canonical-domains.txt.gz \
+            --outdir canary/out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wikidata-chunk-resilience-${{ github.run_id }}
+          path: canary/out/
+          if-no-files-found: warn
+          retention-days: 2
