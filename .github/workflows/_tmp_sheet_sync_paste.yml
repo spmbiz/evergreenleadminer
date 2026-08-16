@@ -1,0 +1,42 @@
+name: tmp-sheet-sync-paste
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_sheet_sync_paste.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build 10-row TSV paste blocks from current compact batch
+        shell: python
+        run: |
+          import csv, json, pathlib, shutil
+          src=pathlib.Path('gpt/_tmp_sheet_sync_batch.tsv')
+          out=pathlib.Path('gpt/_tmp_sync_paste')
+          if out.exists(): shutil.rmtree(out)
+          out.mkdir(parents=True)
+          with src.open(encoding='utf-8',newline='') as f:
+            rows=list(csv.reader(f,delimiter='\t'))
+          header=rows[0]; data=rows[1:]
+          blocks=[]
+          for i in range(0,len(data),10):
+            block=data[i:i+10]
+            p=out/f'block-{i//10:03d}.tsv'
+            with p.open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f,delimiter='\t',lineterminator='\n',quoting=csv.QUOTE_MINIMAL)
+              w.writerows(block)
+            blocks.append({'file':str(p),'start_row':2+i,'records':len(block)})
+          (out/'header.tsv').write_text('\t'.join(header)+'\n',encoding='utf-8')
+          (out/'manifest.json').write_text(json.dumps({'records':len(data),'blocks':blocks},indent=2),encoding='utf-8')
+      - name: Commit blocks
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gpt/_tmp_sync_paste
+          git commit -m 'chore: stage deterministic sync paste blocks [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push
