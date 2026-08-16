@@ -5,7 +5,7 @@ import argparse, json
 from pathlib import Path
 from urllib.parse import urlparse
 
-ADAPTER_VERSION='gws-residential-semantic-v1'
+ADAPTER_VERSION='gws-residential-semantic-v2'
 
 
 def host(u):
@@ -24,7 +24,7 @@ def main():
         status=str(ev.get('status') or ''); url=str(ev.get('owned_site') or '')
         direct=[]
         for d in ev.get('direct_evidence') or []:
-            direct.append({'seed':d.get('url'),'final':d.get('url'),'status':200 if d.get('ok') else 0,'ok':bool(d.get('ok')),'identity':{'matched':bool(d.get('matched')),'match_mode':'residential_direct_identity','page_name_overlap':d.get('name_overlap'),'address_overlap':d.get('address_overlap'),'postcode_match':d.get('postcode_hit'),'phone_exact':d.get('phone_hit')}})
+            direct.append({'seed':d.get('url'),'final':d.get('url'),'status':200 if d.get('ok') else 0,'ok':bool(d.get('ok')),'identity':{'matched':bool(d.get('matched')),'match_mode':'residential_page_identity_presence_not_ownership','page_name_overlap':d.get('name_overlap'),'address_overlap':d.get('address_overlap'),'postcode_match':d.get('postcode_hit'),'phone_exact':d.get('phone_hit')}})
         if status=='OWNED_SITE_CONFIRMED' and url:
             outcome='MEDIUM'; verification_status='MEDIUM'; reason='RESIDENTIAL_SITE_CANDIDATE_REQUIRES_OWNERSHIP_RESOLUTION'
             candidates=[url]
