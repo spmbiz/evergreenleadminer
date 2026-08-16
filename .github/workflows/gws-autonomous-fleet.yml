@@ -11,9 +11,12 @@ on:
       - 'config/providers.json'
       - 'config/gws_fleet.json'
       - 'config/gws_sources.json'
+      - 'config/gws_search_verify.json'
       - 'tools/gws_fleet_*.py'
       - 'tools/gws_source_*.py'
       - 'tools/gws_worker_postprocess.py'
+      - 'tools/gws_search_*.py'
+      - 'tools/start_openserp_ci.sh'
       - '.github/workflows/gws-autonomous-fleet.yml'
 
 permissions:
@@ -115,14 +118,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install worker dependency only
-        run: python -m pip install --disable-pip-version-check duckdb
+      - name: Install worker and search dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10'
       - name: Download shared discovery reservoir and plan
         uses: actions/download-artifact@v4
         with:
           name: gws-fleet-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: results/fleet_plan
-      - name: Run provider-neutral GWS shard
+      - name: Start hosted OpenSERP if available
+        id: openserp
+        shell: bash
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then
+            echo 'url=http://127.0.0.1:7000' >> "$GITHUB_OUTPUT"
+            echo 'mode=openserp_ci' >> "$GITHUB_OUTPUT"
+          else
+            echo 'url=' >> "$GITHUB_OUTPUT"
+            echo 'mode=fallback_search_fabric' >> "$GITHUB_OUTPUT"
+            echo 'OpenSERP unavailable; GWS continues with DDGS/SearXNG exclusion-only fallback.'
+          fi
+          exit 0
+      - name: Run provider-neutral GWS shard plus strict search verification
         env:
           TASK_ID: ${{ matrix.task_id }}
           WORKLOAD_ID: ${{ matrix.workload_id }}
@@ -133,11 +150,12 @@ jobs:
           MAX_SERIOUS: ${{ matrix.max_serious }}
           LEASE_ID: ${{ matrix.lease_id }}
           LEASE_EXPIRES_AT: ${{ matrix.lease_expires_at }}
+          OPENSERP_URL: ${{ steps.openserp.outputs.url }}
         run: |
           set -o pipefail
           out="results/shards/${LEASE_ID}"
           python -c 'import os; print("github_cpu_count=", os.cpu_count(), "duckdb_threads=16")'
-          python tools/gws_fleet_worker.py \
+          python tools/gws_fleet_worker_search_ready.py \
             --task-id "$TASK_ID" \
             --workload-id "$WORKLOAD_ID" \
             --territory "$TERRITORY" \
@@ -151,6 +169,7 @@ jobs:
             --outdir "$out" \
             --threads 16
           python tools/gws_worker_postprocess.py --shard-dir "$out"
+          python tools/gws_search_verify.py --shard-dir "$out" --config config/gws_search_verify.json
       - name: Upload one-day shard transport
         if: always()
         uses: actions/upload-artifact@v4
