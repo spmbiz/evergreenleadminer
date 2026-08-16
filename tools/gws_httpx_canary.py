@@ -51,7 +51,7 @@ def normalize_candidate(value: Any) -> list[str]:
         if not s:
             return vals
         # Some persisted fields contain JSON arrays encoded as strings.
-        if s[:1] in "[{"):
+        if s[:1] in "[{":
             try:
                 return normalize_candidate(json.loads(s))
             except Exception:
