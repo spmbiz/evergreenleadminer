@@ -1,0 +1,34 @@
+{
+  "schema": "HOSPITALITY_WIKIDATA_SOURCE_V1",
+  "enabled": true,
+  "production_enabled": false,
+  "canary_enabled": true,
+  "policy": {
+    "source_slot_cap_per_cycle": 1,
+    "revisit_hours": 168,
+    "limit_per_shard": 300,
+    "timeout_seconds": 30,
+    "contact_workers": 24,
+    "local_workers": 32,
+    "canonical_mutation": "single-writer aggregate only after promotion"
+  },
+  "classes": [
+    {"qid": "Q27686", "label": "hotel"},
+    {"qid": "Q875157", "label": "resort"}
+  ],
+  "countries": [
+    {"qid": "Q30", "country": "United States", "code": "US", "priority": 100},
+    {"qid": "Q16", "country": "Canada", "code": "CA", "priority": 90},
+    {"qid": "Q145", "country": "United Kingdom", "code": "GB", "priority": 90},
+    {"qid": "Q142", "country": "France", "code": "FR", "priority": 95},
+    {"qid": "Q29", "country": "Spain", "code": "ES", "priority": 95},
+    {"qid": "Q45", "country": "Portugal", "code": "PT", "priority": 90},
+    {"qid": "Q38", "country": "Italy", "code": "IT", "priority": 95},
+    {"qid": "Q41", "country": "Greece", "code": "GR", "priority": 90},
+    {"qid": "Q224", "country": "Croatia", "code": "HR", "priority": 85},
+    {"qid": "Q39", "country": "Switzerland", "code": "CH", "priority": 90},
+    {"qid": "Q40", "country": "Austria", "code": "AT", "priority": 85},
+    {"qid": "Q408", "country": "Australia", "code": "AU", "priority": 90},
+    {"qid": "Q664", "country": "New Zealand", "code": "NZ", "priority": 90}
+  ]
+}
