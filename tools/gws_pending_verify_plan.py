@@ -7,6 +7,10 @@ import math
 from pathlib import Path
 
 SOUTH=("Uccle","Ixelles","Saint-Gilles","Forest","Auderghem","Watermael-Boitsfort")
+# Only statuses that represent a completed strict-search disposition may suppress
+# an unchanged source fingerprint. PENDING_SEARCH_VERIFY must never disappear
+# from the queue merely because an aggregate checkpoint saw it.
+TERMINAL_SEARCH_STATUSES={"HIGH","MEDIUM","REJECT","DUPLICATE","UNCERTAIN","ERROR_HARD"}
 
 
 def load(path,default):
@@ -28,9 +32,15 @@ def main():
             if not key: continue
             r["source_batch"]=str(p); latest[key]=r
     rows=[]
+    suppressed_terminal=0; retryable_or_pending=0
     for key,r in latest.items():
         prior=index.get(key) or {}; fp=str(r.get("fingerprint") or "")
-        if prior.get("source_fingerprint")==fp and prior.get("verification_status") not in {"ERROR_RETRYABLE","SEARCH_INCOMPLETE"}: continue
+        prior_status=str(prior.get("verification_status") or "").strip().upper()
+        if prior.get("source_fingerprint")==fp and prior_status in TERMINAL_SEARCH_STATUSES:
+            suppressed_terminal+=1
+            continue
+        if prior_status in {"PENDING_SEARCH_VERIFY","ERROR_RETRYABLE","SEARCH_INCOMPLETE",""}:
+            retryable_or_pending+=1
         if r.get("outcome")=="REJECT": continue
         rows.append(r)
     rows.sort(key=lambda r:(0 if str(r.get("territory") or "") in SOUTH else 1, str(r.get("territory") or ""), str(r.get("hub_name") or "")))
@@ -38,20 +48,20 @@ def main():
     eligible_total=len(rows)
     per_worker=max(1,int(a.per_worker))
     workers=min(max(0,int(a.max_workers)), math.ceil(eligible_total/per_worker)) if rows else 0
-    # Keep each strict search worker bounded. Unselected rows remain untouched in
-    # gpt/gws_pending_batches.json and are picked up by the next cycle.
     selected=rows[:workers*per_worker] if workers else []
 
     out=Path(a.outdir); out.mkdir(parents=True,exist_ok=True)
     (out/"pending.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in selected),encoding="utf-8")
     matrix={"include":[{"worker_index":i,"worker_count":workers} for i in range(workers)]}
     plan={
-        "schema_version":2,
+        "schema_version":3,
         "eligible":eligible_total,
         "selected":len(selected),
         "deferred":max(0,eligible_total-len(selected)),
         "workers":workers,
         "per_worker_target":per_worker,
+        "suppressed_terminal":suppressed_terminal,
+        "retryable_or_pending_seen":retryable_or_pending,
         "south_priority":list(SOUTH),
         "matrix":matrix,
     }
