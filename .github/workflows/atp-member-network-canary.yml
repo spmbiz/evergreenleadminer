@@ -1,0 +1,83 @@
+name: ATP Member Hotel Network Canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'control/atp_member_network_canary.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atp-member-hotel-network-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check requests ijson
+      - name: Restore read-only canonical snapshot
+        run: |
+          mkdir -p canary/canonical
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical.sqlite' --dir canary/canonical --clobber
+          python - <<'PY'
+          import gzip,sqlite3
+          db='canary/canonical/hospitality-canonical.sqlite'
+          con=sqlite3.connect(db)
+          domains=sorted({str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''") if r and str(r[0]).strip()})
+          con.close()
+          if len(domains)<10000: raise SystemExit('canonical snapshot too small')
+          with gzip.open('canary/canonical-domains.txt.gz','wt',encoding='utf-8') as f:
+              for d in domains:f.write(d+'\n')
+          print({'canonical_domains':len(domains)})
+          PY
+          rm -rf canary/canonical
+      - name: Run member-network canaries
+        run: |
+          set -euo pipefail
+          for spider in romantik_hotels_and_restaurants akzent_hotels_de; do
+            mkdir -p "canary/$spider"
+            python tools/atp_spider_hospitality.py --spider "$spider" --outdir "canary/$spider"
+            python tools/filter_canonical_domains.py \
+              --input "canary/$spider/v6_fast_ready.csv" \
+              --domains canary/canonical-domains.txt.gz \
+              --stats "canary/$spider/canonical_prefilter.json"
+            python tools/v6_live_verify.py \
+              --input "canary/$spider/v6_fast_ready.csv" \
+              --outdir "canary/$spider" \
+              --workers 32 \
+              --timeout 8
+          done
+      - name: Summarize canary evidence
+        run: |
+          python - <<'PY'
+          import json
+          out={}
+          for spider in ('romantik_hotels_and_restaurants','akzent_hotels_de'):
+              root='canary/'+spider+'/'
+              out[spider]={
+                  'source':json.load(open(root+'atp_spider_summary.json')),
+                  'prefilter':json.load(open(root+'canonical_prefilter.json')),
+                  'live':json.load(open(root+'v6_live_summary.json')),
+              }
+          out['canonical_mutation']=False
+          open('canary/summary.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atp-member-network-canary-${{ github.run_id }}
+          path: canary/
+          if-no-files-found: error
+          retention-days: 3
