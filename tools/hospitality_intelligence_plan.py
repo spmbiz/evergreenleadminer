@@ -24,7 +24,7 @@ def main() -> None:
     ap.add_argument('--outdir', required=True)
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--max-accounts', type=int, default=0, help='Optional one-run cap; 0 keeps config value')
-    ap.add_argument('--max-workers', type=int, default=0, help='Optional one-run worker cap; 0 keeps config value')
+    ap.add_argument('--max-workers', type=int, default=0, help='Optional one-run worker cap; explicit values are honored for smoke/fanout validation')
     a = ap.parse_args()
 
     cfg = load_config(a.config)
@@ -42,10 +42,6 @@ def main() -> None:
     rows = list(ccon.execute('SELECT * FROM leads ORDER BY last_seen DESC'))
     ccon.close()
 
-    # Never let the additive intelligence lane normalize a catastrophically
-    # truncated canonical snapshot into the durable state. The classic harvester
-    # has tens of thousands of accounts; a tiny snapshot means restore/race
-    # damage, not a legitimate business delta.
     safety_floor = int(cfg.get('canonical_safety_floor') or 0)
     if safety_floor > 0 and len(rows) < safety_floor:
         plan = {
@@ -114,9 +110,20 @@ def main() -> None:
         candidates = candidates[:max_accounts]
 
     configured_max_workers = max(1, int(cfg.get('max_workers') or 10))
-    max_workers = min(configured_max_workers, max(1, int(a.max_workers))) if int(a.max_workers or 0) > 0 else configured_max_workers
+    explicit_workers = int(a.max_workers or 0)
+    max_workers = min(configured_max_workers, max(1, explicit_workers)) if explicit_workers > 0 else configured_max_workers
     shard_size = max(1, int(cfg.get('shard_size') or 250))
-    worker_count = min(max_workers, max(1, math.ceil(len(candidates) / shard_size))) if candidates else 0
+
+    if not candidates:
+        worker_count = 0
+    elif explicit_workers > 0:
+        # An explicit smoke/canary fanout is a request to validate parallelism,
+        # not merely a ceiling. Spread the bounded candidate set across as many
+        # requested workers as possible so 20x4 really means four ~5-row shards.
+        worker_count = min(max_workers, len(candidates))
+    else:
+        worker_count = min(max_workers, max(1, math.ceil(len(candidates) / shard_size)))
+
     if candidates and worker_count:
         shards = [[] for _ in range(worker_count)]
         for idx, rec in enumerate(candidates):
@@ -141,12 +148,13 @@ def main() -> None:
         'counts': counts,
         'config': {
             'max_workers': max_workers,
+            'explicit_workers': explicit_workers,
             'max_accounts': max_accounts,
             'shard_size': shard_size,
             'retry_hours': retry_hours,
             'refresh_days': refresh_days,
             'canonical_safety_floor': safety_floor,
-            'smoke_override': bool(int(a.max_accounts or 0) > 0 or int(a.max_workers or 0) > 0),
+            'smoke_override': bool(int(a.max_accounts or 0) > 0 or explicit_workers > 0),
         },
     }
     (out / 'plan.json').write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
