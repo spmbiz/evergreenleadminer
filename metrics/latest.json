@@ -1,47 +1,47 @@
 {
-  "cycle_id": "20260816T151355Z-github-multilane",
+  "cycle_id": "20260816T151632Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T15:15:20.077573Z",
-  "workers_completed": 6,
+  "finished_at": "2026-08-16T15:17:45.970665Z",
+  "workers_completed": 3,
   "workers_failed": 0,
-  "raw_discovered": 3163,
-  "live_ready_before_canonical_dedupe": 2,
-  "new_unique": 2,
+  "raw_discovered": 5023,
+  "live_ready_before_canonical_dedupe": 4,
+  "new_unique": 4,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 2,
+  "instagram_found": 1,
   "gpt_review_pending": 0,
   "errors": 0,
-  "peak_wall_seconds": 26.84,
-  "new_unique_per_worker_minute": 2.274,
-  "canonical_total": 31324,
+  "peak_wall_seconds": 17.53,
+  "new_unique_per_worker_minute": 7.641,
+  "canonical_total": 31328,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.11111,
-    "error_rate": 0.66667
+    "timeout_rate": 0.0,
+    "error_rate": 0.16667
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
-      "workers_completed": 6,
+      "workers_completed": 3,
       "workers_failed": 0,
-      "raw_discovered": 3163,
-      "fast_ready": 9,
-      "live_ready": 2,
-      "recovery_candidates": 11,
-      "recovered_public_emails": 1,
-      "contact_ready": 9,
-      "social_or_contact_without_email": 8,
-      "instagram_found": 2,
-      "facebook_found": 0,
+      "raw_discovered": 5023,
+      "fast_ready": 6,
+      "live_ready": 4,
+      "recovery_candidates": 6,
+      "recovered_public_emails": 0,
+      "contact_ready": 6,
+      "social_or_contact_without_email": 6,
+      "instagram_found": 1,
+      "facebook_found": 3,
       "live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.11111,
-        "error_rate": 0.66667
+        "timeout_rate": 0.0,
+        "error_rate": 0.16667
       },
       "contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.09091,
+        "timeout_rate": 0.0,
         "error_rate": 0.0
       }
     }
