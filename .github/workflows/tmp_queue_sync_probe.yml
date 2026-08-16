@@ -1,0 +1,65 @@
+name: Temporary queue sync probe
+
+on:
+  push:
+    paths:
+      - '.github/workflows/tmp_queue_sync_probe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build compact queue probe
+        run: |
+          python - <<'PY'
+          import csv, json, pathlib
+          files = [
+            'gpt/sheet_sync_queue/delta-github-run-31858542247-031.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31858542247-032.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-001.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-002.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-003.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-004.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-005.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-006.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-007.jsonl',
+            'gpt/sheet_sync_queue/delta-github-run-31861026561-008.jsonl',
+          ]
+          fields = ['source_file','line','source_ref','name','market','country','category','domain','phone','website','email','contact_page','instagram','facebook','whatsapp','portfolio_url','fit_tier','live_status','kind']
+          out=[]; counts={}
+          for fp in files:
+            p=pathlib.Path(fp)
+            rows=[]
+            if p.exists():
+              for i,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+                if not line.strip(): continue
+                r=json.loads(line)
+                rows.append({
+                  'source_file':p.name,'line':i,
+                  'source_ref':r.get('source_record_id') or (('overture:'+str(r.get('overture_id'))) if r.get('overture_id') else ''),
+                  'name':r.get('name',''),'market':r.get('city') or r.get('region',''),'country':r.get('country',''),'category':r.get('category',''),
+                  'domain':r.get('domain',''),'phone':r.get('public_phone',''),'website':r.get('website',''),'email':r.get('public_email',''),
+                  'contact_page':r.get('contact_page',''),'instagram':r.get('instagram',''),'facebook':r.get('facebook',''),'whatsapp':r.get('whatsapp',''),'portfolio_url':r.get('portfolio_url',''),
+                  'fit_tier':r.get('fit_tier',''),'live_status':r.get('live_status',''),'kind':r.get('_sheet_sync_kind','')
+                })
+            counts[p.name]=len(rows); out.extend(rows)
+          pathlib.Path('control').mkdir(exist_ok=True)
+          with open('control/queue_sync_probe.csv','w',newline='',encoding='utf-8') as f:
+            w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(out)
+          pathlib.Path('control/queue_sync_probe_manifest.json').write_text(json.dumps({'files':counts,'records':len(out)},indent=2),encoding='utf-8')
+          print(json.dumps({'files':counts,'records':len(out)},indent=2))
+          PY
+      - name: Commit probe outputs
+        run: |
+          git config user.name 'queue-sync-probe[bot]'
+          git config user.email 'queue-sync-probe[bot]@users.noreply.github.com'
+          git add control/queue_sync_probe.csv control/queue_sync_probe_manifest.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: temporary queue sync probe output'
+          git push
