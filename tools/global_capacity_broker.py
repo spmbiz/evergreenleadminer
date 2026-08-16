@@ -97,6 +97,33 @@ def _emit_refill(repo: str, workload: str, source_run_id: str, released_slots: i
         }
 
 
+def _reserve_with_optional_demand_override(args) -> None:
+    """Let a sub-lane declare bounded real demand without bypassing fair-share.
+
+    The v3 broker still owns all physical-capacity accounting, sibling headroom,
+    max_slots and borrowing rules. This only raises the current workload's demand
+    signal to the explicitly requested bounded value, which is useful for a
+    hospitality intelligence backlog that is distinct from discovery backlog.
+    """
+    override = max(0, int(getattr(args, "demand_override", 0) or 0))
+    if override <= 0:
+        v3.reserve(args)
+        return
+
+    original_local_demand = v3.local_demand
+
+    def local_demand_with_override():
+        demand = dict(original_local_demand() or {})
+        demand[args.workload] = max(int(demand.get(args.workload, 0) or 0), override)
+        return demand
+
+    v3.local_demand = local_demand_with_override
+    try:
+        v3.reserve(args)
+    finally:
+        v3.local_demand = original_local_demand
+
+
 def release(args):
     state = v3.load_remote_state(args.repo)
     all_leases = list(state.get("leases") or [])
@@ -125,6 +152,8 @@ def main():
     p = sp.add_parser("reserve")
     p.add_argument("--workload", choices=("hospitality", "gws"), required=True)
     p.add_argument("--requested", type=int, required=True)
+    p.add_argument("--demand-override", type=int, default=0,
+                   help="Optional bounded current-workload demand floor; fair-share/max-slot rules still apply")
     p.add_argument("--run-id", required=True)
     p.add_argument("--owner", default="walidgdg1-ai")
     p.add_argument("--repo", default="walidgdg1-ai/evergreenleadminer")
@@ -141,7 +170,7 @@ def main():
 
     args = ap.parse_args()
     if args.cmd == "reserve":
-        v3.reserve(args)
+        _reserve_with_optional_demand_override(args)
     elif args.cmd == "release":
         release(args)
     else:
