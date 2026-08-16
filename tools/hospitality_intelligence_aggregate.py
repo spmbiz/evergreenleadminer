@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
+import subprocess
 from pathlib import Path
 
 from hospitality_intelligence_db import connect, search_id_for_result, utcnow
@@ -25,6 +27,39 @@ def iter_jsonl(root: Path, name: str):
                     yield json.loads(line)
 
 
+def require_complete_github_matrix() -> dict:
+    """Prevent `if: always()` from aggregating a cancelled/failed worker matrix.
+
+    In GitHub Actions, aggregate can still be scheduled after a failed or cancelled
+    matrix. Query the authoritative run job list and require every intelligence
+    matrix job to have concluded successfully before any ledger mutation.
+    Local tests do not have GITHUB_RUN_ID/GITHUB_REPOSITORY and skip this gate.
+    """
+    repo = os.environ.get('GITHUB_REPOSITORY', '').strip()
+    run_id = os.environ.get('GITHUB_RUN_ID', '').strip()
+    if not repo or not run_id:
+        return {'checked': False, 'reason': 'not_github_actions'}
+    proc = subprocess.run(
+        ['gh', 'api', f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100'],
+        text=True, capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f'REFUSING_PARTIAL_INTELLIGENCE_AGGREGATE: cannot inspect run jobs: {(proc.stderr or "")[-400:]}')
+    payload = json.loads(proc.stdout or '{}')
+    jobs = payload.get('jobs') or []
+    matrix = [j for j in jobs if str(j.get('name') or '').startswith('intelligence (')]
+    if not matrix:
+        raise SystemExit('REFUSING_PARTIAL_INTELLIGENCE_AGGREGATE: no intelligence matrix jobs found')
+    bad = [
+        {'name': j.get('name'), 'status': j.get('status'), 'conclusion': j.get('conclusion')}
+        for j in matrix
+        if j.get('status') != 'completed' or j.get('conclusion') != 'success'
+    ]
+    if bad:
+        raise SystemExit('REFUSING_PARTIAL_INTELLIGENCE_AGGREGATE: ' + json.dumps(bad, ensure_ascii=False)[:1800])
+    return {'checked': True, 'matrix_jobs': len(matrix), 'all_success': True}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--results-root', required=True)
@@ -33,6 +68,7 @@ def main() -> None:
     ap.add_argument('--outdir', required=True)
     a = ap.parse_args()
 
+    matrix_gate = require_complete_github_matrix()
     root = Path(a.results_root)
     out = Path(a.outdir)
     out.mkdir(parents=True, exist_ok=True)
@@ -48,6 +84,13 @@ def main() -> None:
             worker_summaries.append(json.loads(p.read_text(encoding='utf-8')))
         except Exception:
             pass
+
+    if matrix_gate.get('checked') and len(worker_summaries) != int(matrix_gate.get('matrix_jobs') or 0):
+        con.close()
+        raise SystemExit(
+            f"REFUSING_PARTIAL_INTELLIGENCE_AGGREGATE: matrix_jobs={matrix_gate.get('matrix_jobs')} "
+            f"worker_summaries={len(worker_summaries)}"
+        )
 
     canonical_delta = []
     review = []
@@ -189,6 +232,7 @@ def main() -> None:
         'qwen_unavailable': sum(int(x.get('qwen_unavailable') or 0) for x in worker_summaries),
         'worker_errors': sum(int(x.get('errors') or 0) for x in worker_summaries),
         'gpt_review_candidates': len(review),
+        'matrix_jobs_verified': int(matrix_gate.get('matrix_jobs') or 0),
     }
     con.execute('''INSERT OR REPLACE INTO runs(run_id,started_at,finished_at,accounts_planned,accounts_processed,qwen_classified,qwen_unavailable,search_queries,assets_found,errors,metrics_json)
       VALUES(?,?,?,?,?,?,?,?,?,?,?)''', (a.run_id, None, now, len(account_rows), len(account_rows), totals['qwen_classified'], totals['qwen_unavailable'], len(search_events), len(asset_rows), totals['worker_errors'], json.dumps(totals)))
