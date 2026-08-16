@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 32,
-    "recent_error_rate": 0.0,
+    "recent_error_rate": 0.375,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T14:54:05.479318Z"
+    "last_updated": "2026-08-16T14:59:08.266858Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -71,17 +71,17 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 1,
+      "last_workers_completed": 3,
       "last_workers_failed": 0,
-      "last_raw_discovered": 0,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
-      "last_recovered_public_emails": 0,
+      "last_raw_discovered": 3014,
+      "last_fast_ready": 8,
+      "last_live_ready": 4,
+      "last_recovery_candidates": 9,
+      "last_recovered_public_emails": 2,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.375
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -89,8 +89,8 @@
         "error_rate": 0.0
       },
       "recommended_contact_workers": 32,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0
+      "last_contact_ready": 8,
+      "last_social_or_contact_without_email": 6
     }
   }
 }
