@@ -233,7 +233,7 @@ jobs:
           fi
       - name: Hot-refill after gates while useful semantic backlog remains
         run: |
-          python -c "import json; s=json.load(open('state/gws_semantic_rollout.json')); stage=s.get('stage',''); last=s.get('last_run') or {}; backlog=s.get('backlog') or {}; processed=int(last.get('processed') or 0); live=int(backlog.get('eligible_live') or 0); print('1' if stage=='benchmark' or (stage=='production' and live>processed) else '0')" > /tmp/gws_semantic_refill
+          python -c "import json; s=json.load(open('state/gws_semantic_rollout.json')); stage=s.get('stage',''); last=s.get('last_run') or {}; backlog=s.get('backlog') or {}; processed=int(last.get('processed') or 0); live=int(backlog.get('eligible_live') or 0); print('1' if ((stage in {'benchmark','benchmark_waiting'} and live>0) or (stage=='production' and live>processed)) else '0')" > /tmp/gws_semantic_refill
           if [ "$(cat /tmp/gws_semantic_refill)" = "1" ]; then
             gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=gws_semantic_refill
           fi
