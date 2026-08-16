@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 
 from hospitality_intelligence_db import connect, material_hash
@@ -40,9 +41,11 @@ class HospitalityIntelligenceV2Tests(unittest.TestCase):
             canonical, intel, out = td/'canonical.sqlite', td/'intel.sqlite', td/'plan'
             self.make_canonical(canonical)
             cfg = td/'cfg.json'; cfg.write_text(json.dumps({'enabled':True,'max_workers':10,'shard_size':50,'retry_hours':48,'refresh_days':30,'max_accounts_per_pass':1000}))
-            subprocess.check_call([sys.executable, str(HERE/'hospitality_intelligence_plan.py'), '--canonical-db',str(canonical),'--intelligence-db',str(intel),'--config',str(cfg),'--outdir',str(out)], env={**os.environ,'PYTHONPATH':str(HERE)})
+            subprocess.check_call([sys.executable, str(HERE/'hospitality_intelligence_plan.py'), '--canonical-db',str(canonical),'--intelligence-db',str(intel),'--config',str(cfg),'--outdir',str(out),'--max-accounts','1','--max-workers','1'], env={**os.environ,'PYTHONPATH':str(HERE)})
             plan = json.loads((out/'plan.json').read_text())
             self.assertEqual(plan['accounts_planned'], 1)
+            self.assertEqual(plan['worker_count'], 1)
+            self.assertTrue(plan['config']['smoke_override'])
             c = connect(intel)
             row = sqlite3.connect(canonical); row.row_factory=sqlite3.Row; lead=row.execute('select * from leads').fetchone(); row.close()
             mh = material_hash(lead)
@@ -85,6 +88,45 @@ class HospitalityIntelligenceV2Tests(unittest.TestCase):
             self.assertEqual(r['instagram'],'https://instagram.com/example')
             self.assertEqual(raw['property_count_known'],12)
             self.assertEqual(raw['intelligence_business_type'],'SHORT_STAY_OPERATOR')
+
+    def test_worker_to_aggregate_cli_smoke(self):
+        with tempfile.TemporaryDirectory() as td:
+            td=Path(td)
+            worker_out=td/'worker'; worker_out.mkdir()
+            rec={
+                'account_id':'acct:example.com','domain':'example.com','name':'Example Villas','country':'US','region':'Florida','city':'Miami',
+                'website':'','public_email':'','public_phone':'','instagram':'','operator_score':90,'premium_score':80,'fit_tier':'A',
+                'first_seen':'2026-01-01T00:00:00Z','last_seen':'2026-08-16T00:00:00Z','material_hash':'smoke','queue_reason':'NEW','raw':{}
+            }
+            inp=td/'input.jsonl'; inp.write_text(json.dumps(rec)+'\n')
+            cfg=td/'cfg.json'; cfg.write_text(json.dumps({
+                'qwen':{'enabled':False,'model_label':'qwen3-4b-q4_k_m','prompt_version':'smoke','batch_size':8},
+                'search':{'account_budget_per_worker':0,'max_queries_per_account':0},
+                'portfolio':{'workers':1,'timeout_seconds':1,'max_bytes_per_fetch':1000,'max_sitemaps':1,'max_sitemap_urls':1,'max_assets':1,'sample_count':1}
+            }))
+            subprocess.check_call([sys.executable,str(HERE/'hospitality_intelligence_worker.py'),'--input',str(inp),'--config',str(cfg),'--qwen-url','http://127.0.0.1:65534','--shard','smoke','--outdir',str(worker_out)], env={**os.environ,'PYTHONPATH':str(HERE)})
+            self.assertTrue((worker_out/'accounts.jsonl.gz').is_file())
+            self.assertTrue((worker_out/'summary.json').is_file())
+            intel=td/'intel.sqlite'; agg=td/'agg'
+            subprocess.check_call([sys.executable,str(HERE/'hospitality_intelligence_aggregate.py'),'--results-root',str(td),'--intelligence-db',str(intel),'--run-id','smoke','--outdir',str(agg)], env={**os.environ,'PYTHONPATH':str(HERE)})
+            self.assertTrue((agg/'summary.json').is_file())
+            self.assertTrue((agg/'canonical-intelligence-delta.jsonl.gz').is_file())
+            summary=json.loads((worker_out/'summary.json').read_text())
+            self.assertEqual(summary['accounts_processed'],1)
+            self.assertEqual(summary['qwen_unavailable'],1)
+
+    def test_workflow_contract_matches_python_contracts(self):
+        wf=(ROOT/'.github/workflows/hospitality-intelligence-v2.yml').read_text(encoding='utf-8')
+        self.assertNotIn('--worker-key', wf)
+        self.assertIn('--shard "${{ matrix.shard }}"', wf)
+        self.assertIn('--qwen-url "$QWEN_URL"', wf)
+        self.assertIn('--run-id "$INTEL_CYCLE_ID"', wf)
+        self.assertNotIn('--cycle-id "$INTEL_CYCLE_ID"', wf)
+        self.assertIn('canonical-intelligence-delta.jsonl.gz', wf)
+        self.assertNotIn('canonical-fill-delta.jsonl.gz', wf)
+        self.assertIn('aggregate_out/summary.json', wf)
+        self.assertIn('hospitality-intelligence-ledger-writer', wf)
+        self.assertIn('hospitality-canonical-writer', wf)
 
 
 if __name__ == '__main__':
