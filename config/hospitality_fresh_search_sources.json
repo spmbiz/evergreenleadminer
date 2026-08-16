@@ -1,16 +1,30 @@
 {
   "schema": "HOSPITALITY_FRESH_SEARCH_SOURCES_V1",
   "enabled": true,
-  "production_enabled": false,
+  "production_enabled": true,
   "policy": {
     "benchmark_first": true,
-    "canonical_mutation": false,
+    "canonical_mutation": "single-writer aggregate only",
+    "source_slot_cap_per_cycle": 2,
+    "production_shard_query_count": 30,
+    "revisit_hours": 24,
     "max_queries_per_canary": 30,
     "max_results_per_query": 8,
     "timeout_seconds": 12,
     "provider_delay_seconds": 0.05,
     "stop_after_first_successful_provider": true,
     "target_geographies": "US + Western Europe premium short-stay markets",
+    "promotion_evidence": {
+      "run_id": 31955576484,
+      "raw_search_results": 132,
+      "canonical_unseen_candidate_domains": 55,
+      "live_ready": 50,
+      "recovered_public_emails": 23,
+      "instagram_found": 40,
+      "facebook_found": 35,
+      "unseen_to_live_ready_rate": 0.9091,
+      "provider_error_rate": 0.1549
+    },
     "promotion_gate": {
       "min_unseen_live_ready": 8,
       "min_unseen_live_ready_rate": 0.04,
@@ -94,6 +108,14 @@
     "google.com",
     "bing.com",
     "duckduckgo.com",
-    "yelp.com"
+    "yelp.com",
+    "lodgify.com",
+    "guesty.com",
+    "hostaway.com",
+    "rentbyhost.com",
+    "rentbyowner.com",
+    "luxurytravelmagazine.com",
+    "lajollamom.com",
+    "experiencescottsdale.com"
   ]
 }
