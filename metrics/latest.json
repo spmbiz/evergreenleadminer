@@ -1,47 +1,47 @@
 {
-  "cycle_id": "20260816T150243Z-github-multilane",
+  "cycle_id": "20260816T150626Z-github-multilane",
   "provider": "github",
-  "finished_at": "2026-08-16T15:05:25.633044Z",
+  "finished_at": "2026-08-16T15:07:48.895687Z",
   "workers_completed": 4,
   "workers_failed": 0,
-  "raw_discovered": 13247,
-  "live_ready_before_canonical_dedupe": 8,
-  "new_unique": 8,
+  "raw_discovered": 4370,
+  "live_ready_before_canonical_dedupe": 2,
+  "new_unique": 2,
   "changed_existing": 0,
   "duplicates": 0,
-  "instagram_found": 4,
-  "gpt_review_pending": 2,
+  "instagram_found": 2,
+  "gpt_review_pending": 0,
   "errors": 0,
-  "peak_wall_seconds": 117.49,
-  "new_unique_per_worker_minute": 3.385,
-  "canonical_total": 31310,
+  "peak_wall_seconds": 38.96,
+  "new_unique_per_worker_minute": 1.926,
+  "canonical_total": 31312,
   "health": {
     "429_rate": 0.0,
-    "timeout_rate": 0.0,
-    "error_rate": 0.44
+    "timeout_rate": 0.14286,
+    "error_rate": 0.28571
   },
   "next_local_http_workers": 32,
   "lane_metrics": {
     "site_recovery": {
       "workers_completed": 4,
       "workers_failed": 0,
-      "raw_discovered": 13247,
-      "fast_ready": 25,
-      "live_ready": 8,
-      "recovery_candidates": 26,
+      "raw_discovered": 4370,
+      "fast_ready": 7,
+      "live_ready": 2,
+      "recovery_candidates": 8,
       "recovered_public_emails": 1,
-      "contact_ready": 25,
-      "social_or_contact_without_email": 24,
-      "instagram_found": 4,
-      "facebook_found": 4,
+      "contact_ready": 7,
+      "social_or_contact_without_email": 6,
+      "instagram_found": 2,
+      "facebook_found": 2,
       "live_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.0,
-        "error_rate": 0.44
+        "timeout_rate": 0.14286,
+        "error_rate": 0.28571
       },
       "contact_health": {
         "429_rate": 0.0,
-        "timeout_rate": 0.03846,
+        "timeout_rate": 0.125,
         "error_rate": 0.0
       }
     }
