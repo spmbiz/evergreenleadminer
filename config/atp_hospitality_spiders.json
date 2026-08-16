@@ -31,6 +31,24 @@
       "reason": "GREEN canary: 56 public members, 55 canonical-unknown before HTTP, 51 current live hospitality sites, 48 Instagram profiles."
     },
     {
+      "spider": "romantik_hotels_and_restaurants",
+      "enabled_for_canary": true,
+      "production_enabled": false,
+      "mode": "trusted_directory_contact",
+      "priority": 98,
+      "revisit_hours": 168,
+      "reason": "Read-only canary candidate: ATP sample exposes hotel-like member records with explicit public emails. Directory domain remains provenance only; member email domains must pass live verification."
+    },
+    {
+      "spider": "akzent_hotels_de",
+      "enabled_for_canary": true,
+      "production_enabled": false,
+      "mode": "trusted_directory_contact",
+      "priority": 97,
+      "revisit_hours": 168,
+      "reason": "Read-only canary candidate: ATP sample exposes hotel-like member records with explicit public emails. Directory domain remains provenance only; member email domains must pass live verification."
+    },
+    {
       "spider": "lhw",
       "enabled_for_canary": true,
       "production_enabled": false,
