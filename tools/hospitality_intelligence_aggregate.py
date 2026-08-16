@@ -27,6 +27,31 @@ def iter_jsonl(root: Path, name: str):
                     yield json.loads(line)
 
 
+def needs_gpt_review(r: dict) -> bool:
+    """Escalate only cases where GPT Web adds material value.
+
+    Normal confident FIT/STRONG_FIT accounts are persisted directly. GPT is for
+    uncertainty/contradiction/errors/unusual cases, plus unusually valuable
+    portfolio accounts where manual strategic review is worth the scarce lane.
+    """
+    classifier_error = bool(str(r.get('classifier_error') or '').strip())
+    uncertain_identity = str(r.get('entity_match') or '').upper() == 'UNCERTAIN'
+    low_confidence = float(r.get('confidence') or 0) < 0.65
+    contradictions = bool(r.get('contradictions') or [])
+    unusual = bool(r.get('unusual_or_novel'))
+    commercial = int(r.get('commercial_score') or 0)
+    leverage = int(r.get('portfolio_leverage_score') or 0)
+    properties = int(r.get('property_count_known') or 0)
+    materially_changed = str(r.get('queue_reason') or '').upper() == 'CHANGED'
+
+    exceptional_value = commercial >= 88 and (leverage >= 80 or properties >= 15)
+    changed_high_value = materially_changed and commercial >= 82
+    return bool(
+        classifier_error or uncertain_identity or low_confidence or contradictions or unusual
+        or exceptional_value or changed_high_value
+    )
+
+
 def require_complete_github_matrix() -> dict:
     """Refuse partial/cancelled worker matrices before ledger mutation.
 
@@ -178,10 +203,7 @@ def main() -> None:
             'commercial_score': int(r.get('commercial_score') or 0),
             'intelligence_processed_at': r.get('processed_at') or now,
         })
-        if (
-            r.get('fit_decision') in {'STRONG_FIT', 'FIT'} or r.get('unusual_or_novel') or
-            int(r.get('commercial_score') or 0) >= 70 or r.get('entity_match') == 'UNCERTAIN' or float(r.get('confidence') or 0) < 0.65
-        ):
+        if needs_gpt_review(r):
             review.append(r)
 
     for r in asset_rows:
@@ -223,15 +245,22 @@ def main() -> None:
           results=query_yield.results+excluded.results,updated_at=excluded.updated_at''',
           (provider, family, 1, 1 if status == 'OK' else 0, 0 if status in {'OK','DISABLED'} else 1, results, 0, now))
 
+    deterministic_classified = sum(int(x.get('deterministic_classified') or 0) for x in worker_summaries)
+    qwen_classified = sum(int(x.get('qwen_classified') or 0) for x in worker_summaries)
+    qwen_unavailable = sum(int(x.get('qwen_unavailable') or 0) for x in worker_summaries)
     totals = {
         'accounts_processed': len(account_rows),
         'assets_found': len(asset_rows),
         'search_results': len(search_rows),
         'search_provider_events': len(search_events),
-        'qwen_classified': sum(int(x.get('qwen_classified') or 0) for x in worker_summaries),
-        'qwen_unavailable': sum(int(x.get('qwen_unavailable') or 0) for x in worker_summaries),
+        'deterministic_classified': deterministic_classified,
+        'qwen_classified': qwen_classified,
+        'qwen_skipped_fast_path': deterministic_classified,
+        'qwen_unavailable': qwen_unavailable,
+        'semantic_classified_total': deterministic_classified + qwen_classified,
         'worker_errors': sum(int(x.get('errors') or 0) for x in worker_summaries),
         'gpt_review_candidates': len(review),
+        'gpt_review_rate': round(len(review) / max(1, len(account_rows)), 4),
         'matrix_jobs_verified': int(matrix_gate.get('matrix_jobs') or 0),
     }
     con.execute('''INSERT OR REPLACE INTO runs(run_id,started_at,finished_at,accounts_planned,accounts_processed,qwen_classified,qwen_unavailable,search_queries,assets_found,errors,metrics_json)
