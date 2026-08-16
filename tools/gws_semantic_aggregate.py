@@ -30,14 +30,21 @@ def worker_summaries(root):
 def resolution_route(sem,row):
     decision=str(sem.get('decision') or 'UNCERTAIN').upper()
     state=str(sem.get('website_state') or 'UNCERTAIN').upper()
+    host_class=str(row.get('candidate_host_class') or '').upper()
     try:conf=float(sem.get('confidence') or 0)
     except Exception:conf=0.0
+    # Hard deterministic semantics outrank model confidence. A directory/profile,
+    # dead/ancient/parked domain or explicit WRONG decision can never be routed as
+    # probable first-party ownership merely because the model also emitted PROBABLE.
+    if (
+        host_class in {'KNOWN_THIRD_PARTY','EDITORIAL_OR_PROFILE_PAGE'}
+        or decision=='WRONG'
+        or state in {'DIRECTORY_ONLY','ANCIENT_SITE','DEAD_SITE','PARKED_DOMAIN','FACEBOOK_ONLY'}
+    ):
+        return 'STRICT_NO_SITE_RECHECK'
     if row.get('candidate_url') and decision in {'MATCH','PROBABLE'} and conf>=0.80:
         return 'TARGETED_OWNERSHIP_RECHECK'
-    if decision=='WRONG' or state in {'DIRECTORY_ONLY','ANCIENT_SITE','DEAD_SITE','PARKED_DOMAIN','FACEBOOK_ONLY'}:
-        return 'STRICT_NO_SITE_RECHECK'
     return 'GPT_SEARCH_REVIEW'
-
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--root',required=True);ap.add_argument('--plan',required=True);ap.add_argument('--config',default='config/gws_semantic_v1.json');a=ap.parse_args()
     cfg=load(a.config,{});plan=load(a.plan,{});stage=str(plan.get('stage') or 'smoke');rows=list(worker_records(a.root));summ=list(worker_summaries(a.root));ts=now();date=ts[:10]
