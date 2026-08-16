@@ -103,13 +103,21 @@ def prepare(args):
     if stage=='smoke':
         n=int(rcfg.get('smoke_records') or 32); bsel,_,_=balanced_benchmark(bench,max(2,n//4)); selected=(live[:max(1,n-len(bsel))]+bsel)[:n]; desired=1; stage_shard_size=n
     elif stage in {'benchmark','benchmark_waiting'}:
-        n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=max(1,int(rcfg.get('benchmark_shard_size') or 20)); selected,_,_=balanced_benchmark(bench,n); desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
+        # Benchmark is a safety/calibration gate only. Qwen is shadow-only, so a
+        # shortage of trusted HIGH/REJECT examples must never freeze live
+        # MEDIUM/UNCERTAIN resolution. Take every available benchmark example,
+        # then fill the remaining batch with live unresolved cases.
+        n=int(rcfg.get('benchmark_records') or 250); stage_shard_size=max(1,int(rcfg.get('benchmark_shard_size') or 20))
+        bsel,_,_=balanced_benchmark(bench,n)
+        selected=(bsel+live[:max(0,n-len(bsel))])[:n]
+        desired=min(int(rcfg.get('benchmark_workers') or 2),max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='benchmark'
     else:
         stage_shard_size=max(1,int(rcfg.get('production_shard_size') or 80)); maxw=int(rcfg.get('production_max_workers') or 10); selected=live[:maxw*stage_shard_size]; desired=min(maxw,max(1,math.ceil(len(selected)/stage_shard_size))) if selected else 0; stage='production'
     out=Path(args.outdir);out.mkdir(parents=True,exist_ok=True)
     with (out/'selected.jsonl').open('w',encoding='utf-8') as f:
         for r in selected:f.write(json.dumps(r,ensure_ascii=False,default=str)+'\n')
-    plan={'enabled':bool(selected),'stage':stage,'eligible_live':len(live),'eligible_benchmark':len(bench),'benchmark_owned_site':owned_total,'benchmark_strict_no_site':no_site_total,'selected':len(selected),'desired_workers':desired,'stage_shard_size':stage_shard_size,'model':cfg['qwen']['model_label'],'prompt_version':cfg['qwen']['prompt_version']}
+    selected_benchmark=sum(bool(x.get('benchmark_expected')) for x in selected); selected_live=len(selected)-selected_benchmark
+    plan={'enabled':bool(selected),'stage':stage,'eligible_live':len(live),'eligible_benchmark':len(bench),'benchmark_owned_site':owned_total,'benchmark_strict_no_site':no_site_total,'selected':len(selected),'selected_live':selected_live,'selected_benchmark':selected_benchmark,'desired_workers':desired,'stage_shard_size':stage_shard_size,'model':cfg['qwen']['model_label'],'prompt_version':cfg['qwen']['prompt_version']}
     dump(out/'plan.json',plan);print('GWS_SEMANTIC_PLAN='+json.dumps(plan,separators=(',',':')))
     gh=os.environ.get('GITHUB_OUTPUT')
     if gh:
