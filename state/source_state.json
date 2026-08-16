@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "overture_hospitality_v6": {
-    "recommended_local_http_workers": 80,
+    "recommended_local_http_workers": 96,
     "recent_error_rate": 0.0,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T20:57:03.241565Z"
+    "last_updated": "2026-08-16T21:02:51.172430Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -73,9 +73,9 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 6,
+      "last_workers_completed": 8,
       "last_workers_failed": 0,
-      "last_raw_discovered": 64,
+      "last_raw_discovered": 282,
       "last_fast_ready": 0,
       "last_live_ready": 0,
       "last_recovery_candidates": 0,
@@ -118,13 +118,13 @@
     "wikidata_hospitality": {
       "last_workers_completed": 1,
       "last_workers_failed": 0,
-      "last_raw_discovered": 124,
-      "last_fast_ready": 61,
-      "last_live_ready": 59,
-      "last_recovery_candidates": 84,
-      "last_recovered_public_emails": 31,
-      "last_contact_ready": 61,
-      "last_social_or_contact_without_email": 30,
+      "last_raw_discovered": 300,
+      "last_fast_ready": 163,
+      "last_live_ready": 160,
+      "last_recovery_candidates": 246,
+      "last_recovered_public_emails": 102,
+      "last_contact_ready": 163,
+      "last_social_or_contact_without_email": 61,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
