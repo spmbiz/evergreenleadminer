@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T17:23:00Z",
+  "requested_at": "2026-08-16T17:28:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "fresh-search-long-tail-v3-inflight-refill-validation",
+  "mode": "fresh-search-v3-canonical-snapshot-guard-validation",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Validate V3 rotating long-tail catalog plus capped-source in-flight replacement. Normal broker/autoscaler, max 2 fresh slots, canonical single-writer only."
+  "note": "Validate V3 rotation plus canonical snapshot recovery/fail-closed guard under normal broker/autoscaler; max 2 fresh slots; single-writer canonical only."
 }
