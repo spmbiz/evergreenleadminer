@@ -2,11 +2,11 @@
   "schema_version": 1,
   "overture_hospitality_v6": {
     "recommended_local_http_workers": 96,
-    "recent_error_rate": 0.0,
+    "recent_error_rate": 0.01786,
     "recent_429_rate": 0.0,
     "recent_timeout_rate": 0.0,
     "last_release": "2026-06-17.0",
-    "last_updated": "2026-08-16T18:38:42.916006Z"
+    "last_updated": "2026-08-16T18:41:58.692911Z"
   },
   "hospitality_lanes": {
     "fast_email": {
@@ -71,17 +71,17 @@
       "last_social_or_contact_without_email": 0
     },
     "site_recovery": {
-      "last_workers_completed": 3,
+      "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 0,
-      "last_fast_ready": 0,
-      "last_live_ready": 0,
-      "last_recovery_candidates": 0,
-      "last_recovered_public_emails": 0,
+      "last_raw_discovered": 373,
+      "last_fast_ready": 4,
+      "last_live_ready": 3,
+      "last_recovery_candidates": 4,
+      "last_recovered_public_emails": 1,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
-        "error_rate": 0.0
+        "error_rate": 0.25
       },
       "last_contact_health": {
         "429_rate": 0.0,
@@ -89,19 +89,19 @@
         "error_rate": 0.0
       },
       "recommended_contact_workers": 16,
-      "last_contact_ready": 0,
-      "last_social_or_contact_without_email": 0
+      "last_contact_ready": 4,
+      "last_social_or_contact_without_email": 3
     },
     "fresh_search": {
       "last_workers_completed": 4,
       "last_workers_failed": 0,
-      "last_raw_discovered": 302,
-      "last_fast_ready": 21,
-      "last_live_ready": 21,
-      "last_recovery_candidates": 36,
-      "last_recovered_public_emails": 11,
-      "last_contact_ready": 21,
-      "last_social_or_contact_without_email": 10,
+      "last_raw_discovered": 344,
+      "last_fast_ready": 52,
+      "last_live_ready": 52,
+      "last_recovery_candidates": 65,
+      "last_recovered_public_emails": 25,
+      "last_contact_ready": 52,
+      "last_social_or_contact_without_email": 27,
       "last_live_health": {
         "429_rate": 0.0,
         "timeout_rate": 0.0,
