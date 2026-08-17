@@ -207,6 +207,8 @@ jobs:
         with:
           pattern: gws-fleet-shard-*
           path: results/shards
+      - name: Quarantine unproven owned-site rejects before single-writer
+        run: python tools/gws_fleet_preaggregate_ownership_guard.py --root results/shards
       - name: Persist regional discovery source state
         run: |
           python tools/gws_source_osm.py persist --plan-dir results/fleet_plan
