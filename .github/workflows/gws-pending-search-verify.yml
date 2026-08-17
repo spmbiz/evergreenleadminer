@@ -48,7 +48,7 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "Planning from durable main SHA $(git rev-parse HEAD)"
       - name: Preview useful pending-verification demand
-        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_preplan --max-workers 5 --per-worker 70
+        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_preplan --max-workers 15 --per-worker 70
       - id: reserve
         name: Reserve fair-share global GWS capacity
         env:
