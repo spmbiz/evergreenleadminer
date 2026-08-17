@@ -6,14 +6,14 @@
       "expected_worker_minutes": 1.0,
       "initial_parallel": 8,
       "last_429_rate": 0.0,
-      "last_autoscale_reason": "hold_cancelled_missing_excluded",
-      "last_cycle_useful_per_worker_minute": 764.2792,
-      "last_error_rate": 0.0,
-      "last_updated": "2026-08-17T14:43:31+00:00",
-      "last_useful_per_minute": 836.006,
+      "last_autoscale_reason": "backoff_errors",
+      "last_cycle_useful_per_worker_minute": 0.0,
+      "last_error_rate": 0.3333,
+      "last_updated": "2026-08-17T14:50:53+00:00",
+      "last_useful_per_minute": 0.0,
       "max_parallel": 10,
       "scale_step": 4,
-      "stable_parallel": 10
+      "stable_parallel": 6
     }
   },
   "schema_version": 1
