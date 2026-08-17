@@ -11,12 +11,46 @@ permissions:
   actions: write
   contents: write
 
-concurrency:
-  group: ai-prod-global-capacity-broker
-  cancel-in-progress: false
-
 jobs:
-  purge:
+  cancel_now:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Cancel stale runs immediately outside broker lock
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $cfg=Get-Content control\gws_cancel_run.json -Raw | ConvertFrom-Json
+          $ids=@()
+          if($null -ne $cfg.run_ids){ $ids=@($cfg.run_ids) }
+          elseif($null -ne $cfg.run_id){ $ids=@($cfg.run_id) }
+          foreach($target in $ids){
+            $target=[string]$target
+            if(-not $target){continue}
+            try {
+              Invoke-RestMethod -Method Post `
+                -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$target/cancel" `
+                -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} | Out-Null
+              Write-Host "HOME_CANCEL_REQUESTED=$target"
+            } catch {
+              Write-Host "HOME_CANCEL_NONFATAL=$target $($_.Exception.Message)"
+            }
+          }
+
+  release_leases:
+    needs: cancel_now
+    if: always()
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
     runs-on: [self-hosted, Windows, X64, gws-home]
     timeout-minutes: 10
     steps:
@@ -24,7 +58,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
-
       - name: Refresh current main and resolve local Python
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
@@ -46,8 +79,7 @@ jobs:
           if(-not $py){throw 'Usable local Python not found'}
           $py | Out-File -Encoding ascii .gws-capacity-python.txt
           Write-Host "GWS_CAPACITY_PURGE_PYTHON=$py"
-
-      - name: Cancel stale runs and release broker leases outside hosted pool
+      - name: Release stale broker leases under global single-writer lock
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,19 +94,10 @@ jobs:
           foreach($target in $ids){
             $target=[string]$target
             if(-not $target){continue}
-            try {
-              Invoke-RestMethod -Method Post `
-                -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$target/cancel" `
-                -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} | Out-Null
-              Write-Host "HOME_CANCEL_REQUESTED=$target"
-            } catch {
-              Write-Host "HOME_CANCEL_NONFATAL=$target $($_.Exception.Message)"
-            }
             & $py tools\global_capacity_broker.py release --run-id $target --repo $env:GITHUB_REPOSITORY
             if($LASTEXITCODE -ne 0){ throw "Broker lease release failed target=$target exit=$LASTEXITCODE" }
             Write-Host "HOME_LEASE_RELEASED_OR_ABSENT=$target"
           }
-
       - name: Read back broker release asset
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
@@ -86,7 +109,10 @@ jobs:
           $asset=$rel.assets | Where-Object {$_.name -eq 'global-capacity.json'} | Select-Object -First 1
           if(-not $asset){throw 'global-capacity.json release asset missing after purge'}
           $state=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/octet-stream';'X-GitHub-Api-Version'='2022-11-28'} -Uri $asset.url
-          $targets=@((Get-Content control\gws_cancel_run.json -Raw | ConvertFrom-Json).run_ids | ForEach-Object {[string]$_})
+          $cfg=Get-Content control\gws_cancel_run.json -Raw | ConvertFrom-Json
+          $targets=@()
+          if($null -ne $cfg.run_ids){$targets=@($cfg.run_ids | ForEach-Object {[string]$_})}
+          elseif($null -ne $cfg.run_id){$targets=@([string]$cfg.run_id)}
           $remaining=@($state.leases | Where-Object {$targets -contains [string]$_.run_id})
           $summary=[ordered]@{remaining_target_leases=$remaining.Count;remaining_total_leases=@($state.leases).Count;updated_at=$state.updated_at}
           Write-Host ('HOME_BROKER_READBACK='+($summary|ConvertTo-Json -Compress))
