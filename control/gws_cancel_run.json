@@ -1,6 +1,7 @@
 {
   "run_ids": [
+    31988317771,
     31991651388
   ],
-  "reason": "strict #124 predates 15-per-worker occupancy tuning and quarantined-HIGH priority; keep latest strict #125 only"
+  "reason": "purge any stale broker leases from old strict #117 and cancelled #124; both are superseded and must not consume spmbiz GWS capacity"
 }
