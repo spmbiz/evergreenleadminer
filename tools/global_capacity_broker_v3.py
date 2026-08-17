@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API = "https://api.github.com"
 STATE_TAG = "global-fleet-broker"
 STATE_ASSET = "global-capacity.json"
-TENDER_REPO = "walidgdg1-ai/tender-engine"
+TENDER_REPO = "spmbiz/tender-engine"
 LEASE_LAUNCH_GRACE_SECONDS = 120
 
 
@@ -51,7 +51,7 @@ def token():
 def req(url, method="GET", accept="application/vnd.github+json"):
     r = urllib.request.Request(url, method=method)
     r.add_header("Accept", accept)
-    r.add_header("User-Agent", "ai-prod-global-broker/3.0")
+    r.add_header("User-Agent", "ai-prod-global-broker/3.1")
     r.add_header("X-GitHub-Api-Version", "2022-11-28")
     if token():
         r.add_header("Authorization", f"Bearer {token()}")
@@ -177,7 +177,7 @@ def live_jobs(owner: str):
                 try:
                     r = urllib.request.Request(
                         f"{API}/repos/{full}/actions/runs?status={status_name}&per_page=30",
-                        headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/3.0"},
+                        headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-prod-global-broker/3.1"},
                     )
                     with urllib.request.urlopen(r, timeout=20) as x:
                         data = json.loads(x.read())
@@ -293,7 +293,7 @@ def reserve(args):
     cfg = fr.load_json(ROOT / "config/global_fleet.json", {})
     gh = cfg.get("github") or {}
     workloads = cfg.get("workloads") or {}
-    total = int(gh.get("capacity") or 20)
+    total = int(gh.get("capacity") or 60)
     ttl = int(gh.get("lease_ttl_minutes") or 55)
 
     state = load_remote_state(args.repo)
@@ -447,16 +447,16 @@ def main():
     p.add_argument("--workload", choices=("hospitality", "gws"), required=True)
     p.add_argument("--requested", type=int, required=True)
     p.add_argument("--run-id", required=True)
-    p.add_argument("--owner", default="walidgdg1-ai")
-    p.add_argument("--repo", default="walidgdg1-ai/evergreenleadminer")
+    p.add_argument("--owner", default="spmbiz")
+    p.add_argument("--repo", default="spmbiz/evergreenleadminer")
     p.add_argument("--out", required=True)
     p.add_argument("--dry-run", action="store_true")
     p = sp.add_parser("release")
     p.add_argument("--run-id", required=True)
-    p.add_argument("--repo", default="walidgdg1-ai/evergreenleadminer")
+    p.add_argument("--repo", default="spmbiz/evergreenleadminer")
     p = sp.add_parser("status")
-    p.add_argument("--owner", default="walidgdg1-ai")
-    p.add_argument("--repo", default="walidgdg1-ai/evergreenleadminer")
+    p.add_argument("--owner", default="spmbiz")
+    p.add_argument("--repo", default="spmbiz/evergreenleadminer")
     a = ap.parse_args()
     if a.cmd == "reserve":
         reserve(a)
