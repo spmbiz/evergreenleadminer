@@ -172,32 +172,44 @@ def scan() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return suspects, stats
 
 
+def _fresh_batch_path(batch_id: str) -> Path:
+    base = Path("gpt/gws_review") / f"ownership_recall_{batch_id}.jsonl"
+    if not base.exists():
+        return base
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = Path("gpt/gws_review") / f"ownership_recall_{batch_id}_{stamp}.jsonl"
+    n = 2
+    while candidate.exists():
+        candidate = Path("gpt/gws_review") / f"ownership_recall_{batch_id}_{stamp}_{n}.jsonl"
+        n += 1
+    return candidate
+
+
 def apply(rows: list[dict[str, Any]], batch_id: str) -> str | None:
     if not rows:
         return None
     batch_id = "".join(ch for ch in str(batch_id or "manual") if ch.isalnum() or ch in "-_")[:80] or "manual"
-    path = Path("gpt/gws_review") / f"ownership_recall_{batch_id}.jsonl"
+    path = _fresh_batch_path(batch_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True, default=str) + "\n" for r in rows), encoding="utf-8")
 
     pending = load_json("gpt/gws_pending_batches.json", {"schema_version": 1, "batches": [], "pending_records": 0})
-    if not any(str(b.get("batch") or "") == str(path) for b in pending.get("batches") or []):
-        now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
-        pending.setdefault("batches", []).append(
-            {
-                "batch": str(path),
-                "created_at": now,
-                "fleet_run_id": f"ownership-recall-{batch_id}",
-                "provider": "ownership_recovery",
-                "records": len(rows),
-                "reviewed_at": None,
-                "status": "pending",
-                "verification_remaining": len(rows),
-                "verification_total": len(rows),
-            }
-        )
-        pending["pending_records"] = int(pending.get("pending_records") or 0) + len(rows)
-        Path("gpt/gws_pending_batches.json").write_text(json.dumps(pending, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+    pending.setdefault("batches", []).append(
+        {
+            "batch": str(path),
+            "created_at": now,
+            "fleet_run_id": f"ownership-recall-{batch_id}",
+            "provider": "ownership_recovery",
+            "records": len(rows),
+            "reviewed_at": None,
+            "status": "pending",
+            "verification_remaining": len(rows),
+            "verification_total": len(rows),
+        }
+    )
+    pending["pending_records"] = int(pending.get("pending_records") or 0) + len(rows)
+    Path("gpt/gws_pending_batches.json").write_text(json.dumps(pending, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return str(path)
 
 
