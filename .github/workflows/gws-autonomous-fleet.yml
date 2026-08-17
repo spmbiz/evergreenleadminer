@@ -215,6 +215,10 @@ jobs:
           python tools/gws_source_overture.py persist --plan-dir results/fleet_plan
       - name: Single-writer dedupe, checkpoint and GPT handoff
         run: python tools/gws_fleet_aggregate.py --provider github --plan-dir results/fleet_plan --shards-root results/shards
+      - name: Exclude intentional cancellation gaps from source autoscale health
+        env:
+          HARVEST_NEEDS_RESULT: ${{ needs.harvest.result }}
+        run: python tools/gws_fleet_cancel_normalize.py --plan-dir results/fleet_plan --shards-root results/shards --harvest-result "$HARVEST_NEEDS_RESULT"
       - name: Persist durable GWS state and useful observations
         env:
           BRANCH: ${{ github.ref_name }}
