@@ -140,7 +140,7 @@ jobs:
             --worker-count ${{ matrix.worker_count }} \
             --outdir "$out" \
             --threads 8
-          python tools/gws_search_verify_ownership_safe.py --shard-dir "$out" --config config/gws_search_verify.json
+          python tools/gws_search_verify_source_safe.py --shard-dir "$out" --config config/gws_search_verify.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
