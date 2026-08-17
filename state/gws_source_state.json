@@ -3,34 +3,34 @@
   "sources": {
     "hub_brussels": {
       "api_total": 7174,
-      "last_changed": "2026-08-16T23:11:17+00:00",
-      "last_seen": "2026-08-17T03:46:53+00:00",
+      "last_changed": "2026-08-17T07:46:28+00:00",
+      "last_seen": "2026-08-17T07:46:28+00:00",
       "materialized": 7174,
-      "persisted_snapshot": "data/gws/source/hub_brussels_20260816T231117Z_b1c1987d8e7c.jsonl.gz",
-      "sha256": "b1c1987d8e7c42da47098ff835f9b5f0a9005f3a15c75eea968235791a4afb5a"
+      "persisted_snapshot": "data/gws/source/hub_brussels_20260817T074628Z_cc8db25763ac.jsonl.gz",
+      "sha256": "cc8db25763acd434108c9f99a24e391e8abedfc27de4b25bd2f1772e2ebd7c32"
     },
     "osm_brussels": {
       "cross_source_duplicates": 0,
       "error": "",
       "last_changed": "2026-08-14T23:57:53+00:00",
-      "last_fetched": "2026-08-16T22:26:06+00:00",
-      "last_seen": "2026-08-17T03:46:52+00:00",
+      "last_fetched": "2026-08-17T07:37:55+00:00",
+      "last_seen": "2026-08-17T07:46:27+00:00",
       "materialized": 0,
       "osm_unique_after_hub_dedupe": 0,
       "persisted_snapshot": "data/gws/source/osm_brussels_20260814T235753Z_e3b0c44298fc.jsonl.gz",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "status": "cache"
+      "status": "fresh"
     },
     "overture_direct": {
       "error": "",
-      "last_changed": "2026-08-17T03:46:52+00:00",
-      "last_fetched": "2026-08-17T03:21:04+00:00",
-      "last_seen": "2026-08-17T03:46:52+00:00",
-      "materialized": 4923,
-      "overture_unique_after_cross_dedupe": 4628,
-      "persisted_snapshot": "data/gws/source/overture_direct_20260817T034652Z_2ce4ae7eb939.jsonl.gz",
+      "last_changed": "2026-08-17T07:46:28+00:00",
+      "last_fetched": "2026-08-17T07:39:17+00:00",
+      "last_seen": "2026-08-17T07:46:28+00:00",
+      "materialized": 4960,
+      "overture_unique_after_cross_dedupe": 4664,
+      "persisted_snapshot": "data/gws/source/overture_direct_20260817T074627Z_7504aeb34f05.jsonl.gz",
       "release": "2026-06-17.0",
-      "sha256": "2ce4ae7eb939683bb39140b0bfba5d6ea973d5ed129ac256b2df8294954d9e15",
+      "sha256": "7504aeb34f054e5855d43b74973b1a23f692157bfcac8142f57011513cfa3b96",
       "status": "fresh"
     }
   }
