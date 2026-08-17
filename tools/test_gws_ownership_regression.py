@@ -9,6 +9,7 @@ import gws_ownership_gate as own
 import gws_home_openserp_worker_ownership_safe as residential_safe
 import gws_fleet_preaggregate_ownership_guard as preagg
 import gws_residential_ingress_adapter as ingress_adapter
+import gws_search_verify_source_safe as source_safe
 
 
 def evidence(url: str, *, domain: float = 1.0, address: float = 1.0, phone: bool = True):
@@ -31,6 +32,18 @@ class OwnershipGateRegression(unittest.TestCase):
         self.assertTrue(a["third_party"])
         self.assertFalse(a["confident"])
         self.assertEqual(a["reason"], "KNOWN_THIRD_PARTY_HOST")
+
+    def test_planity_profile_can_never_be_owned_site(self):
+        row = {"hub_name": "Laurent Amir", "candidate": {"n": "Laurent Amir"}}
+        a = own.assess(row, evidence("https://www.planity.com/laurent-amir-hairdresser"))
+        self.assertTrue(a["third_party"])
+        self.assertFalse(a["confident"])
+
+    def test_optios_client_page_can_never_be_owned_site(self):
+        row = {"hub_name": "Le Centre du Cheveu", "candidate": {"n": "Le Centre du Cheveu"}}
+        a = own.assess(row, evidence("https://lecentreducheveu.optios.net/en"))
+        self.assertTrue(a["third_party"])
+        self.assertFalse(a["confident"])
 
     def test_directory_identity_page_can_never_be_owned_site(self):
         row = {"hub_name": "Darmal", "candidate": {"n": "Darmal"}}
@@ -58,6 +71,82 @@ class OwnershipGateRegression(unittest.TestCase):
         row = {"hub_name": "Curatia", "candidate": {"n": "Curatia"}}
         a = own.assess(row, evidence("https://curatia.be/", domain=1.0))
         self.assertTrue(a["confident"])
+
+
+class SourceSafeRegression(unittest.TestCase):
+    def setUp(self):
+        self.probe = source_safe.safe.base.home.probe_host
+        self.original_classify = source_safe._ORIGINAL_CLASSIFY
+
+    def tearDown(self):
+        source_safe.safe.base.home.probe_host = self.probe
+        source_safe._ORIGINAL_CLASSIFY = self.original_classify
+
+    def test_overture_first_party_site_is_checked_before_no_site_classification(self):
+        row = {
+            "hub_name": "The Kooples",
+            "overture_websites": '["http://www.thekooples.com"]',
+        }
+        c = {"n": "The Kooples", "a": "Avenue Louise 72", "p": "1050", "ph": ""}
+        source_safe.safe.base.home.probe_host = lambda candidate, url: {
+            "final": "https://www.thekooples.com/",
+            "ok": True,
+            "matched": True,
+            "dns_negative": False,
+            "status": 200,
+            "error": "",
+            "identity": {
+                "domain_name_overlap": 1.0,
+                "address_overlap": 1.0,
+                "phone": False,
+                "postcode": True,
+            },
+        }
+        check = source_safe.source_website_precheck(row, c)
+        self.assertEqual(check["status"], "OWNED_CONFIRMED")
+        self.assertEqual(check["owned"], "https://www.thekooples.com/")
+
+    def test_source_site_confirmation_short_circuits_would_be_high(self):
+        row = {
+            "hub_name": "The Kooples",
+            "overture_websites": '["http://www.thekooples.com"]',
+        }
+        c = {"n": "The Kooples", "a": "Avenue Louise 72", "p": "1050", "ph": ""}
+        source_safe.safe.base.home.probe_host = lambda candidate, url: {
+            "final": "https://www.thekooples.com/",
+            "ok": True,
+            "matched": True,
+            "dns_negative": False,
+            "status": 200,
+            "error": "",
+            "identity": {
+                "domain_name_overlap": 1.0,
+                "address_overlap": 1.0,
+                "phone": False,
+                "postcode": True,
+            },
+        }
+        source_safe._ORIGINAL_CLASSIFY = lambda *args, **kwargs: {
+            **row,
+            "verification_status": "HIGH",
+            "outcome": "HIGH",
+            "reason": "VERIFIED_NO_WEBSITE",
+            "certificate": {"verified": True},
+        }
+        out = source_safe.classify_strict_source_safe(row, c, {}, object(), 4)
+        self.assertEqual(out["verification_status"], "REJECT")
+        self.assertEqual(out["reason"], "OWNED_SITE_FIRST_PARTY_CONFIRMED_SOURCE_WEBSITE")
+        self.assertEqual(out["owned_website"], "https://www.thekooples.com/")
+
+    def test_third_party_source_url_never_becomes_owned_site(self):
+        row = {
+            "hub_name": "Fernanda Castillo",
+            "overture_websites": '["https://rosa.be/fr/hp/fernanda-castillo/"]',
+        }
+        c = {"n": "Fernanda Castillo", "a": "Chaussée de Bruxelles 277", "p": "1190", "ph": "+32472965962"}
+        check = source_safe.source_website_precheck(row, c)
+        self.assertEqual(check["status"], "CLEAR")
+        self.assertEqual(check["events"][0]["status"], "THIRD_PARTY_OR_PLATFORM")
 
 
 class ResidentialWrapperRegression(unittest.TestCase):
@@ -211,10 +300,11 @@ class RecoveryQueueIntegrity(unittest.TestCase):
 
 
 class WiringRegression(unittest.TestCase):
-    def test_autonomous_uses_ownership_safe_strict_verifier(self):
+    def test_autonomous_uses_source_safe_strict_verifier(self):
         text = Path(".github/workflows/gws-autonomous-fleet.yml").read_text(encoding="utf-8")
-        self.assertIn("gws_search_verify_ownership_safe.py", text)
+        self.assertIn("gws_search_verify_source_safe.py", text)
         self.assertNotIn("python tools/gws_search_verify.py --shard-dir", text)
+        self.assertNotIn("python tools/gws_search_verify_ownership_safe.py --shard-dir", text)
 
     def test_autonomous_runs_preaggregate_ownership_guard(self):
         text = Path(".github/workflows/gws-autonomous-fleet.yml").read_text(encoding="utf-8")
