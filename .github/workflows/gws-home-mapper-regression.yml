@@ -1,0 +1,35 @@
+name: GWS Home Mapper Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-mapper-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Refresh main and run category mapping regression
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@('C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe','C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe')
+          $py=$null; foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
+          if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
+          if(-not $py){throw 'Usable Python not found'}
+          $env:PYTHONPATH='tools'
+          & $py tools\test_gws_overture_category_mapping.py
+          if($LASTEXITCODE -ne 0){throw "Mapper regression failed: $LASTEXITCODE"}
+          & $py -c "import gws_source_overture_extended as x; print('MAPPER_ASSERT='+str({'public_plaza':x.category_type('', 'public_plaza'),'public_utility_company':x.category_type('', 'public_utility_company'),'pub':x.category_type('', 'pub'),'wine_bar':x.category_type('', 'wine_bar')}))"
+          if($LASTEXITCODE -ne 0){throw "Mapper assertion failed: $LASTEXITCODE"}
