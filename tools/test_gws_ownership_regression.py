@@ -8,6 +8,7 @@ from pathlib import Path
 import gws_ownership_gate as own
 import gws_home_openserp_worker_ownership_safe as residential_safe
 import gws_fleet_preaggregate_ownership_guard as preagg
+import gws_residential_ingress_adapter as ingress_adapter
 
 
 def evidence(url: str, *, domain: float = 1.0, address: float = 1.0, phone: bool = True):
@@ -96,6 +97,47 @@ class ResidentialWrapperRegression(unittest.TestCase):
         self.assertTrue(ev["matched"])
         self.assertTrue(ev["ownership_assessment"]["confident"])
         self.assertNotIn("identity_match_withheld", ev)
+
+
+class ResidentialIngressRegression(unittest.TestCase):
+    def test_nested_worker_result_normalizes_record_key_and_fingerprint(self):
+        ev = {
+            "candidate": {
+                "record_key": "overture:test-1",
+                "fingerprint": "fp-test-1",
+                "n": "Darmal épicerie",
+                "a": "Place Test 8",
+                "p": "1160",
+                "observed_at": "2026-08-17T00:00:00+00:00",
+            },
+            "pass1": {"healthy_providers": ["bing", "duckduckgo"], "search_health": [], "direct_health": []},
+            "pass2": {"healthy_providers": ["bing", "duckduckgo"], "search_health": [], "direct_health": []},
+            "certificate": {"verified": False},
+            "status": "EVIDENCE_INCOMPLETE",
+            "reason": "RESIDENTIAL_CERTIFICATE_GATES_INCOMPLETE",
+            "owned_site": "",
+        }
+        row = ingress_adapter.normalize_event(ev)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["record_key"], "overture:test-1")
+        self.assertEqual(row["source_fingerprint"], "fp-test-1")
+        self.assertEqual(row["hub_name"], "Darmal épicerie")
+        self.assertEqual(row["status"], "SEARCH_INCOMPLETE")
+        self.assertFalse(row["final_high"])
+
+    def test_confident_worker_reject_becomes_owned_candidate_not_high(self):
+        ev = {
+            "candidate": {"record_key": "overture:test-2", "fingerprint": "fp-test-2", "n": "Tagawa Delta"},
+            "pass1": {"healthy_providers": ["bing", "duckduckgo"], "search_health": [], "direct_health": []},
+            "pass2": {},
+            "status": "REJECT",
+            "reason": "OWNED_SITE_CONFIRMED",
+            "owned_site": "https://tagawa.eu/",
+        }
+        row = ingress_adapter.normalize_event(ev)
+        self.assertEqual(row["status"], "OWNED_SITE_CONFIRMED")
+        self.assertEqual(row["owned_site"], "https://tagawa.eu/")
+        self.assertFalse(row["final_high"])
 
 
 class PreAggregateRegression(unittest.TestCase):
