@@ -1,0 +1,79 @@
+name: GWS Recover Residential Evidence 31982743702
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-recover-residential-31982743702.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gws-recover-residential-31982743702
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download the completed worker artifact that failed only at old adapter
+        uses: actions/download-artifact@v4
+        with:
+          name: gws-home-pending-31982743702
+          path: results/recovered_home_31982743702
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31982743702
+      - name: Normalize raw worker evidence with current ingress contract
+        env:
+          PYTHONPATH: tools
+        run: |
+          set -euo pipefail
+          test -s results/recovered_home_31982743702/worker/results.jsonl
+          raw=$(grep -cve '^$' results/recovered_home_31982743702/worker/results.jsonl)
+          test "$raw" -eq 12
+          python tools/gws_residential_ingress_adapter.py \
+            --input results/recovered_home_31982743702/worker/results.jsonl \
+            --out results/recovered_home_31982743702/recovered_ingress.jsonl \
+            --expect 12
+          normalized=$(grep -cve '^$' results/recovered_home_31982743702/recovered_ingress.jsonl)
+          test "$normalized" -eq 12
+          echo "RECOVERED_RESIDENTIAL_NORMALIZED=$normalized"
+      - name: Persist recovered immutable ingress and read it back
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dest='data/gws/residential_ingress/recovered_run_31982743702.jsonl'
+          mkdir -p data/gws/residential_ingress
+          cp results/recovered_home_31982743702/recovered_ingress.jsonl "$dest"
+          git config user.name 'gws-home-recovery'
+          git config user.email 'actions@users.noreply.github.com'
+          git add "$dest"
+          if git diff --cached --quiet; then
+            echo 'Recovered ingress already persisted.'
+          else
+            git commit -m '[gws-home-recovery] recover residential run 31982743702 [skip ci]'
+            for attempt in 1 2 3 4; do
+              if git push origin HEAD:main; then break; fi
+              git fetch origin main
+              git rebase origin/main
+              sleep $((attempt * 2))
+            done
+          fi
+          git fetch origin main
+          readback=$(git show "origin/main:$dest" | grep -cve '^$')
+          echo "RECOVERED_RESIDENTIAL_READBACK=$readback expected=12"
+          test "$readback" -eq 12
+          gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type='gws_semantic_refill'
