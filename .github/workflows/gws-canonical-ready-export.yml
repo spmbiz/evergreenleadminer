@@ -1,0 +1,53 @@
+name: GWS Canonical Ready Export
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_export_canonical_ready.py'
+      - '.github/workflows/gws-canonical-ready-export.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gws-canonical-ready-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Export latest strict HIGH handoff
+        run: |
+          set -euo pipefail
+          latest=$(ls -1 gpt/gws_verified_review/*.jsonl | sort | tail -n 1)
+          echo "LATEST_VERIFIED_REVIEW=$latest"
+          python tools/gws_export_canonical_ready.py \
+            --input "$latest" \
+            --out gpt/gws_canonical_ready_latest.jsonl
+          wc -l gpt/gws_canonical_ready_latest.jsonl
+      - name: Persist compact handoff
+        run: |
+          set -euo pipefail
+          git config user.name 'gws-canonical-ready'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/gws_canonical_ready_latest.jsonl
+          if git diff --cached --quiet; then
+            echo 'Canonical-ready handoff already current.'
+            exit 0
+          fi
+          git commit -m '[gws-canonical-ready] latest strict HIGH handoff [skip ci]'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+            sleep $((attempt * 2))
+          done
+          exit 1
