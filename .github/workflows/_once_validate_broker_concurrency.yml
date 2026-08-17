@@ -34,3 +34,5 @@ jobs:
           assert callable(broker.release)
           print('BROKER_CONCURRENCY_SMOKE_OK')
           PY
+      - name: Marker
+        run: echo 'broker-smoke-v2'
