@@ -57,6 +57,40 @@ def _tokens(value: str) -> list[str]:
     return [x for x in re.findall(r"[a-z0-9]+", str(value or "").lower()) if len(x) >= 3 and x not in GENERIC_NAME_TOKENS]
 
 
+def _registrable_label(host: str) -> str:
+    """Return the left-most registrable-looking brand label for ordinary domains.
+
+    We do not use this as proof on its own. It is only a brand-shape signal that
+    still requires exact phone or strong address identity later in assess().
+    """
+    h = str(host or "").lower().strip(".")
+    if not h:
+        return ""
+    parts = [p for p in h.split(".") if p]
+    if len(parts) >= 3 and parts[-2:] in (["co", "uk"], ["com", "au"], ["com", "br"]):
+        return _compact(parts[-3])
+    if len(parts) >= 2:
+        return _compact(parts[-2])
+    return _compact(parts[0])
+
+
+def _distinctive_leading_brand_match(name: str, host: str) -> bool:
+    """Catch brands such as OPTIL->optil.be and Herard's->herards.com safely.
+
+    Only the first meaningful token is considered and it must be >=5 chars.
+    A simple trailing possessive/plural ``s`` equivalence is allowed. Generic
+    short labels such as ``bar`` therefore never become first-party evidence.
+    """
+    tokens = _tokens(name)
+    if not tokens:
+        return False
+    lead = _compact(tokens[0])
+    label = _registrable_label(host)
+    if len(lead) < 5 or len(label) < 5:
+        return False
+    return lead == label or lead + "s" == label or label + "s" == lead
+
+
 def is_third_party(url: str) -> bool:
     h = _host(url)
     if not h:
@@ -82,7 +116,8 @@ def assess(row: dict[str, Any], pass_ev: dict[str, Any] | None) -> dict[str, Any
     token_hits = sum(1 for t in meaningful if t in host_compact)
     token_ratio = token_hits / max(1, len(meaningful))
     compact_brand_match = bool(name_compact and len(name_compact) >= 5 and name_compact in _compact(h))
-    branded_host = bool(domain_overlap >= 0.50 or compact_brand_match or token_ratio >= 0.75)
+    leading_brand_match = _distinctive_leading_brand_match(name, h)
+    branded_host = bool(domain_overlap >= 0.50 or compact_brand_match or leading_brand_match or token_ratio >= 0.75)
 
     third_party = is_third_party(url)
     # Identity on a page is not ownership. Require a branded host plus a very
@@ -110,6 +145,7 @@ def assess(row: dict[str, Any], pass_ev: dict[str, Any] | None) -> dict[str, Any
         "third_party": third_party,
         "branded_host": branded_host,
         "compact_brand_match": compact_brand_match,
+        "leading_brand_match": leading_brand_match,
         "meaningful_name_tokens": meaningful,
         "domain_name_overlap": round(domain_overlap, 3),
         "address_overlap": round(address_overlap, 3),
