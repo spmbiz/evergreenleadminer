@@ -1,0 +1,94 @@
+name: GWS Home Capacity Purge
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'control/gws_cancel_run.json'
+      - '.github/workflows/gws-home-capacity-purge.yml'
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: gws-home-capacity-purge
+  cancel-in-progress: true
+
+jobs:
+  purge:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Refresh current main and resolve local Python
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@(
+            'C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe',
+            'C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe',
+            'C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe'
+          )
+          $py=$null
+          foreach($p in $candidates){ if(Test-Path $p){$py=$p;break} }
+          if(-not $py){
+            $cmd=Get-Command python.exe -ErrorAction SilentlyContinue
+            if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}
+          }
+          if(-not $py){throw 'Usable local Python not found'}
+          $py | Out-File -Encoding ascii .gws-capacity-python.txt
+          Write-Host "GWS_CAPACITY_PURGE_PYTHON=$py"
+
+      - name: Cancel stale runs and release broker leases outside hosted pool
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=(Get-Content .gws-capacity-python.txt -Raw).Trim()
+          $cfg=Get-Content control\gws_cancel_run.json -Raw | ConvertFrom-Json
+          $ids=@()
+          if($null -ne $cfg.run_ids){ $ids=@($cfg.run_ids) }
+          elseif($null -ne $cfg.run_id){ $ids=@($cfg.run_id) }
+          foreach($target in $ids){
+            $target=[string]$target
+            if(-not $target){continue}
+            try {
+              Invoke-RestMethod -Method Post `
+                -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$target/cancel" `
+                -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'} | Out-Null
+              Write-Host "HOME_CANCEL_REQUESTED=$target"
+            } catch {
+              Write-Host "HOME_CANCEL_NONFATAL=$target $($_.Exception.Message)"
+            }
+            & $py tools\global_capacity_broker.py release --run-id $target --repo $env:GITHUB_REPOSITORY
+            if($LASTEXITCODE -ne 0){ throw "Broker lease release failed target=$target exit=$LASTEXITCODE" }
+            Write-Host "HOME_LEASE_RELEASED_OR_ABSENT=$target"
+          }
+
+      - name: Read back broker release asset
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $rel=Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/global-fleet-broker"
+          $asset=$rel.assets | Where-Object {$_.name -eq 'global-capacity.json'} | Select-Object -First 1
+          if(-not $asset){throw 'global-capacity.json release asset missing after purge'}
+          $state=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/octet-stream';'X-GitHub-Api-Version'='2022-11-28'} -Uri $asset.url
+          $targets=@((Get-Content control\gws_cancel_run.json -Raw | ConvertFrom-Json).run_ids | ForEach-Object {[string]$_})
+          $remaining=@($state.leases | Where-Object {$targets -contains [string]$_.run_id})
+          $summary=[ordered]@{remaining_target_leases=$remaining.Count;remaining_total_leases=@($state.leases).Count;updated_at=$state.updated_at}
+          Write-Host ('HOME_BROKER_READBACK='+($summary|ConvertTo-Json -Compress))
+          if($remaining.Count -ne 0){throw "Stale target leases remain after purge: $($remaining.run_id -join ',')"}
