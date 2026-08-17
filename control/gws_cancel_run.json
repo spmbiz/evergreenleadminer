@@ -1,10 +1,7 @@
 {
   "run_ids": [
-    31991656788,
-    31991415153,
-    31991979381,
-    31988740215
+    31992349573
   ],
-  "reason": "full core fleet restart: cancel current GWS autonomous, strict verifier, and Hospitality runs before clean relaunch",
-  "retry_nonce": "2026-08-17T03:47:00Z"
+  "reason": "strict-backlog backpressure: preempt current GWS autonomous #154 so the dedicated 20-slot GWS pool drains strict verification first; Hospitality and non-GWS workloads untouched",
+  "retry_nonce": "2026-08-17T03:53:00Z"
 }
