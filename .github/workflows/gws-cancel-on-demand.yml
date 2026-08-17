@@ -14,14 +14,15 @@ permissions:
 jobs:
   cancel:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Cancel requested workflow runs
+      - name: Cancel requested workflow runs and release their broker leases
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python - <<'PY' > /tmp/gws_cancel_ids.txt
@@ -45,5 +46,19 @@ jobs:
               echo "CANCEL_REQUESTED=$target"
             else
               echo "CANCEL_NONFATAL=$target $out"
+            fi
+
+            # Cancellation and lease release are separate concerns. Even if GitHub
+            # says the run is already completed/cancelled, remove any durable broker
+            # lease it left behind so future GWS waves can use the capacity now.
+            set +e
+            release_out=$(python tools/global_capacity_broker.py release --run-id "$target" --repo "$GITHUB_REPOSITORY" 2>&1)
+            release_code=$?
+            set -e
+            if [ "$release_code" -eq 0 ]; then
+              echo "LEASE_RELEASED_OR_ABSENT=$target $release_out"
+            else
+              echo "LEASE_RELEASE_FAILED=$target $release_out" >&2
+              exit "$release_code"
             fi
           done < /tmp/gws_cancel_ids.txt
