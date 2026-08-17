@@ -1,0 +1,167 @@
+name: Team 60 Migrate Evergreen
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/team60-migrate-evergreen.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply scoped Team 60 and spmbiz migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          roots=[Path('.github/workflows'),Path('config'),Path('tools')]
+          suffixes={'.yml','.yaml','.json','.py','.ps1','.sh','.md','.toml'}
+          excluded={'team60-capacity-audit.yml','team60-migrate-evergreen.yml'}
+
+          def write_if_changed(p,s,old):
+              if s!=old:
+                  p.write_text(s,encoding='utf-8')
+                  print('UPDATED',p)
+
+          # Repository transfer: migrate operational references only. runnerlocal
+          # intentionally remains under walidgdg1-ai and is therefore untouched.
+          repo_repls={
+              'walidgdg1-ai/evergreenleadminer':'spmbiz/evergreenleadminer',
+              'walidgdg1-ai/tender-engine':'spmbiz/tender-engine',
+          }
+          for root in roots:
+              if not root.exists(): continue
+              for p in root.rglob('*'):
+                  if not p.is_file() or p.suffix.lower() not in suffixes or p.name in excluded: continue
+                  try: old=p.read_text(encoding='utf-8')
+                  except Exception: continue
+                  s=old
+                  for a,b in repo_repls.items(): s=s.replace(a,b)
+                  write_if_changed(p,s,old)
+
+          # Owner defaults used by the shared account-wide capacity tooling.
+          for rel in [
+              'tools/gws_semantic_capacity.py',
+              'tools/global_capacity_broker_v3.py',
+              'tools/gws_legacy_capacity_plan.py',
+              'tools/global_capacity_broker_v4.py',
+              'tools/global_capacity_broker.py',
+          ]:
+              p=Path(rel)
+              if not p.exists(): continue
+              old=p.read_text(encoding='utf-8')
+              s=old.replace('default="walidgdg1-ai"','default="spmbiz"')
+              write_if_changed(p,s,old)
+
+          exact={
+              '.github/workflows/hospitality-autonomous-fleet.yml':[
+                  ('--available 20','--available 60'),
+                  ("int(b.get('capacity') or 20)","int(b.get('capacity') or 60)"),
+                  ('max-parallel: 20','max-parallel: 60'),
+              ],
+              '.github/workflows/hospitality-intelligence-v2.yml':[
+                  ('--available 20','--available 60'),
+                  ('max-parallel: 20','max-parallel: 60'),
+              ],
+              '.github/workflows/global-broker-canary.yml':[
+                  ("int(b.get('capacity') or 20)","int(b.get('capacity') or 60)"),
+              ],
+              '.github/workflows/restore-elastic-worker-policy-20260816.yml':[
+                  ("gh['capacity']=20","gh['capacity']=60"),
+                  ("w['max_slots']=20","w['max_slots']=60"),
+              ],
+              'tools/global_capacity_broker_v3.py':[
+                  ('int(gh.get("capacity") or 20)','int(gh.get("capacity") or 60)'),
+              ],
+              'tools/global_capacity_broker_v4.py':[
+                  ('int(gh.get("capacity") or 20)','int(gh.get("capacity") or 60)'),
+              ],
+              'tools/test_hospitality_dynamic_capacity.py':[
+                  ("self.assertEqual(int(fleet['workloads'][workload]['max_slots']), 20)","self.assertEqual(int(fleet['workloads'][workload]['max_slots']), 60)"),
+                  ("self.assertIn('max-parallel: 20', wf)","self.assertIn('max-parallel: 60', wf)"),
+              ],
+          }
+          for rel,repls in exact.items():
+              p=Path(rel)
+              if not p.exists():
+                  raise SystemExit(f'missing expected file: {rel}')
+              old=p.read_text(encoding='utf-8'); s=old
+              for a,b in repls:
+                  s=s.replace(a,b)
+              write_if_changed(p,s,old)
+
+          # Canonical broker was already migrated by the controller before this
+          # run; assert it remains authoritative and runnerlocal remains private.
+          import json
+          fleet=json.loads(Path('config/global_fleet.json').read_text(encoding='utf-8'))
+          assert int(fleet['github']['capacity'])==60
+          assert all(int(v['max_slots'])==60 for v in fleet['workloads'].values())
+          assert fleet['workloads']['tenders']['repo']=='spmbiz/tender-engine'
+          gws=json.loads(Path('config/gws_search_verify.json').read_text(encoding='utf-8'))
+          assert gws.get('private_control_repo')=='walidgdg1-ai/runnerlocal'
+          PY
+
+      - name: Validate migrated operational files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m json.tool config/global_fleet.json >/dev/null
+          python -m py_compile \
+            tools/global_capacity_broker.py \
+            tools/global_capacity_broker_v3.py \
+            tools/global_capacity_broker_v4.py \
+            tools/gws_semantic_capacity.py \
+            tools/gws_fleet_plan.py
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          checks={
+            '.github/workflows/hospitality-autonomous-fleet.yml':['--available 20','max-parallel: 20'],
+            '.github/workflows/hospitality-intelligence-v2.yml':['--available 20','max-parallel: 20'],
+          }
+          for rel,bad in checks.items():
+              s=Path(rel).read_text(encoding='utf-8')
+              for x in bad: assert x not in s,(rel,x)
+          for rel in ['config/global_fleet.json','tools/global_capacity_broker_v3.py','tools/global_capacity_broker_v4.py']:
+              s=Path(rel).read_text(encoding='utf-8')
+              assert 'walidgdg1-ai/tender-engine' not in s,rel
+              assert 'walidgdg1-ai/evergreenleadminer' not in s,rel
+          print('TEAM60_EVERGREEN_VALIDATION=PASS')
+          PY
+          git diff --stat
+
+      - name: Persist migration atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'spmbiz-team60-migrator'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows config tools
+          if git diff --cached --quiet; then
+            echo 'TEAM60_EVERGREEN no_delta=1'
+            exit 0
+          fi
+          git commit -m '[team60] migrate Evergreen fleet to spmbiz capacity 60 [skip ci]'
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              echo "TEAM60_EVERGREEN pushed=1 sha=$(git rev-parse HEAD)"
+              exit 0
+            fi
+            git rebase --abort >/dev/null 2>&1 || true
+            sleep $((attempt*2))
+          done
+          echo 'TEAM60_EVERGREEN push_failed=1' >&2
+          exit 1
