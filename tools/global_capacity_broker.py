@@ -298,21 +298,21 @@ def _reserve_with_optional_demand_override(args) -> None:
 
 
 def release(args):
-    state = v3.load_remote_state(args.repo)
-    all_leases = list(state.get("leases") or [])
-    matched = [l for l in all_leases if str(l.get("run_id")) == str(args.run_id)]
+    result = v3.release_lease_reconciled(args.repo, str(args.run_id))
+    matched = list(result.get("matched_leases") or [])
     workload = _infer_workload(matched)
-    released_slots = sum(max(0, int(l.get("slots") or 0)) for l in matched)
-    before = len(all_leases)
-    state["leases"] = [l for l in all_leases if str(l.get("run_id")) != str(args.run_id)]
-    after = len(state["leases"])
-    v3.save_remote_state(args.repo, state)
+    released_slots = int(result.get("released_slots") or 0)
     refill = _emit_refill(args.repo, workload, str(args.run_id), released_slots)
     print(json.dumps({
-        "released": before - after,
+        "released": int(result.get("released") or 0),
         "released_slots": released_slots,
         "workload": workload,
         "run_id": str(args.run_id),
+        "release_persistence": {
+            "confirmed": bool(result.get("confirmed")),
+            "attempts": int(result.get("attempts") or 0),
+            "mode": result.get("mode"),
+        },
         "refill": refill,
         "admission_semantics": "active_physical_plus_effective_leases; queued_is_not_physical_capacity",
     }))
