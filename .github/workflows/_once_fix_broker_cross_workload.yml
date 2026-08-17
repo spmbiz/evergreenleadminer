@@ -1,0 +1,193 @@
+name: One-shot Fix Broker Cross Workload Concurrency
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/_once_fix_broker_cross_workload.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Patch planner locks and reservation reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          PLAN_GROUPS = {
+              '.github/workflows/gws-pending-search-verify.yml': 'ai-prod-global-capacity-broker-gws',
+              '.github/workflows/gws-autonomous-fleet.yml': 'ai-prod-global-capacity-broker-gws',
+              '.github/workflows/gws-semantic-fleet.yml': 'ai-prod-global-capacity-broker-gws',
+              '.github/workflows/hospitality-autonomous-fleet.yml': 'ai-prod-global-capacity-broker-hospitality',
+              '.github/workflows/hospitality-intelligence-v2.yml': 'ai-prod-global-capacity-broker-hospitality',
+          }
+
+          for rel, group in PLAN_GROUPS.items():
+              p = Path(rel)
+              s = p.read_text(encoding='utf-8')
+              marker = '  plan:\n    concurrency:\n      group: ai-prod-global-capacity-broker\n      cancel-in-progress: false\n'
+              replacement = f'  plan:\n    concurrency:\n      group: {group}\n      cancel-in-progress: false\n'
+              if marker not in s:
+                  if replacement in s:
+                      print(f'already patched planner lock: {rel}')
+                      continue
+                  raise SystemExit(f'planner broker marker missing: {rel}')
+              s = s.replace(marker, replacement, 1)
+              p.write_text(s, encoding='utf-8')
+              print(f'patched planner lock: {rel} -> {group}')
+
+          p = Path('tools/global_capacity_broker_v3.py')
+          s = p.read_text(encoding='utf-8')
+          if 'import time\n' not in s:
+              s = s.replace('import tempfile\n', 'import tempfile\nimport time\n', 1)
+
+          anchor = '''def save_remote_state(repo: str, state: dict):
+              state["updated_at"] = iso(now_utc())
+              with tempfile.TemporaryDirectory(prefix="global-fleet-broker-") as td:
+                  p = Path(td) / STATE_ASSET
+                  p.write_text(json.dumps(state, indent=2) + "\\n", encoding="utf-8")
+                  fr.release_upload(repo, STATE_TAG, str(p))
+          '''
+          # normalize indentation in the literal above to source-level column zero
+          anchor = '\n'.join(line[10:] if line.startswith('          ') else line for line in anchor.splitlines()) + '\n'
+
+          helper = '''\n\ndef save_reservation_reconciled(repo: str, intended_state: dict, lease: dict | None, attempts: int = 5):
+              """Persist a reserve decision without losing a sibling's concurrent lease.
+
+              Planner jobs use workload-local GitHub concurrency groups so GWS and
+              Hospitality can plan at the same time. The release asset is therefore
+              reconciled optimistically: after each write, confirm our admitted lease
+              is still present; if another writer won the race, merge our lease into
+              the freshest state and retry. Zero-slot decisions remain read-only with
+              respect to leases.
+              """
+              if lease is None:
+                  save_remote_state(repo, intended_state)
+                  return {"confirmed": True, "attempts": 1, "mode": "zero_slot"}
+
+              run_id = str(lease.get("run_id") or "")
+              if not run_id:
+                  raise RuntimeError("refusing to persist broker lease without run_id")
+
+              candidate = dict(intended_state)
+              for attempt in range(1, max(1, attempts) + 1):
+                  # Never delete a sibling lease discovered after our original read.
+                  fresh_before = load_remote_state(repo)
+                  fresh_leases = prune_leases(fresh_before)
+                  merged = [x for x in fresh_leases if str(x.get("run_id") or "") != run_id]
+                  merged.append(lease)
+                  candidate["schema_version"] = 3
+                  candidate["leases"] = merged
+                  save_remote_state(repo, candidate)
+
+                  fresh_after = load_remote_state(repo)
+                  confirmed = any(
+                      str(x.get("run_id") or "") == run_id
+                      and int(x.get("slots") or 0) == int(lease.get("slots") or 0)
+                      for x in (fresh_after.get("leases") or [])
+                  )
+                  if confirmed:
+                      return {"confirmed": True, "attempts": attempt, "mode": "optimistic_reconcile"}
+                  time.sleep(min(2.0, 0.25 * (2 ** (attempt - 1))))
+
+              raise RuntimeError(
+                  f"broker reservation persistence race unresolved after {attempts} attempts run_id={run_id}"
+              )
+          '''
+          helper = '\n'.join(line[10:] if line.startswith('          ') else line for line in helper.splitlines())
+
+          if 'def save_reservation_reconciled(' not in s:
+              if anchor not in s:
+                  raise SystemExit('save_remote_state anchor missing in broker v3')
+              s = s.replace(anchor, anchor + helper + '\n', 1)
+
+          old = '''    if not args.dry_run:
+              save_remote_state(args.repo, state)
+              payload = dict(decision)
+              payload.update({"lease": lease, "dry_run": bool(args.dry_run)})
+          '''
+          old = '\n'.join(line[4:] if line.startswith('    ') else line for line in old.splitlines()) + '\n'
+          new = '''    persistence = {"confirmed": True, "attempts": 0, "mode": "dry_run"}
+              if not args.dry_run:
+                  persistence = save_reservation_reconciled(args.repo, state, lease)
+              payload = dict(decision)
+              payload.update({"lease": lease, "dry_run": bool(args.dry_run), "reservation_persistence": persistence})
+          '''
+          new = '\n'.join(line[4:] if line.startswith('    ') else line for line in new.splitlines()) + '\n'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif 'reservation_persistence' not in s:
+              raise SystemExit('reserve persistence anchor missing in broker v3')
+
+          p.write_text(s, encoding='utf-8')
+          print('patched broker optimistic reservation reconciliation')
+          PY
+
+      - name: Validate patch invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/global_capacity_broker_v3.py tools/global_capacity_broker.py
+          python - <<'PY'
+          from pathlib import Path
+          expected = {
+              '.github/workflows/gws-pending-search-verify.yml': 'group: ai-prod-global-capacity-broker-gws',
+              '.github/workflows/gws-autonomous-fleet.yml': 'group: ai-prod-global-capacity-broker-gws',
+              '.github/workflows/gws-semantic-fleet.yml': 'group: ai-prod-global-capacity-broker-gws',
+              '.github/workflows/hospitality-autonomous-fleet.yml': 'group: ai-prod-global-capacity-broker-hospitality',
+              '.github/workflows/hospitality-intelligence-v2.yml': 'group: ai-prod-global-capacity-broker-hospitality',
+          }
+          for f, needle in expected.items():
+              s=Path(f).read_text(encoding='utf-8')
+              assert needle in s, (f, needle)
+              # Release writers must still use the global single-writer lock.
+              assert s.count('group: ai-prod-global-capacity-broker') >= 1, f
+          b=Path('tools/global_capacity_broker_v3.py').read_text(encoding='utf-8')
+          assert 'def save_reservation_reconciled' in b
+          assert 'reservation_persistence' in b
+          print('PATCH_INVARIANTS_OK')
+          PY
+
+      - name: Commit migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'broker-migration-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add \
+            .github/workflows/gws-pending-search-verify.yml \
+            .github/workflows/gws-autonomous-fleet.yml \
+            .github/workflows/gws-semantic-fleet.yml \
+            .github/workflows/hospitality-autonomous-fleet.yml \
+            .github/workflows/hospitality-intelligence-v2.yml \
+            tools/global_capacity_broker_v3.py
+          if git diff --cached --quiet; then
+            echo 'No migration delta.'
+            exit 0
+          fi
+          git commit -m 'fleet: allow cross-workload planning without broker self-cancel [skip ci]'
+          for attempt in 1 2 3 4; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort || true; exit 1; }
+            sleep $((attempt * 2))
+          done
+          exit 1
