@@ -1,0 +1,123 @@
+name: GWS Redteam All Historical HIGHs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-redteam-all-historical-highs.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gws-redteam-all-historical-highs
+  cancel-in-progress: true
+
+jobs:
+  redteam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install production verifier dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - name: Build one latest row per historical strict HIGH identity
+        run: |
+          set -euo pipefail
+          mkdir -p results/gws_redteam_all_highs
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          latest={}
+          source={}
+          for p in sorted(Path('gpt/gws_verified_review').glob('*.jsonl')):
+              for line in p.read_text(encoding='utf-8').splitlines():
+                  if not line.strip(): continue
+                  try:r=json.loads(line)
+                  except Exception:continue
+                  if str(r.get('verification_status') or '').upper()!='HIGH': continue
+                  if str(r.get('reason') or '').upper()!='VERIFIED_NO_WEBSITE': continue
+                  key=str(r.get('record_key') or r.get('hub_objectid') or '')
+                  if not key: continue
+                  latest[key]=r; source[key]=str(p)
+          rows=[]
+          for key,r in sorted(latest.items()):
+              x=dict(r)
+              old=str(x.get('fingerprint') or x.get('source_fingerprint') or '')
+              x['redteam_original_fingerprint']=old
+              x['fingerprint']=hashlib.sha256((old+'|all-historical-highs-redteam-v1').encode()).hexdigest()
+              x['source_fingerprint']=x['fingerprint']
+              x['outcome']='REVIEW'; x['reason']='ALL_HISTORICAL_HIGHS_REDTEAM_REVERIFY'
+              x['verification_status']='PENDING_SEARCH_VERIFY'; x['needs_gpt_review']=True
+              x['redteam_source_batch']=source[key]
+              rows.append(x)
+          out=Path('results/gws_redteam_all_highs/input.jsonl')
+          out.write_text(''.join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+'\n' for x in rows),encoding='utf-8')
+          Path('results/gws_redteam_all_highs/input_summary.json').write_text(json.dumps({'historical_high_identities':len(rows)},indent=2)+'\n')
+          print('GWS_REDTEAM_ALL_HIGH_INPUT='+json.dumps({'historical_high_identities':len(rows)},separators=(',',':')))
+          PY
+      - name: Start hosted OpenSERP or arm fallback
+        id: openserp
+        shell: bash
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then echo 'url=http://127.0.0.1:7000' >> "$GITHUB_OUTPUT"; echo 'mode=openserp_ci' >> "$GITHUB_OUTPUT"; else echo 'url=' >> "$GITHUB_OUTPUT"; echo 'mode=fallback' >> "$GITHUB_OUTPUT"; fi
+          exit 0
+      - name: Refresh current Overture evidence for the whole HIGH census
+        run: |
+          python tools/gws_pending_verify_worker.py \
+            --input results/gws_redteam_all_highs/input.jsonl \
+            --worker-index 0 --worker-count 1 \
+            --outdir results/gws_redteam_all_highs/worker --threads 16
+          input=$(grep -cve '^$' results/gws_redteam_all_highs/input.jsonl)
+          output=$(grep -cve '^$' results/gws_redteam_all_highs/worker/records.jsonl)
+          echo "HIGH_CENSUS_REFRESH input=$input output=$output"
+          test "$input" -eq "$output"
+      - name: Re-run every historical HIGH through current source-safe production verifier
+        env:
+          OPENSERP_URL: ${{ steps.openserp.outputs.url }}
+        run: python tools/gws_search_verify_source_safe.py --shard-dir results/gws_redteam_all_highs/worker --config config/gws_search_verify.json
+      - name: Summarize survivors and failures
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('results/gws_redteam_all_highs/worker/records.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          counts=Counter(str(r.get('verification_status') or '') for r in rows)
+          survivors=[]; changed=[]
+          for r in rows:
+              item={
+                'business':r.get('hub_name') or r.get('overture_name'),
+                'record_key':r.get('record_key'),'address':r.get('hub_address') or r.get('overture_address'),
+                'territory':r.get('territory'),'status':r.get('verification_status'),
+                'reason':r.get('reason'),'owned_website':r.get('owned_website'),
+                'overture_websites':r.get('overture_websites'),
+                'source_precheck_status':(r.get('source_website_precheck') or {}).get('status'),
+                'direct_domain_status':(r.get('direct_domain_high_challenge') or {}).get('status'),
+                'final_challenge_status':(r.get('final_high_challenge') or {}).get('status'),
+                'certificate_verified':bool((r.get('certificate') or {}).get('verified')),
+              }
+              if str(r.get('verification_status') or '').upper()=='HIGH': survivors.append(item)
+              else: changed.append(item)
+          report={'total':len(rows),'statuses':dict(counts),'surviving_high':len(survivors),'downgraded_or_rejected':len(changed),'survivors':survivors,'changed':changed}
+          Path('results/gws_redteam_all_highs/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          Path('results/gws_redteam_all_highs/surviving_high.jsonl').write_text(''.join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+'\n' for x in survivors),encoding='utf-8')
+          print('GWS_REDTEAM_ALL_HIGH_REPORT='+json.dumps({'total':len(rows),'statuses':dict(counts),'surviving_high':len(survivors),'downgraded_or_rejected':len(changed)},separators=(',',':')))
+          print('--- SURVIVING HIGH ---')
+          for x in survivors: print(json.dumps(x,ensure_ascii=False,separators=(',',':')))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-redteam-all-highs-${{ github.run_id }}
+          path: results/gws_redteam_all_highs/
+          retention-days: 3
+          compression-level: 6
