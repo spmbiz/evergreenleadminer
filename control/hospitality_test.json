@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-17T01:21:00Z",
+  "requested_at": "2026-08-17T02:31:30Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "post-quality-and-capacity-live-validation",
+  "mode": "spmbiz-20-slot-live-validation",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Live validation after Commercial Fit V2 and broker-capacity FreshSearch merge. Use durable autoscaler and global broker unchanged; verify planner can consume all Hospitality slots actually granted by the broker up to useful backlog, while preserving GWS/Tenders fair-share, single-writer canonical persistence, dedupe, and compound Qwen sidecars."
+  "note": "Live validation after spmbiz shared-pool migration and FreshSearch 20-way sharding. Use durable autoscaler and broker; verify Hospitality can consume up to its 20-slot demanding share when available while preserving GWS/Tenders 20-slot shares, Commercial Fit V2, single-writer canonical persistence, dedupe, and compound Qwen sidecars."
 }
