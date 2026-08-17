@@ -69,9 +69,9 @@ jobs:
           )
           fi
           if [ "${FORCE:-0}" -gt 0 ]; then
-            REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 20 --force "$FORCE")
+            REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 60 --force "$FORCE")
           else
-            REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 20)
+            REQUEST_JSON=$(python tools/hospitality_scheduler.py capacity --available 60)
           fi
           REQUESTED=$(python -c 'import json,sys; print(json.load(sys.stdin)["chosen"])' <<<"$REQUEST_JSON")
           python tools/global_capacity_broker.py reserve \
@@ -86,7 +86,7 @@ jobs:
           import json
           b=json.load(open('planner/broker.json'))
           out={
-            'available': int(b.get('capacity') or 20)-int(b.get('external_slots') or 0)-int(b.get('leased_other_slots') or 0),
+            'available': int(b.get('capacity') or 60)-int(b.get('external_slots') or 0)-int(b.get('leased_other_slots') or 0),
             'requested': int(b.get('requested') or 0),
             'chosen': int(b.get('allocated') or 0),
             'external_slots': int(b.get('external_slots') or 0),
@@ -175,7 +175,7 @@ jobs:
     if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.worker_count != '0'
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 60
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ubuntu-latest
     timeout-minutes: 58
