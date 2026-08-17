@@ -7,10 +7,12 @@ on:
     paths:
       - 'tools/gws_ownership_gate.py'
       - 'tools/gws_search_verify_ownership_safe.py'
+      - 'tools/gws_search_verify_source_safe.py'
       - 'tools/gws_home_openserp_worker_ownership_safe.py'
       - 'tools/gws_fleet_preaggregate_ownership_guard.py'
       - 'tools/gws_pending_verify_plan.py'
       - 'tools/test_gws_ownership_regression.py'
+      - 'gpt/gws_pending_batches.json'
       - '.github/workflows/gws-autonomous-fleet.yml'
       - '.github/workflows/gws-home-pending-residential.yml'
       - '.github/workflows/gws-ownership-regression.yml'
@@ -21,7 +23,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,7 +31,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run ownership recall regression suite
+      - name: Install verifier dependencies
+        run: python -m pip install --disable-pip-version-check requests 'ddgs>=9,<10' aiohttp
+      - name: Run ownership and source-safe regression suite
         env:
           PYTHONPATH: tools
         run: python tools/test_gws_ownership_regression.py
