@@ -58,12 +58,16 @@ def category_type(basic: Any, primary: Any) -> str:
         (("fast_food",), "Fast food"),
         (("pizzeria", "pizza_restaurant"), "Pizzeria"),
         (("brasserie",), "Brasserie"),
+        (("food_delivery_service",), "Food delivery service"),
 
         # bars_nightlife. Short tokens are intentionally boundary-matched so
         # ``pub`` never matches ``public_plaza`` / ``public_utility_company``.
+        # ``gastropub`` is restored explicitly because it is a legitimate bar
+        # category that old substring matching used to include accidentally.
         (("cocktail_bar",), "Cocktail bar"),
         (("nightclub", "night_club"), "Nightclub"),
         (("tavern",), "Tavern"),
+        (("gastropub",), "Pub"),
         (("pub",), "Pub"),
         (("bar",), "Bar"),
 
@@ -111,7 +115,7 @@ def category_type(basic: Any, primary: Any) -> str:
         (("window_cleaning", "window_cleaner"), "Window cleaning"),
         (("cleaning_service", "cleaner"), "Cleaning"),
         (("pest_control", "exterminator"), "Pest control"),
-        (("moving_company", "moving_service", "mover", "removal_service"), "Moving"),
+        (("moving_company", "moving_service", "mover", "movers", "removal_service"), "Moving"),
         (("storage_facility", "self_storage"), "Storage"),
 
         # health_clinics
@@ -128,7 +132,7 @@ def category_type(basic: Any, primary: Any) -> str:
         (("martial_arts",), "Martial arts"),
         (("dance_school", "dance_studio"), "Dance school"),
         (("sports_club",), "Sports club"),
-        (("fitness_center", "fitness_centre", "gym"), "Gym fitness"),
+        (("fitness_center", "fitness_centre", "gym", "gymnastics_center"), "Gym fitness"),
 
         # education_children
         (("driving_school",), "Driving school"),
@@ -149,18 +153,21 @@ def category_type(basic: Any, primary: Any) -> str:
 
         # vehicle_extended
         (("car_wash",), "Car wash"),
-        (("auto_detail", "car_detail"), "Car detailing"),
+        (("auto_detail", "car_detail", "auto_detailing"), "Car detailing"),
         (("motorcycle_shop", "motorcycle_dealer", "motorcycle_repair"), "Motorcycle"),
         (("bicycle_repair", "bike_repair"), "Bike repair"),
         (("bicycle_shop", "bike_shop", "cycle_shop"), "Bicycle cycle shop"),
+        (("vehicle_shipping",), "Vehicle shipping"),
 
         # professional_local_services
         (("accountant", "accounting_firm", "accounting_service"), "Accountant accounting"),
         (("insurance_broker", "insurance_agency", "insurance_agent"), "Insurance broker"),
         (("real_estate_agency", "estate_agent", "real_estate_agent"), "Real estate agency"),
-        (("architect", "architecture_firm"), "Architect"),
+        (("architect", "architecture_firm", "architectural_designer"), "Architect"),
         (("surveyor", "land_surveyor"), "Surveyor"),
         (("translation_service", "translator"), "Translation"),
+        (("notary_public",), "Notary"),
+        (("public_relations",), "Public relations"),
     ]
     for needles, typ in rules:
         if any(_matches_category(basic, primary, needle) for needle in needles):
