@@ -1,0 +1,38 @@
+name: GWS Audit Pre-Source-Safe HIGHs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-scan-pre-source-safe-highs.yml'
+      - 'tools/gws_scan_pre_source_safe_highs.py'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Scan every durable strict HIGH snapshot for ignored source-site evidence
+        env:
+          PYTHONPATH: tools
+        run: |
+          python tools/gws_scan_pre_source_safe_highs.py --outdir results/gws_pre_source_safe_scan
+          cat results/gws_pre_source_safe_scan/report.json
+          echo '--- SUSPECTS ---'
+          cat results/gws_pre_source_safe_scan/suspects.jsonl || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-pre-source-safe-high-scan-${{ github.run_id }}
+          path: results/gws_pre_source_safe_scan/
+          retention-days: 3
