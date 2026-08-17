@@ -17,16 +17,33 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Cancel requested workflow run
+        with:
+          ref: ${{ github.sha }}
+      - name: Cancel requested workflow runs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          target=$(python - <<'PY'
+          python - <<'PY' > /tmp/gws_cancel_ids.txt
           import json
-          print(json.load(open('control/gws_cancel_run.json'))['run_id'])
+          x=json.load(open('control/gws_cancel_run.json'))
+          ids=x.get('run_ids')
+          if ids is None:
+              ids=[x.get('run_id')]
+          for rid in ids:
+              if rid:
+                  print(int(rid))
           PY
-          )
-          echo "Cancelling run $target"
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${target}/cancel"
-          echo "CANCEL_REQUESTED=$target"
+          while read -r target; do
+            [ -n "$target" ] || continue
+            echo "Cancelling run $target"
+            set +e
+            out=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${target}/cancel" 2>&1)
+            code=$?
+            set -e
+            if [ "$code" -eq 0 ]; then
+              echo "CANCEL_REQUESTED=$target"
+            else
+              echo "CANCEL_NONFATAL=$target $out"
+            fi
+          done < /tmp/gws_cancel_ids.txt
