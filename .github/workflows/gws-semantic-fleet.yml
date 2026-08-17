@@ -1,9 +1,6 @@
 name: GWS Qwen Semantic Fleet
 
 on:
-  workflow_run:
-    workflows: ["GWS Pending Search Verify Fleet"]
-    types: [completed]
   schedule:
     - cron: '9 * * * *'
   workflow_dispatch:
@@ -23,7 +20,6 @@ env:
 
 jobs:
   plan:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     concurrency:
       group: ai-prod-global-capacity-broker
       cancel-in-progress: false
@@ -44,9 +40,9 @@ jobs:
       - name: Materialize residential evidence as shadow-only semantic inputs
         run: python tools/gws_residential_semantic_adapter.py --out data/gws/verification/residential_shadow_input.jsonl
       - id: prepare
-        name: Build incremental semantic queue
+        name: Build incremental overflow / benchmark semantic queue
         run: python tools/gws_semantic_plan.py prepare --config "$SEMANTIC_CONFIG" --outdir results/gws_semantic_plan
-      - name: Reserve fair-share GWS semantic capacity
+      - name: Reserve overflow-only GWS semantic capacity
         if: steps.prepare.outputs.selected != '0'
         env:
           RUN_ID: ${{ github.run_id }}
