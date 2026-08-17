@@ -14,6 +14,7 @@ on:
       - 'tools/gws_source_overture_extended.py'
       - 'tools/test_gws_ownership_regression.py'
       - 'tools/test_gws_overture_category_mapping.py'
+      - 'tools/test_gws_cancel_guard.py'
       - 'gpt/gws_pending_batches.json'
       - '.github/workflows/gws-autonomous-fleet.yml'
       - '.github/workflows/gws-home-pending-residential.yml'
@@ -43,6 +44,10 @@ jobs:
         env:
           PYTHONPATH: tools
         run: python tools/test_gws_overture_category_mapping.py
+      - name: Run explicit cancel guard regression suite
+        env:
+          PYTHONPATH: tools
+        run: python tools/test_gws_cancel_guard.py
       - name: Assert live recovery backlog is actually prioritized
         env:
           PYTHONPATH: tools
