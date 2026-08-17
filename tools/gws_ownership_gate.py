@@ -19,6 +19,14 @@ THIRD_PARTY_SUFFIXES = {
     "booking.com", "mapstr.com", "waze.com", "google.com", "bing.com", "duckduckgo.com",
     "amazon.com", "walmart.com", "target.com", "fandom.com", "wikipedia.org",
     "ivof.com",
+    # Observed Brussels false-positive ownership hosts. These are booking,
+    # directory, association, editorial or business-index pages. They may prove
+    # identity/current operation, but they never prove first-party website ownership.
+    "medical-sante.be", "huisartsgids.be", "myconsultation.be", "rosa.be",
+    "ssub.be", "bedrijvenwijzer.be", "combook.be", "doctoranytime.be",
+    "restaurantguru.com", "restaurantguru.it", "restaurantguru.ru",
+    "bizique.be", "epiceriebelgique.com", "allo-bruxelles.be", "nosavis.be",
+    "cylex-belgie.be", "atout-commerces.be",
 }
 
 GENERIC_NAME_TOKENS = {
