@@ -19,6 +19,10 @@ class QualityV2Tests(unittest.TestCase):
  def test_booking_subdomain_rejected(self):self.assertEqual(self.q('Example Hotel','our hotel rooms',website='https://foo.booking.com/hotel/gb/example.html')['commercial_fit_tier'],'X')
  def test_obertauern_destination_rejected(self):self.assertEqual(self.q('Obertauern','Austria winter sports resort with ski passes 26 cable car lift facilities slopes tourism association and hotels in Obertauern',website='https://www.obertauern.com/')['commercial_fit_tier'],'X')
  def test_real_property_near_ski_area_not_rejected(self):self.assertNotEqual(self.q('Hotel Winter Obertauern','our hotel rooms apartments spa stay with us book your room near the ski lifts',website='https://hotel-winter.at/')['commercial_fit_tier'],'X')
+ def test_internal_cheap_screen_note_is_not_budget_signal(self):
+  q=assess_record({'name':'1929 Boutique Residences','category':'hotel','website':'https://1929-residences.gr/','notes':'Public Overture site+email; zero-HTTP V6 cheap-screen.'},'our boutique hotel rooms and suites');self.assertNotIn('BUDGET_SIGNAL',q['quality_reason'])
+ def test_underscore_category_counts_as_short_stay(self):
+  q=assess_record({'name':'Cialla Self Catering','category':'holiday_rental_home','website':'https://example.com/'},'holiday home book your stay');self.assertGreater(q['entity_validity_score'],20)
  def test_social_sanitization(self):
   self.assertEqual(sanitize_social('https://www.facebook.com/privacy/explanation/','facebook'),'');self.assertTrue(sanitize_social('https://www.facebook.com/pages/Berghotel-Presslauer/208323989202686/','facebook'))
 if __name__=='__main__':unittest.main()
