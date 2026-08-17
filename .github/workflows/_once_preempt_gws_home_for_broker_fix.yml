@@ -1,0 +1,18 @@
+name: One-shot Preempt GWS Home For Broker Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/_once_preempt_gws_home_for_broker_fix.yml'
+
+concurrency:
+  group: gws-home-pending-residential
+  cancel-in-progress: true
+
+jobs:
+  marker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo 'GWS home residential lane preempted so broker migration can use the self-hosted runner.'
