@@ -118,7 +118,7 @@
       "records": 3,
       "reviewed_at": null,
       "status": "pending",
-      "verification_remaining": 1,
+      "verification_remaining": 2,
       "verification_total": 3
     },
     {
@@ -129,7 +129,7 @@
       "records": 8,
       "reviewed_at": null,
       "status": "pending",
-      "verification_remaining": 8,
+      "verification_remaining": 5,
       "verification_total": 8
     },
     {
@@ -139,7 +139,9 @@
       "provider": "github",
       "records": 170,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 150,
+      "verification_total": 170
     },
     {
       "batch": "gpt/gws_review/ownership_recall_31982166413.jsonl",
@@ -159,7 +161,9 @@
       "provider": "github",
       "records": 70,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 70,
+      "verification_total": 70
     },
     {
       "batch": "gpt/gws_review/ownership_recall_31982166413_post134_21.jsonl",
@@ -173,6 +177,6 @@
       "verification_total": 21
     }
   ],
-  "pending_records": 517,
+  "pending_records": 495,
   "schema_version": 1
 }
