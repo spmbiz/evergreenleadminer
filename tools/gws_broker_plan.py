@@ -26,7 +26,7 @@ import gws_fleet_plan as gp
 # Bump whenever category->GWS-family materialization semantics change. A supply
 # matrix produced by an older mapper is discovery-routing evidence from a different
 # universe and must fail closed instead of steering current work.
-CURRENT_SUPPLY_MAPPER_VERSION = "overture-category-token-safe-v2"
+CURRENT_SUPPLY_MAPPER_VERSION = "overture-category-token-safe-recall-v3"
 
 
 def emit_zero(outdir: Path):
