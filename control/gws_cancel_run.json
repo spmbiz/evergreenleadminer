@@ -1,8 +1,10 @@
 {
   "run_ids": [
+    31988666057,
     31988317771,
-    31991651388
+    31991651388,
+    31991856813
   ],
-  "reason": "retry stale broker lease purge after granting cancel controller contents:write; old strict #117 and cancelled #124 must consume zero spmbiz GWS capacity",
-  "retry_nonce": "2026-08-17T03:44:00Z"
+  "reason": "purge superseded GWS autonomous #145 and strict #117/#124/#125 plus their broker leases; preserve latest strict #126 and latest autonomous #152 only",
+  "retry_nonce": "2026-08-17T03:45:00Z"
 }
