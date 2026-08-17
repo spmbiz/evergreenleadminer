@@ -21,7 +21,6 @@ permissions:
 
 concurrency:
   group: gws-pending-search-verify-fleet
-  # A code push supersedes stale architecture runs; scheduled/refill passes stay serialized.
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
@@ -120,7 +119,7 @@ jobs:
         with:
           name: gws-pending-verify-plan-${{ github.run_id }}
           path: results/gws_verify_plan
-      - name: Start hosted OpenSERP or arm fallback
+      - name: Start hosted OpenSERP if available
         id: openserp
         shell: bash
         run: |
@@ -146,15 +145,18 @@ jobs:
             --worker-count "${{ matrix.worker_count }}" \
             --outdir results/gws_verify_worker \
             --threads 16
-          python tools/gws_search_verify_source_safe.py \
+          python tools/gws_search_verify_current_safe.py \
             --shard-dir results/gws_verify_worker \
             --config config/gws_search_verify.json
-      - name: Select fresh ambiguous rows for same-runner Qwen sidecar
+      - name: Select fresh ambiguous rows for optional same-runner Qwen shadow
+        id: compound
         if: always()
+        continue-on-error: true
         run: |
           python tools/gws_compound_semantic.py \
-            --root results/gws_verify_worker \
-            --out results/gws_verify_worker/compound_semantic/input.jsonl \
+            --shard-dir results/gws_verify_worker \
+            --outdir results/gws_verify_worker/compound_semantic \
+            --worker-index "${{ matrix.worker_index }}" \
             --config config/gws_semantic_v1.json
       - name: Read pinned Qwen sidecar config
         if: always()
@@ -166,9 +168,7 @@ jobs:
           from pathlib import Path
           c=json.loads(Path('config/gws_semantic_v1.json').read_text())
           q=c['qwen']
-          selected=0
-          p=Path('results/gws_verify_worker/compound_semantic/input.jsonl')
-          if p.exists(): selected=sum(1 for x in p.read_text(encoding='utf-8').splitlines() if x.strip())
+          selected=int('${{ steps.compound.outputs.selected }}' or '0')
           print('selected='+str(selected))
           print('repo='+q['model_repo'])
           print('revision='+q['model_revision'])
@@ -213,7 +213,6 @@ jobs:
           model="$HOME/.cache/gws-qwen/$MODEL_FILE"
           if [ ! -s "$model" ]; then
             echo 'ready=false' >> "$GITHUB_OUTPUT"
-            echo 'Qwen model unavailable; compound semantic sidecar skipped.'
             exit 0
           fi
           cid=$(docker run -d --rm --name "gws-qwen-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.worker_index }}" \
@@ -245,7 +244,7 @@ jobs:
           QWEN_URL: ${{ steps.qwen.outputs.url }}
         run: |
           python tools/gws_home_semantic_worker.py \
-            --input results/gws_verify_worker/compound_semantic/input.jsonl \
+            --input results/gws_verify_worker/compound_semantic/selected.jsonl \
             --outdir results/gws_verify_worker/compound_semantic/worker \
             --endpoint "$OPENSERP_URL" \
             --engines bing,duckduckgo \
