@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-17T02:31:30Z",
+  "requested_at": "2026-08-17T02:40:30Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "spmbiz-20-slot-live-validation",
+  "mode": "spmbiz-team-60-live-hospitality-run",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Live validation after spmbiz shared-pool migration and FreshSearch 20-way sharding. Use durable autoscaler and broker; verify Hospitality can consume up to its 20-slot demanding share when available while preserving GWS/Tenders 20-slot shares, Commercial Fit V2, single-writer canonical persistence, dedupe, and compound Qwen sidecars."
+  "note": "Live Hospitality/Airbnb run after restoring spmbiz Team capacity to 60 total with 20-slot demanding shares for Hospitality, Tenders and GWS. Use broker-authoritative admission, FreshSearch up to 20 Hospitality workers, Commercial Fit V2, compound Qwen sidecars, single-writer canonical persistence and dedupe."
 }
