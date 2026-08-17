@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "strict_workflow_run_id": 31988317771,
+  "status": "QUARANTINED_REQUIRE_LATEST_MAIN_REVERIFY",
+  "canonical_eligible": false,
+  "applies_to": "ALL_HIGH_OUTCOMES_FROM_THIS_STRICT_RUN",
+  "reason": "Run executed before the current token-safe Overture mapper and before distinctive short-brand domain ownership matching. Independent red-team found both out-of-scope public entities and owned-site false HIGHs among completed shards.",
+  "known_failure_modes": [
+    "legacy substring category mapping could map public_* categories to Pub via token pub",
+    "short distinctive brand domains such as OPTIL->optil.be and Herard->herards.com could be withheld despite strong identity",
+    "source-provided websites could therefore remain CLEAR when the older ownership matcher failed brand recognition",
+    "same-runner Qwen shadow consumed capacity but had no strict truth authority"
+  ],
+  "redteam_checkpoint": {
+    "completed_strict_workers_inspected": [0,1,2,3,4,5,6],
+    "technical_highs_inspected": 25,
+    "known_public_or_nonbusiness_scope_false_highs": [
+      "Square Baron Robert Hankarsquare",
+      "Place Saint-Denis 1190 Forest",
+      "Chorale Royale Protestante de Bruxelles asbl",
+      "Place de Londres",
+      "Maison de la prévention - Auderghem",
+      "Place Thomas Balis",
+      "Place Charles Grauxplein",
+      "Square Baron Alfred Bouviersquare"
+    ],
+    "known_owned_or_chain_false_highs": [
+      {"business":"Herard's Opticien","owned_domain":"herards.com"},
+      {"business":"OPTIL - Vos opticiens indépendants","owned_domain":"optil.be"},
+      {"business":"La Table Rustique","owned_domain":"latablerustique.com"},
+      {"business":"Louise Fifty Four","owned_domain":"louise54.com"},
+      {"business":"LADY DOD","owned_domain":"dod.be","additional_scope":"chain/location identity DOD Kids"}
+    ],
+    "identity_or_current_state_withholds": [
+      "Panda Bar",
+      "Bar a Fidelis",
+      "Enrico Murrieri Créations (E.M. Créations)",
+      "Taverne Pivochka"
+    ],
+    "plausible_no_website_candidates_requiring_latest_main_reverify": [
+      "Ratabar",
+      "Addict Bar",
+      "Taverne Tip- Top",
+      "Olivier Calloens",
+      "Le Gauguin",
+      "Le Saint Plon",
+      "Bar Cameleon",
+      "Mez Basse"
+    ]
+  },
+  "release_condition": "A record may leave this quarantine only after a fresh strict verification on a main SHA containing the token-safe Overture category mapper, source-safe verifier, and distinctive leading-brand ownership gate, followed by normal scope/entity review and canonical dedupe/readback.",
+  "integrity_note": "This quarantine does not convert any record to REJECT or HIGH. It only blocks canonical promotion from this superseded verifier run."
+}
