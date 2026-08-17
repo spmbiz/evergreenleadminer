@@ -1,0 +1,33 @@
+name: GWS Ownership Recall Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_ownership_gate.py'
+      - 'tools/gws_search_verify_ownership_safe.py'
+      - 'tools/gws_home_openserp_worker_ownership_safe.py'
+      - 'tools/test_gws_ownership_regression.py'
+      - '.github/workflows/gws-autonomous-fleet.yml'
+      - '.github/workflows/gws-home-pending-residential.yml'
+      - '.github/workflows/gws-ownership-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run ownership recall regression suite
+        env:
+          PYTHONPATH: tools
+        run: python tools/test_gws_ownership_regression.py
