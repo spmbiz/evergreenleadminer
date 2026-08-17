@@ -1,0 +1,74 @@
+name: GWS Ownership False-Reject Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_ownership_recovery_scan.py'
+      - '.github/workflows/gws-ownership-recovery.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gws-ownership-false-reject-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Scan durable history and enqueue only unproven owned-site rejects
+        env:
+          PYTHONPATH: tools
+          BATCH_ID: ${{ github.run_id }}
+        run: |
+          python tools/gws_ownership_recovery_scan.py \
+            --outdir results/gws_ownership_recovery \
+            --apply \
+            --batch-id "$BATCH_ID"
+          cat results/gws_ownership_recovery/report.json
+      - name: Persist recovery queue without unsafe merge
+        env:
+          PYTHONPATH: tools
+          BATCH_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name 'gws-ownership-recovery'
+          git config user.email 'actions@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git add gpt/gws_pending_batches.json gpt/gws_review/ || true
+            if git diff --cached --quiet; then
+              echo 'No new ownership false-reject remediation rows.'
+              exit 0
+            fi
+            git commit -m "[gws-ownership-recovery] recall remediation ${GITHUB_RUN_ID} [skip ci]"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Concurrent durable-state change; rebuilding remediation from latest main (attempt $attempt)."
+            git fetch origin main
+            git reset --hard origin/main
+            python tools/gws_ownership_recovery_scan.py \
+              --outdir results/gws_ownership_recovery \
+              --apply \
+              --batch-id "$BATCH_ID"
+          done
+          echo 'Failed to persist ownership recovery safely after retries.' >&2
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-ownership-recovery-${{ github.run_id }}
+          path: results/gws_ownership_recovery/
+          retention-days: 2
