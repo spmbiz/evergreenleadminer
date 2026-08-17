@@ -1,0 +1,64 @@
+{
+  "schema": "gws-canonical-sheet-receipt-v1",
+  "strict_batch": "gpt/gws_verified_review/2026-08-17T004651Z.jsonl",
+  "canonical_sheet_id": "1pYzNHoEepjmZ1GK0YpkMV3fG5wMteZ0JECx1fUzKEm8",
+  "website_state": "VERIFIED_NO_WEBSITE",
+  "strict_high_input": 7,
+  "canonical_appended": 2,
+  "canonical_high_before": 2271,
+  "canonical_high_after_readback": 2273,
+  "leads_range": "Leads!A2299:AL2300",
+  "dedupe_range": "Dedupe Index!A2315:H2316",
+  "readback_verified": true,
+  "canonicalized": [
+    {
+      "record_key": "overture:ef579bf7-0237-4f27-abd4-ff6e3cf75a5b",
+      "business_name": "Un altro colore - marmellateria&dolceria",
+      "lead_id": "GWS-BRU-STRICT-20260817-000001",
+      "sheet_row": 2299,
+      "dedupe_row": 2315,
+      "certificate_digest": "3c0a23f3f7774e5dbc40887b8a046ec453051bc5c888919cb8ad0082b131586b"
+    },
+    {
+      "record_key": "overture:16433b5f-82f6-40b6-8739-794a6378ebf1",
+      "business_name": "Judith Tsachor",
+      "lead_id": "GWS-BRU-STRICT-20260817-000002",
+      "sheet_row": 2300,
+      "dedupe_row": 2316,
+      "certificate_digest": "9d7629e39f43856e41cfa5ca3daefaa18a602581e88991ff2d9745380d01e673"
+    }
+  ],
+  "withheld_from_canonical": [
+    {
+      "record_key": "overture:762dccea-f0cb-45fb-a256-cf9094a8b488",
+      "business_name": "Agora Simone Veil",
+      "status": "REJECT_SCOPE_NON_BUSINESS_PUBLIC_SPACE",
+      "reason": "European Parliament public-space identity, not an independent local business."
+    },
+    {
+      "record_key": "overture:7cadf4ad-ebec-4feb-96c0-ae39a36bd923",
+      "business_name": "Esplanade Solidarność 1980",
+      "status": "REJECT_SCOPE_NON_BUSINESS_PUBLIC_SPACE",
+      "reason": "European Parliament esplanade/public-space identity, not an independent local business."
+    },
+    {
+      "record_key": "overture:226cb2e2-6d36-4bd0-83cb-4af9f7bf71d4",
+      "business_name": "Futur Place Lumumba",
+      "status": "REJECT_SCOPE_NON_BUSINESS_PUBLIC_SPACE",
+      "reason": "Public-space/commemorative place identity, not a local business lead."
+    },
+    {
+      "record_key": "overture:c46b4f5f-0cd6-4721-88ad-3dc2c9fa5511",
+      "business_name": "Café solidaire",
+      "status": "WITHHELD_IDENTITY_LOCATION_MISMATCH",
+      "reason": "Current public initiative identity/location does not cleanly match the Overture POI at Chaussée de Boondael 535; requires fresh entity resolution before any canonical write."
+    },
+    {
+      "record_key": "overture:dc4f6710-975b-4bb3-a771-7863b5785153",
+      "business_name": "Banqueroute Bankroet Bankrupt",
+      "status": "WITHHELD_SCOPE_IDENTITY_UNRESOLVED",
+      "reason": "No sufficiently reliable current independent-business identity established for this unusual Overture POI; kept out of canonical rather than guessing."
+    }
+  ],
+  "integrity_note": "Only Sheet-readback-confirmed net-new in-scope HIGHs are counted canonical. Withheld records are preserved here and were not downgraded by website evidence; they are scope/entity decisions only."
+}
