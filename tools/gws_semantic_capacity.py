@@ -24,8 +24,8 @@ def _strict_backlog() -> int:
     """Mirror the strict planner's eligibility gate without mutating state.
 
     Fail closed in favour of the strict verifier: if the signal cannot be
-    computed, return one so semantic capacity stays capped rather than stealing
-    the verifier's protected GWS headroom.
+    computed, return one so standalone semantic capacity yields to compound
+    same-runner Qwen rather than stealing strict GWS slots.
     """
     try:
         pending = _load(ROOT / "gpt/gws_pending_batches.json", {"batches": []})
@@ -81,10 +81,8 @@ def _policy() -> tuple[int, int, int]:
     fleet_cfg = _load(ROOT / "config/global_fleet.json", {})
     gws_cfg = ((fleet_cfg.get("workloads") or {}).get("gws") or {})
     gws_floor = max(0, int(gws_cfg.get("min_slots_when_demanding") or 0))
-    strict_reserved = max(0, int(rollout.get("strict_reserved_slots") or 3))
-    configured_semantic_cap = max(0, int(rollout.get("semantic_max_workers_when_strict_demand") or 2))
-    # Never let config drift make semantic consume the strict reservation inside
-    # the protected GWS fair-share floor.
+    strict_reserved = max(0, int(rollout.get("strict_reserved_slots") or gws_floor))
+    configured_semantic_cap = max(0, int(rollout.get("semantic_max_workers_when_strict_demand") or 0))
     semantic_cap = min(configured_semantic_cap, max(0, gws_floor - strict_reserved))
     return strict_reserved, semantic_cap, gws_floor
 
@@ -94,8 +92,8 @@ def main():
     ap.add_argument("--demand", type=int, required=True)
     ap.add_argument("--requested", type=int, required=True)
     ap.add_argument("--run-id", required=True)
-    ap.add_argument("--owner", default="walidgdg1-ai")
-    ap.add_argument("--repo", default="walidgdg1-ai/evergreenleadminer")
+    ap.add_argument("--owner", default="spmbiz")
+    ap.add_argument("--repo", default="spmbiz/evergreenleadminer")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     a.dry_run = False
@@ -118,14 +116,14 @@ def main():
     decision = _load(out, {})
     if isinstance(decision, dict):
         decision.update({
-            "gws_lane": "semantic",
+            "gws_lane": "semantic_overflow",
             "strict_backlog": strict_backlog,
             "strict_reserved_slots": strict_reserved,
             "gws_floor_slots": gws_floor,
             "semantic_requested_before_strict_reserve": requested_before,
             "semantic_request_after_strict_reserve": max(0, int(a.requested)),
             "semantic_cap_when_strict_demand": semantic_cap,
-            "reservation_policy": "strict-first-3-semantic-burst-2-while-strict-demand; semantic-burst-up-to-config-max-when-strict-empty",
+            "reservation_policy": "compound-qwen-inside-strict-workers; standalone-semantic-zero-while-strict-demand; elastic-overflow-when-strict-empty",
         })
         out.write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
         print("GWS_SEMANTIC_STRICT_RESERVE=" + json.dumps({
