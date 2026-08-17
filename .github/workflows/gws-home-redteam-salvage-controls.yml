@@ -48,9 +48,9 @@ jobs:
             for($i=0;$i -lt 30;$i++){ Start-Sleep 1; if(Test-OpenSerp){ break } }
           }
           if(-not (Test-OpenSerp)){ throw 'OpenSERP unavailable for redteam' }
-          Write-Host 'HOME_REDTEAM_OPENSERP=OK engines=bing,duckduckgo-configured-by-local-service'
+          Write-Host 'HOME_REDTEAM_OPENSERP=OK engines=bing,duckduckgo'
 
-      - name: Resolve Python
+      - name: Resolve Python and run regression gate
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
@@ -61,6 +61,26 @@ jobs:
           $py | Out-File -Encoding ascii .gws-redteam-python.txt
           & $py tools\test_gws_ownership_regression.py
           if($LASTEXITCODE -ne 0){throw "Regression gate failed: $LASTEXITCODE"}
+
+      - name: Build laptop-only Bing DuckDuckGo verifier config
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'; $py=(Get-Content .gws-redteam-python.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force results\gws_home_redteam | Out-Null
+          @'
+          import json
+          from pathlib import Path
+          src=Path('config/gws_search_verify.json')
+          cfg=json.loads(src.read_text(encoding='utf-8'))
+          search=dict(cfg.get('search') or {})
+          search['openserp_engines']='bing,duckduckgo'
+          search['candidate_concurrency']=6
+          cfg['search']=search
+          out=Path('results/gws_home_redteam/search_config.json')
+          out.write_text(json.dumps(cfg,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print('HOME_REDTEAM_SEARCH_CONFIG='+json.dumps({'openserp_engines':search['openserp_engines'],'candidate_concurrency':search['candidate_concurrency'],'strict':cfg.get('strict')},separators=(',',':')))
+          '@ | & $py -
+          if($LASTEXITCODE -ne 0){throw "Config build failed: $LASTEXITCODE"}
 
       - name: Select durable salvage candidates and owned controls
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -103,22 +123,22 @@ jobs:
           for label,(kind,_) in targets.items():
             ts,r,p=latest[label]; x=dict(r)
             old=str(x.get('fingerprint') or x.get('source_fingerprint') or '')
-            fresh=hashlib.sha256((old+'|home-redteam-v1|'+label).encode()).hexdigest()
+            fresh=hashlib.sha256((old+'|home-redteam-v2|'+label).encode()).hexdigest()
             x['fingerprint']=fresh;x['source_fingerprint']=fresh;x['redteam_original_fingerprint']=old
             x['outcome']='REVIEW';x['reason']='HOME_REDTEAM_REVERIFY';x['verification_status']='PENDING_SEARCH_VERIFY';x['needs_gpt_review']=True
             x['redteam_label']=label;x['redteam_expected_class']=kind;x['redteam_source_path']=p
-            rows.append(x);manifest.append({'label':label,'expected':kind,'business':x.get('hub_name') or x.get('overture_name'),'record_key':key,'source':p,'previous_status':r.get('verification_status'),'previous_reason':r.get('reason')})
+            rows.append(x);manifest.append({'label':label,'expected':kind,'business':x.get('hub_name') or x.get('overture_name'),'record_key':str(x.get('record_key') or x.get('hub_objectid') or ''),'source':p,'previous_status':r.get('verification_status'),'previous_reason':r.get('reason')})
           Path('results/gws_home_redteam/worker/records.jsonl').write_text(''.join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+'\n' for x in rows),encoding='utf-8')
           Path('results/gws_home_redteam/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
           print('HOME_REDTEAM_INPUT='+json.dumps(manifest,ensure_ascii=False,separators=(',',':')))
           '@ | & $py -
           if($LASTEXITCODE -ne 0){throw "Selection failed: $LASTEXITCODE"}
 
-      - name: Run current source-safe strict verifier through local OpenSERP
+      - name: Run current source-safe strict verifier through Bing DuckDuckGo OpenSERP
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop';$py=(Get-Content .gws-redteam-python.txt -Raw).Trim()
-          & $py tools\gws_search_verify_source_safe.py --shard-dir results\gws_home_redteam\worker --config config\gws_search_verify.json
+          & $py tools\gws_search_verify_source_safe.py --shard-dir results\gws_home_redteam\worker --config results\gws_home_redteam\search_config.json
           if($LASTEXITCODE -ne 0){throw "Source-safe verifier failed: $LASTEXITCODE"}
 
       - name: Summarize and assert controls
