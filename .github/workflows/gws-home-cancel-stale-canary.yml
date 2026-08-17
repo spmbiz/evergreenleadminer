@@ -1,0 +1,31 @@
+name: GWS Home Cancel Stale Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-cancel-stale-canary.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Cancel stale pre-token-safe autonomous run
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_RUN: '31986876407'
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "HOME_CANCEL_REQUESTED=$env:TARGET_RUN"
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:TARGET_RUN/cancel"
+          if($LASTEXITCODE -ne 0){ throw "Cancel API failed with exit $LASTEXITCODE" }
