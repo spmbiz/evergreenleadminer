@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/gws-redteam-laurent-amir.yml'
+      - 'tools/gws_search_verify_source_safe.py'
+      - 'tools/gws_ownership_gate.py'
+      - 'tools/gws_pending_verify_worker.py'
+      - 'gpt/gws_redteam/laurent_amir_exact_20260817.jsonl'
 
 permissions:
   contents: read
