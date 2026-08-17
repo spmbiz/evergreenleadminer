@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "strict_workflow_run_id": 31992645058,
+  "status": "QUARANTINED_REQUIRE_CURRENT_OPERATION_REVERIFY",
+  "canonical_eligible": false,
+  "applies_to": "ALL_HIGH_OUTCOMES_FROM_THIS_STRICT_RUN",
+  "reason": "Independent red-team of the first three technical HIGH outcomes found 3/3 unsafe: one explicit public square and two stale/current-operator collisions. Keep all useful search evidence, but force every HIGH from this run back to non-terminal reverify before canonical eligibility.",
+  "redteam_failures": [
+    {
+      "business": "Square Baron Alfred Bouviersquare",
+      "record_key": "overture:dfacdd80-b0ad-4f43-9781-884fe43ad9fa",
+      "failure": "OUT_OF_SCOPE_PUBLIC_SPACE",
+      "source_category": "public_plaza"
+    },
+    {
+      "business": "The Supreme Xmas Market",
+      "record_key": "overture:694ad4de-5123-4c8f-ad97-a5ebb579f0f0",
+      "failure": "STALE_CURRENT_OPERATOR_COLLISION",
+      "detail": "22A Rue de Savoie is currently documented as Atelier Blush with active first-party website and current showroom hours."
+    },
+    {
+      "business": "Panda Bar",
+      "record_key": "overture:da7ba5ef-5bfa-4811-8822-ecee55425b8d",
+      "failure": "STALE_CURRENT_OPERATOR_COLLISION",
+      "detail": "285 Chaussée de Waterloo is currently documented as Inès & Co, active since 2025 with café/bar activity."
+    }
+  ],
+  "release_condition": "A record may leave quarantine only after a fresh strict replay on code that requires independent current-operation corroboration for HIGH, plus existing source-safe ownership, scope, identity, and canonical dedupe/readback gates.",
+  "integrity_note": "This quarantine does not discard or relabel non-HIGH evidence from run 31992645058. Aggregate will preserve evidence and force only technical HIGH outcomes to ERROR_RETRYABLE/REVIEW."
+}
