@@ -9,7 +9,7 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 jobs:
   cancel:
@@ -48,9 +48,6 @@ jobs:
               echo "CANCEL_NONFATAL=$target $out"
             fi
 
-            # Cancellation and lease release are separate concerns. Even if GitHub
-            # says the run is already completed/cancelled, remove any durable broker
-            # lease it left behind so future GWS waves can use the capacity now.
             set +e
             release_out=$(python tools/global_capacity_broker.py release --run-id "$target" --repo "$GITHUB_REPOSITORY" 2>&1)
             release_code=$?
