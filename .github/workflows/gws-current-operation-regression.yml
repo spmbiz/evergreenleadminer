@@ -1,0 +1,51 @@
+name: GWS Current Operation Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/gws_search_verify_current_safe.py'
+      - 'tools/test_gws_current_operation_regression.py'
+      - '.github/workflows/gws-current-operation-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gws-current-operation-regression
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Refresh main and resolve Python
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@(
+            'C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe',
+            'C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe',
+            'C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe'
+          )
+          $py=$null
+          foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
+          if(-not $py){throw 'Usable local Python not found'}
+          $py | Out-File -Encoding ascii .gws-current-python.txt
+      - name: Run current-operation HIGH regression
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=(Get-Content .gws-current-python.txt -Raw).Trim()
+          $env:PYTHONPATH='tools'
+          & $py tools\test_gws_current_operation_regression.py
+          if($LASTEXITCODE -ne 0){throw "Current-operation regression failed: $LASTEXITCODE"}
