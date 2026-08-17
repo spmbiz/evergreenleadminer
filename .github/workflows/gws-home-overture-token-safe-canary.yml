@@ -1,0 +1,113 @@
+name: GWS Home Overture Token-Safe Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-overture-token-safe-canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gws-home-overture-token-safe-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Refresh main and resolve Python
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@('C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe','C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe')
+          $py=$null;foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
+          if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
+          if(-not $py){throw 'Usable Python not found'}
+          $py | Out-File -Encoding ascii .gws-overture-canary-python.txt
+          & $py -m pip install --disable-pip-version-check duckdb
+          if($LASTEXITCODE -ne 0){throw "duckdb install failed: $LASTEXITCODE"}
+      - name: Materialize current token-safe Overture reservoir
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop';$py=(Get-Content .gws-overture-canary-python.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force results\gws_home_overture_canary | Out-Null
+          New-Item -ItemType File -Force results\gws_home_overture_canary\empty.jsonl | Out-Null
+          & $py tools\gws_source_overture_extended.py prepare `
+            --input-candidates results\gws_home_overture_canary\empty.jsonl `
+            --out-candidates results\gws_home_overture_canary\candidates.jsonl `
+            --plan-dir results\gws_home_overture_canary `
+            --threads 12
+          if($LASTEXITCODE -ne 0){throw "Overture materialization failed: $LASTEXITCODE"}
+      - name: Prove public categories cannot enter Auderghem bars and build corrected South matrix
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop';$py=(Get-Content .gws-overture-canary-python.txt -Raw).Trim()
+          $env:PYTHONPATH='.'
+          @'
+          import collections,json
+          from pathlib import Path
+          from tools.gws_fleet_worker import target_row
+
+          rows=[json.loads(x) for x in Path('results/gws_home_overture_canary/candidates.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          cfg=json.loads(Path('config/gws_fleet.json').read_text(encoding='utf-8'))
+          audited={
+            'overture:92af277e-ec0c-4291-a26c-a2b0c3bca6fc',
+            'overture:0b2ac67d-7d0c-4eab-b1db-20a523233073',
+            'overture:c684eba7-b4dc-4a54-aa9d-1928d501a721',
+            'overture:a2b25c6b-4fc9-4668-9143-e1083fdbe668',
+          }
+          public=[r for r in rows if str(r.get('overture_category') or '').startswith('public_')]
+          audited_rows=[r for r in rows if str(r.get('record_key') or r.get('hub_objectid') or '') in audited]
+
+          territory=next(x for x in cfg['territories'] if x['name']=='Auderghem')
+          family=next(x for x in cfg['families'] if x['name']=='bars_nightlife')
+          pcs=set(territory['postal_codes']); kws=tuple(family['keywords'])
+          aud_bars=[r for r in rows if target_row(r,pcs,kws)]
+          bad_bars=[r for r in aud_bars if str(r.get('overture_category') or '').startswith('public_') or str(r.get('record_key') or '') in audited]
+
+          matrix={}
+          for t in cfg['territories']:
+            if not t.get('south'):continue
+            tpcs=set(t['postal_codes'])
+            for f in cfg['families']:
+              matrix[f"{t['name']}::{f['name']}"]=sum(1 for r in rows if target_row(r,tpcs,tuple(f['keywords'])))
+          nonzero={k:v for k,v in matrix.items() if v>0};zero=[k for k,v in matrix.items() if v==0]
+          summary={
+            'mapper_version':'overture-category-token-safe-v2',
+            'all_materialized':len(rows),
+            'public_category_materialized':len(public),
+            'audited_false_high_ids_present_in_reservoir':len(audited_rows),
+            'auderghem_bars_count':len(aud_bars),
+            'auderghem_bars_public_or_audited_contamination':len(bad_bars),
+            'auderghem_bars_examples':[{'name':r.get('business_name') or r.get('name'),'type_en':r.get('type_en'),'category':r.get('overture_category'),'record_key':r.get('record_key')} for r in aud_bars[:20]],
+            'south_task_nonzero_count':len(nonzero),
+            'south_task_zero_count':len(zero),
+            'south_task_counts':dict(sorted(nonzero.items(),key=lambda kv:(-kv[1],kv[0]))),
+            'south_zero_tasks':zero,
+          }
+          Path('results/gws_home_overture_canary/token_safe_summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          print('GWS_HOME_OVERTURE_TOKEN_SAFE='+json.dumps({k:v for k,v in summary.items() if k not in {'south_task_counts','south_zero_tasks','auderghem_bars_examples'}},ensure_ascii=False,separators=(',',':')))
+          print('AUDERGHEM_BARS_EXAMPLES='+json.dumps(summary['auderghem_bars_examples'],ensure_ascii=False,separators=(',',':')))
+          if bad_bars:
+            raise SystemExit('P0: public/audited contamination remains in Auderghem bars: '+json.dumps(bad_bars[:5],ensure_ascii=False,default=str))
+          if not aud_bars:
+            raise SystemExit('Token-safe mapper removed all Auderghem bars supply; expected genuine bars to remain')
+          '@ | & $py -
+          if($LASTEXITCODE -ne 0){throw "Token-safe reservoir assertion failed: $LASTEXITCODE"}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-overture-token-safe-${{ github.run_id }}
+          path: results/gws_home_overture_canary/
+          retention-days: 3
+          compression-level: 6
