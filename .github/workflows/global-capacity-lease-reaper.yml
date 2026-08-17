@@ -5,7 +5,6 @@ on:
     workflows:
       - "Hospitality Intelligence V2"
       - "GWS Qwen Semantic Fleet"
-      - "GWS Pending Search Verify Fleet"
     types: [completed]
   schedule:
     - cron: '7,22,37,52 * * * *'
@@ -46,4 +45,4 @@ jobs:
       - name: Explain cleanup contract
         if: always()
         run: |
-          echo 'Lease release is idempotent. workflow_run finalization covers cleanup-only cancellations; scheduled snapshot is a second safety net for expired/stale leases.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Strict GWS releases its own lease in-workflow. This reaper remains for lanes that need workflow_run cleanup plus scheduled stale/expired-lease safety.' >> "$GITHUB_STEP_SUMMARY"
