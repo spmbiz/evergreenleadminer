@@ -1,0 +1,29 @@
+name: Team 60 Capacity Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/team60-capacity-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find transfer and 20-slot bottlenecks
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== TEAM60_AUDIT_BEGIN ==='
+          for d in .github config tools pipeline scripts; do
+            [ -d "$d" ] || continue
+            grep -RInE --exclude-dir='__pycache__' --exclude='*.gz' --exclude='*.sqlite' \
+              'walidgdg1-ai|capacity.{0,8}20|max_slots.{0,8}20|max-parallel:[[:space:]]*20|available[[:space:]]+20|min\(requested,[[:space:]]*20\)|QWEN_WORKERS_REQUESTED|FAST_LANE_CAP' "$d" || true
+          done
+          echo '=== TEAM60_AUDIT_END ==='
