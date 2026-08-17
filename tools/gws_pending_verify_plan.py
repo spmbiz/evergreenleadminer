@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 SOUTH=("Uccle","Ixelles","Saint-Gilles","Forest","Auderghem","Watermael-Boitsfort")
@@ -33,6 +36,54 @@ def load_excluded_keys(path: str) -> set[str]:
     return out
 
 
+def auto_cloud_exclude(outdir: str) -> str:
+    """For the self-hosted residential lane, avoid duplicating active cloud strict work.
+
+    The normal home workflow writes under ``gws_home_pending``. When invoked there,
+    discover the currently in-progress strict workflow and download its immutable plan
+    artifact. Failure is deliberately fail-open: evidence collection must not stop just
+    because GitHub plan discovery is unavailable.
+    """
+    if "gws_home_pending" not in str(outdir).lower():
+        return ""
+    repo=str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    token=str(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+    if not repo or not token or not shutil.which("gh"):
+        return ""
+    env=dict(os.environ)
+    env.setdefault("GH_TOKEN",token)
+    try:
+        proc=subprocess.run(
+            ["gh","api",f"repos/{repo}/actions/workflows/gws-pending-search-verify.yml/runs?status=in_progress&per_page=5"],
+            check=True,capture_output=True,text=True,env=env,timeout=20,
+        )
+        payload=json.loads(proc.stdout or "{}")
+        runs=payload.get("workflow_runs") or []
+        if not runs:
+            return ""
+        run_id=str(runs[0].get("id") or "")
+        if not run_id:
+            return ""
+        root=Path(outdir).parent/"cloud_inflight"
+        if root.exists():
+            shutil.rmtree(root,ignore_errors=True)
+        root.mkdir(parents=True,exist_ok=True)
+        name=f"gws-pending-verify-plan-{run_id}"
+        subprocess.run(
+            ["gh","run","download",run_id,"-R",repo,"-n",name,"-D",str(root)],
+            check=True,capture_output=True,text=True,env=env,timeout=45,
+        )
+        candidates=list(root.rglob("pending.jsonl"))
+        if not candidates:
+            return ""
+        path=str(candidates[0])
+        print("GWS_HOME_CLOUD_INFLIGHT="+json.dumps({"run_id":run_id,"artifact":name,"exclude_jsonl":path},separators=(",",":")))
+        return path
+    except Exception as e:
+        print("GWS_HOME_CLOUD_INFLIGHT="+json.dumps({"status":"fail_open","error":str(e)[:300]},separators=(",",":")))
+        return ""
+
+
 def is_ownership_recall(r):
     return bool(
         str(r.get("reverification_reason") or "")==OWNERSHIP_RECALL_VERSION
@@ -46,9 +97,10 @@ def main():
     ap.add_argument("--outdir",default="results/gws_verify_plan")
     ap.add_argument("--max-workers",type=int,default=6)
     ap.add_argument("--per-worker",type=int,default=70)
-    ap.add_argument("--exclude-jsonl",default="",help="Optional JSONL of record_key values already inflight elsewhere; used by evidence-only lanes to avoid duplicate work.")
+    ap.add_argument("--exclude-jsonl",default="",help="Optional JSONL of record_key values already inflight elsewhere; evidence-only lanes use this to avoid duplicate work.")
     a=ap.parse_args()
-    excluded_keys=load_excluded_keys(a.exclude_jsonl)
+    exclude_source=str(a.exclude_jsonl or "") or auto_cloud_exclude(a.outdir)
+    excluded_keys=load_excluded_keys(exclude_source)
     pending=load("gpt/gws_pending_batches.json",{"batches":[]})
     index=load("state/gws_verify_index.json",{"records":{}}).get("records",{})
     semantic=load("state/gws_semantic_index.json",{"records":{}}).get("records",{})
@@ -144,7 +196,7 @@ def main():
         "workers":workers,
         "per_worker_target":per_worker,
         "excluded_inflight":excluded_inflight,
-        "exclude_source":str(a.exclude_jsonl or ""),
+        "exclude_source":exclude_source,
         "suppressed_terminal":suppressed_terminal,
         "retryable_or_pending_seen":retryable_or_pending,
         "strict_run_quarantine_rechecks_eligible":run_quarantine_rechecks,
@@ -160,7 +212,7 @@ def main():
         "matrix":matrix,
     }
     (out/"plan.json").write_text(json.dumps(plan,indent=2)+"\n",encoding="utf-8")
-    gh=Path(__import__('os').environ.get("GITHUB_OUTPUT","")) if __import__('os').environ.get("GITHUB_OUTPUT") else None
+    gh=Path(os.environ.get("GITHUB_OUTPUT","")) if os.environ.get("GITHUB_OUTPUT") else None
     if gh:
         with gh.open("a",encoding="utf-8") as f:
             f.write(f"eligible={eligible_total}\nworkers={workers}\nmatrix={json.dumps(matrix,separators=(',',':'))}\n")
