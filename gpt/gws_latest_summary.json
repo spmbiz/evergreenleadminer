@@ -1,35 +1,37 @@
 {
   "autoscaling": {
-    "after": 20,
+    "after": 10,
     "before": 20,
-    "reason": "hold_marginal_throughput"
+    "reason": "hold_cancelled_missing_excluded"
   },
+  "cancelled_missing_workers": 0,
   "coverage_delta": {
-    "tasks_completed": 8,
+    "tasks_cancelled_missing": 0,
+    "tasks_completed": 9,
     "tasks_failed_or_missing": 0
   },
-  "duplicates": 1,
+  "duplicates": 0,
   "errors": 0,
-  "gpt_review_added": 14,
-  "gpt_review_pending": 185,
-  "new_unique": 14,
-  "next_backlog": 182,
-  "owned_site_or_chain_rejects": 0,
+  "gpt_review_added": 312,
+  "gpt_review_pending": 468,
+  "new_unique": 327,
+  "next_backlog": 173,
+  "owned_site_or_chain_rejects": 23,
   "provider": "github",
   "provider_usage": {
     "github": {
       "active_observed_before": 0,
-      "limit": 8,
+      "limit": 9,
       "queued_observed_before": 0,
-      "selected_workers": 8
+      "selected_workers": 9
     }
   },
-  "qualified_for_strict_review": 15,
-  "raw_discovered": 15,
-  "review_batch": "gpt/gws_review/2026-08-17T100404Z_32017509623-1.jsonl",
-  "run_id": "32017509623-1",
+  "qualified_for_strict_review": 304,
+  "raw_discovered": 330,
+  "review_batch": "gpt/gws_review/2026-08-17T114217Z_32021367211-1.jsonl",
+  "run_id": "32021367211-1",
   "schema_version": 1,
   "status": "CYCLE_COMPLETE",
-  "uncertain": 8,
-  "updated_at": "2026-08-17T10:04:04+00:00"
+  "uncertain": 64,
+  "updated_at": "2026-08-17T11:42:17+00:00"
 }
