@@ -1,0 +1,75 @@
+name: GWS Redteam Laurent Amir
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-redteam-laurent-amir.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gws-redteam-laurent-amir
+  cancel-in-progress: true
+
+jobs:
+  redteam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install production dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - name: Start hosted OpenSERP
+        id: openserp
+        shell: bash
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then echo 'url=http://127.0.0.1:7000' >> "$GITHUB_OUTPUT"; else echo 'url=' >> "$GITHUB_OUTPUT"; fi
+          exit 0
+      - name: Refresh current Overture identity
+        run: |
+          mkdir -p results/gws_redteam_laurent
+          python tools/gws_pending_verify_worker.py \
+            --input gpt/gws_redteam/laurent_amir_exact_20260817.jsonl \
+            --worker-index 0 --worker-count 1 \
+            --outdir results/gws_redteam_laurent --threads 8
+          test "$(grep -cve '^$' results/gws_redteam_laurent/records.jsonl)" -eq 1
+      - name: Run current source-safe verifier
+        env:
+          OPENSERP_URL: ${{ steps.openserp.outputs.url }}
+        run: python tools/gws_search_verify_source_safe.py --shard-dir results/gws_redteam_laurent --config config/gws_search_verify.json
+      - name: Assert Laurent Amir cannot remain HIGH and print evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(next(x for x in Path('results/gws_redteam_laurent/records.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()))
+          report={
+            'business':r.get('hub_name'),'overture_name':r.get('overture_name'),
+            'status':r.get('verification_status'),'outcome':r.get('outcome'),'reason':r.get('reason'),
+            'owned_website':r.get('owned_website'),'overture_websites':r.get('overture_websites'),
+            'source_precheck':r.get('source_website_precheck'),
+            'direct_domain_high_challenge':r.get('direct_domain_high_challenge'),
+            'final_high_challenge':r.get('final_high_challenge'),
+          }
+          Path('results/gws_redteam_laurent/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          print('GWS_REDTEAM_LAURENT='+json.dumps(report,ensure_ascii=False,separators=(',',':'),default=str))
+          if str(r.get('verification_status') or '').upper()=='HIGH':
+              raise SystemExit('P0 REGRESSION: Laurent Amir remained HIGH')
+          PY
+          cat results/gws_redteam_laurent/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-redteam-laurent-${{ github.run_id }}
+          path: results/gws_redteam_laurent/
+          retention-days: 3
