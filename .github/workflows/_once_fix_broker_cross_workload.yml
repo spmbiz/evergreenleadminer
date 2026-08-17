@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   patch:
-    runs-on: [self-hosted, Windows, X64, gws-home]
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
