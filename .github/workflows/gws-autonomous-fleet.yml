@@ -30,7 +30,7 @@ concurrency:
 jobs:
   plan:
     concurrency:
-      group: ai-prod-global-capacity-broker
+      group: ai-prod-global-capacity-broker-gws
       cancel-in-progress: false
     runs-on: ubuntu-latest
     outputs:
