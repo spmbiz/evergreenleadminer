@@ -43,8 +43,9 @@ def main():
 
     rows=[]
     suppressed_terminal=0; retryable_or_pending=0; semantic_rechecks=0; soft_waiting_semantic=0
-    semantic_candidates_forwarded=0
-    for key,r in latest.items():
+    semantic_candidates_forwarded=0; run_quarantine_rechecks=0
+    for key,r0 in latest.items():
+        r=r0
         prior=index.get(key) or {}; fp=str(r.get("fingerprint") or "")
         prior_status=str(prior.get("verification_status") or "").strip().upper()
         same=prior.get("source_fingerprint")==fp
@@ -53,6 +54,18 @@ def main():
             suppressed_terminal+=1
             continue
 
+        # A superseded strict run may have produced a technical HIGH whose evidence
+        # is useful but whose certificate is not canonical-eligible. The aggregate
+        # stores those as ERROR_RETRYABLE with run_quarantine_id. Surface that fact
+        # onto the pending row so latest-main replay is explicitly prioritized.
+        run_quarantine_reverify=bool(same and prior_status=="ERROR_RETRYABLE" and prior.get("run_quarantine_id"))
+        if run_quarantine_reverify:
+            r=dict(r)
+            r["strict_run_quarantine_reverify"]=True
+            r["strict_run_quarantine_id"]=str(prior.get("run_quarantine_id") or "")
+            r["strict_run_quarantine_status"]=str(prior.get("run_quarantine_status") or "")
+            run_quarantine_rechecks+=1
+
         semantic_recheck=False
         if same and prior_status in SOFT_SEARCH_STATUSES:
             sem=semantic.get(key) or {}
@@ -60,9 +73,6 @@ def main():
             sem_status=str(sem.get("resolution_status") or "").upper()
             prior_sem_fp=str(prior.get("semantic_resolution_fingerprint") or "")
             prior_attempt=int(prior.get("semantic_resolution_attempt") or 0)
-            # Qwen/GPT semantic stage is shadow-only. A QUEUED semantic verdict
-            # authorizes exactly one new strict-search pass for that semantic
-            # fingerprint; it never directly changes HIGH/REJECT.
             if sem_status=="QUEUED" and sem_fp and sem_fp!=prior_sem_fp and prior_attempt<2:
                 semantic_recheck=True
                 r=dict(r)
@@ -73,9 +83,6 @@ def main():
                 r["semantic_shadow_decision"]=sem.get("decision")
                 r["semantic_shadow_confidence"]=sem.get("confidence")
                 r["semantic_shadow_website_state"]=sem.get("website_state")
-                # Preserve the expensive Search->Qwen evidence into strict. The
-                # verifier may use this candidate only as an ownership-rejection
-                # accelerator. It can never certify no-website/HIGH by itself.
                 r["semantic_candidate_url"]=str(sem.get("candidate_url") or "")
                 r["semantic_candidate_host_class"]=str(sem.get("candidate_host_class") or "")
                 r["semantic_ownership_decision"]=str(sem.get("decision") or "")
@@ -91,13 +98,12 @@ def main():
         if r.get("outcome")=="REJECT" and not semantic_recheck: continue
         rows.append(r)
 
-    # Recall safety: South Brussels remains first, but within the same geography
-    # ownership-recall remediation outranks ordinary retryables. These rows were
-    # previously terminal REJECTs under a weaker ownership classifier, so delaying
-    # them risks continuing to miss true HIGHs. This changes ordering only; it does
-    # not weaken any verification or HIGH gate.
+    # South remains first. Within the same geographic tier, quarantined former HIGHs
+    # are replayed first, then ownership-recall remediation, then semantic rechecks.
+    # Ordering only: no strict verification rule is weakened.
     rows.sort(key=lambda r:(
         0 if str(r.get("territory") or "") in SOUTH else 1,
+        0 if r.get("strict_run_quarantine_reverify") else 1,
         0 if is_ownership_recall(r) else 1,
         0 if r.get("semantic_resolution") else 1,
         str(r.get("territory") or ""),
@@ -113,7 +119,7 @@ def main():
     (out/"pending.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in selected),encoding="utf-8")
     matrix={"include":[{"worker_index":i,"worker_count":workers} for i in range(workers)]}
     plan={
-        "schema_version":6,
+        "schema_version":7,
         "eligible":eligible_total,
         "selected":len(selected),
         "deferred":max(0,eligible_total-len(selected)),
@@ -121,6 +127,8 @@ def main():
         "per_worker_target":per_worker,
         "suppressed_terminal":suppressed_terminal,
         "retryable_or_pending_seen":retryable_or_pending,
+        "strict_run_quarantine_rechecks_eligible":run_quarantine_rechecks,
+        "strict_run_quarantine_rechecks_selected":sum(1 for x in selected if x.get("strict_run_quarantine_reverify")),
         "ownership_recall_eligible":sum(1 for x in rows if is_ownership_recall(x)),
         "ownership_recall_selected":sum(1 for x in selected if is_ownership_recall(x)),
         "semantic_rechecks_eligible":semantic_rechecks,
