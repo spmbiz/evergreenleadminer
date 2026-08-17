@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -128,6 +129,43 @@ class PreAggregateRegression(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(guarded["outcome"], "REJECT")
         self.assertTrue(guarded["preaggregate_ownership_guard_passed"])
+
+
+class RecoveryQueueIntegrity(unittest.TestCase):
+    @staticmethod
+    def _pending():
+        return json.loads(Path("gpt/gws_pending_batches.json").read_text(encoding="utf-8"))
+
+    def test_active_ownership_recovery_has_no_duplicate_record_fingerprint(self):
+        pending = self._pending()
+        seen = {}
+        duplicates = []
+        for batch in pending.get("batches") or []:
+            if batch.get("status") != "pending" or batch.get("provider") != "ownership_recovery":
+                continue
+            path = Path(str(batch.get("batch") or ""))
+            self.assertTrue(path.exists(), f"Missing recovery batch file: {path}")
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                pair = (str(row.get("record_key") or ""), str(row.get("fingerprint") or ""))
+                self.assertTrue(all(pair), f"Recovery row missing key/fingerprint in {path}")
+                if pair in seen:
+                    duplicates.append((pair, seen[pair], str(path)))
+                else:
+                    seen[pair] = str(path)
+        self.assertFalse(duplicates, f"Duplicate active recovery pairs: {duplicates[:5]}")
+
+    def test_pending_records_metadata_matches_active_backlog(self):
+        pending = self._pending()
+        expected = 0
+        for batch in pending.get("batches") or []:
+            if batch.get("status") != "pending":
+                continue
+            remaining = batch.get("verification_remaining")
+            expected += int(batch.get("records") or 0) if remaining is None else int(remaining or 0)
+        self.assertEqual(int(pending.get("pending_records") or 0), expected)
 
 
 class WiringRegression(unittest.TestCase):
