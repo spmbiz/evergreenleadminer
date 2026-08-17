@@ -21,7 +21,8 @@ permissions:
 
 concurrency:
   group: gws-pending-search-verify-fleet
-  cancel-in-progress: false
+  # A code push supersedes stale architecture runs; scheduled/refill passes stay serialized.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   plan:
