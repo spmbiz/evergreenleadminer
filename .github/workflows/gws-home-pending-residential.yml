@@ -43,14 +43,14 @@ jobs:
           fetch-depth: 1
 
       - name: Refresh current durable main
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           git fetch origin main
           git reset --hard origin/main
           Write-Host "Residential GWS pending lane on $(git rev-parse HEAD)"
 
       - name: Ensure residential OpenSERP before any Python setup
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $port = [int]$env:OPENSERP_HOME_PORT
@@ -80,7 +80,7 @@ jobs:
           throw "OpenSERP failed to become healthy on port $port"
 
       - name: Resolve existing local Python
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $candidates = @(
@@ -104,7 +104,7 @@ jobs:
           $py | Out-File -Encoding ascii .gws-home-python.txt
 
       - name: Ownership recall regression smoke
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $py = (Get-Content .gws-home-python.txt -Raw).Trim()
@@ -112,7 +112,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Ownership regression failed with exit $LASTEXITCODE" }
 
       - name: Select bounded high-value current pending batch
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $py = (Get-Content .gws-home-python.txt -Raw).Trim()
@@ -131,7 +131,7 @@ jobs:
 
       - name: Adapt current pending records for residential worker
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $py = (Get-Content .gws-home-python.txt -Raw).Trim()
@@ -149,7 +149,7 @@ jobs:
 
       - name: Run bounded residential OpenSERP evidence pass
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $py = (Get-Content .gws-home-python.txt -Raw).Trim()
@@ -176,7 +176,7 @@ jobs:
 
       - name: Normalize residential observations for durable ingress
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $py = (Get-Content .gws-home-python.txt -Raw).Trim()
@@ -192,7 +192,7 @@ jobs:
 
       - name: Persist immutable residential evidence and wake semantic fleet
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
