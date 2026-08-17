@@ -38,17 +38,25 @@ anchor = '''def save_remote_state(repo: str, state: dict):
 helper = '''
 
 def save_reservation_reconciled(repo: str, intended_state: dict, lease: dict | None, attempts: int = 5):
-    """Persist admission without losing a sibling workload's concurrent lease."""
+    """Persist admission while converging concurrent sibling reservations.
+
+    Planner jobs are serialized per workload rather than globally. A non-zero
+    reservation therefore performs repeated read/merge/write rounds against the
+    shared release asset. The deterministic jitter derived from run_id prevents
+    two cross-workload writers from staying in lockstep. Zero-slot decisions do
+    not write lease state at all, so they cannot clobber a sibling reservation.
+    """
     if lease is None:
-        save_remote_state(repo, intended_state)
-        return {"confirmed": True, "attempts": 1, "mode": "zero_slot"}
+        return {"confirmed": True, "attempts": 0, "mode": "zero_slot_no_write"}
 
     run_id = str(lease.get("run_id") or "")
     if not run_id:
         raise RuntimeError("refusing to persist broker lease without run_id")
 
     candidate = dict(intended_state)
-    for attempt in range(1, max(1, attempts) + 1):
+    jitter = (sum(ord(ch) for ch in run_id) % 17) / 100.0
+    rounds = max(3, int(attempts))
+    for attempt in range(1, rounds + 1):
         fresh_before = load_remote_state(repo)
         fresh_leases = prune_leases(fresh_before)
         merged = [x for x in fresh_leases if str(x.get("run_id") or "") != run_id]
@@ -57,19 +65,21 @@ def save_reservation_reconciled(repo: str, intended_state: dict, lease: dict | N
         candidate["leases"] = merged
         save_remote_state(repo, candidate)
 
-        fresh_after = load_remote_state(repo)
-        confirmed = any(
-            str(x.get("run_id") or "") == run_id
-            and int(x.get("slots") or 0) == int(lease.get("slots") or 0)
-            for x in (fresh_after.get("leases") or [])
-        )
-        if confirmed:
-            return {"confirmed": True, "attempts": attempt, "mode": "optimistic_reconcile"}
-        time.sleep(min(2.0, 0.25 * (2 ** (attempt - 1))))
+        # Always leave a settling window before the next merge pass so a stale
+        # concurrent writer has time to land and be observed on our next read.
+        time.sleep(min(1.6, 0.18 * attempt + jitter))
 
-    raise RuntimeError(
-        f"broker reservation persistence race unresolved after {attempts} attempts run_id={run_id}"
+    fresh_after = load_remote_state(repo)
+    confirmed = any(
+        str(x.get("run_id") or "") == run_id
+        and int(x.get("slots") or 0) == int(lease.get("slots") or 0)
+        for x in (fresh_after.get("leases") or [])
     )
+    if not confirmed:
+        raise RuntimeError(
+            f"broker reservation persistence race unresolved after {rounds} rounds run_id={run_id}"
+        )
+    return {"confirmed": True, "attempts": rounds, "mode": "optimistic_reconcile_settled"}
 '''
 if 'def save_reservation_reconciled(' not in s:
     if anchor not in s:
@@ -96,9 +106,10 @@ p.write_text(s, encoding='utf-8')
 
 for f, group in PLAN_GROUPS.items():
     text = Path(f).read_text(encoding='utf-8')
-    assert f'group: {group}' in text, f
-    assert text.count('group: ai-prod-global-capacity-broker') >= 1, f
+    assert f'      group: {group}\n' in text, f
+    assert '      group: ai-prod-global-capacity-broker\n' in text, f'{f}: global release lock missing'
 broker = Path('tools/global_capacity_broker_v3.py').read_text(encoding='utf-8')
 assert 'def save_reservation_reconciled' in broker
+assert 'zero_slot_no_write' in broker
 assert 'reservation_persistence' in broker
 print('PATCH_INVARIANTS_OK')
