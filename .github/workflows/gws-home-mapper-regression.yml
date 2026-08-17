@@ -28,6 +28,8 @@ jobs:
           $py=$null; foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
           if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
           if(-not $py){throw 'Usable Python not found'}
+          & $py -m pip install --disable-pip-version-check duckdb
+          if($LASTEXITCODE -ne 0){throw "duckdb install failed: $LASTEXITCODE"}
           $env:PYTHONPATH='tools'
           & $py tools\test_gws_overture_category_mapping.py
           if($LASTEXITCODE -ne 0){throw "Mapper regression failed: $LASTEXITCODE"}
