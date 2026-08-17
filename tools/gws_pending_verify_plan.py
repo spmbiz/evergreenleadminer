@@ -17,6 +17,22 @@ def load(path,default):
     except Exception: return default
 
 
+def load_excluded_keys(path: str) -> set[str]:
+    if not path:
+        return set()
+    p=Path(path)
+    if not p.exists():
+        return set()
+    out=set()
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip(): continue
+        try: r=json.loads(line)
+        except Exception: continue
+        key=str(r.get("record_key") or "")
+        if key: out.add(key)
+    return out
+
+
 def is_ownership_recall(r):
     return bool(
         str(r.get("reverification_reason") or "")==OWNERSHIP_RECALL_VERSION
@@ -26,7 +42,13 @@ def is_ownership_recall(r):
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--outdir",default="results/gws_verify_plan"); ap.add_argument("--max-workers",type=int,default=6); ap.add_argument("--per-worker",type=int,default=70); a=ap.parse_args()
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--outdir",default="results/gws_verify_plan")
+    ap.add_argument("--max-workers",type=int,default=6)
+    ap.add_argument("--per-worker",type=int,default=70)
+    ap.add_argument("--exclude-jsonl",default="",help="Optional JSONL of record_key values already inflight elsewhere; used by evidence-only lanes to avoid duplicate work.")
+    a=ap.parse_args()
+    excluded_keys=load_excluded_keys(a.exclude_jsonl)
     pending=load("gpt/gws_pending_batches.json",{"batches":[]})
     index=load("state/gws_verify_index.json",{"records":{}}).get("records",{})
     semantic=load("state/gws_semantic_index.json",{"records":{}}).get("records",{})
@@ -43,8 +65,11 @@ def main():
 
     rows=[]
     suppressed_terminal=0; retryable_or_pending=0; semantic_rechecks=0; soft_waiting_semantic=0
-    semantic_candidates_forwarded=0; run_quarantine_rechecks=0
+    semantic_candidates_forwarded=0; run_quarantine_rechecks=0; excluded_inflight=0
     for key,r0 in latest.items():
+        if key in excluded_keys:
+            excluded_inflight+=1
+            continue
         r=r0
         prior=index.get(key) or {}; fp=str(r.get("fingerprint") or "")
         prior_status=str(prior.get("verification_status") or "").strip().upper()
@@ -54,10 +79,6 @@ def main():
             suppressed_terminal+=1
             continue
 
-        # A superseded strict run may have produced a technical HIGH whose evidence
-        # is useful but whose certificate is not canonical-eligible. The aggregate
-        # stores those as ERROR_RETRYABLE with run_quarantine_id. Surface that fact
-        # onto the pending row so latest-main replay is explicitly prioritized.
         run_quarantine_reverify=bool(same and prior_status=="ERROR_RETRYABLE" and prior.get("run_quarantine_id"))
         if run_quarantine_reverify:
             r=dict(r)
@@ -98,9 +119,6 @@ def main():
         if r.get("outcome")=="REJECT" and not semantic_recheck: continue
         rows.append(r)
 
-    # South remains first. Within the same geographic tier, quarantined former HIGHs
-    # are replayed first, then ownership-recall remediation, then semantic rechecks.
-    # Ordering only: no strict verification rule is weakened.
     rows.sort(key=lambda r:(
         0 if str(r.get("territory") or "") in SOUTH else 1,
         0 if r.get("strict_run_quarantine_reverify") else 1,
@@ -119,12 +137,14 @@ def main():
     (out/"pending.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in selected),encoding="utf-8")
     matrix={"include":[{"worker_index":i,"worker_count":workers} for i in range(workers)]}
     plan={
-        "schema_version":7,
+        "schema_version":8,
         "eligible":eligible_total,
         "selected":len(selected),
         "deferred":max(0,eligible_total-len(selected)),
         "workers":workers,
         "per_worker_target":per_worker,
+        "excluded_inflight":excluded_inflight,
+        "exclude_source":str(a.exclude_jsonl or ""),
         "suppressed_terminal":suppressed_terminal,
         "retryable_or_pending_seen":retryable_or_pending,
         "strict_run_quarantine_rechecks_eligible":run_quarantine_rechecks,
