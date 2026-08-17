@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import gws_ownership_gate as ownership
+import gws_scope_gate as scope
 
 
 def load(path,default):
@@ -30,6 +31,33 @@ def ownership_pass_for(row):
     reason=str(row.get("reason") or "")
     if "PASS2" in reason: return row.get("web_pass2") or {}
     return row.get("web_pass1") or row.get("web_pass2") or {}
+
+
+def reject_explicit_nonbusiness_scope(row):
+    r=dict(row)
+    assessment=scope.assess(r)
+    r["aggregate_scope_assessment"]=assessment
+    if assessment.get("in_scope"):
+        return r, False
+    previous={
+        "outcome":r.get("outcome"),
+        "reason":r.get("reason"),
+        "verification_status":r.get("verification_status"),
+        "certificate_digest":r.get("certificate_digest"),
+    }
+    r["scope_guard_previous"]=previous
+    r["outcome"]="REJECT"
+    r["reason"]="SCOPE_NON_BUSINESS_SOURCE_CATEGORY"
+    r["verification_status"]="REJECT"
+    r["needs_gpt_review"]=False
+    r["owned_website"]=""
+    cert=dict(r.get("certificate") or {})
+    cert["verified"]=False
+    cert["scope_rejected"]=True
+    cert["scope_reject_reason"]=assessment.get("reason")
+    r["certificate"]=cert
+    r["certificate_digest"]=""
+    return r, True
 
 
 def quarantine_unproven_reject(row):
@@ -73,11 +101,6 @@ def current_run_quarantine() -> dict:
 
 
 def quarantine_run_high(row, run_quarantine):
-    """Prevent a superseded strict HIGH from becoming terminal in the verify index.
-
-    Evidence is preserved, but the record is routed back through latest-main strict
-    verification. This changes no other status and can never manufacture HIGH.
-    """
     r=dict(row)
     if not run_quarantine:
         return r, False
@@ -118,11 +141,13 @@ def main():
             if line.strip(): raw_rows.append(json.loads(line))
 
     run_quarantine=current_run_quarantine()
-    rows=[]; quarantined=0; run_highs_quarantined=0
+    rows=[]; quarantined=0; run_highs_quarantined=0; scope_rejected=0
     for raw in raw_rows:
-        clean, q=quarantine_unproven_reject(raw)
+        clean, sq=reject_explicit_nonbusiness_scope(raw)
+        clean, q=quarantine_unproven_reject(clean)
         clean, rq=quarantine_run_high(clean, run_quarantine)
         rows.append(clean)
+        scope_rejected += int(sq)
         quarantined += int(q)
         run_highs_quarantined += int(rq)
 
@@ -141,6 +166,7 @@ def main():
             "owned_website":r.get("owned_website"),"last_verified":ts,"source_batch":r.get("source_batch"),
             "semantic_resolution_fingerprint":sem_fp,"semantic_resolution_attempt":sem_attempt,"semantic_resolution_route":sem_route,
             "run_quarantine_id":r.get("run_quarantine_id"),"run_quarantine_status":r.get("run_quarantine_status"),
+            "scope_reason":(r.get("aggregate_scope_assessment") or {}).get("reason"),
         }
         records[key]=entry
 
@@ -205,14 +231,15 @@ def main():
     dump("state/gws_verify_index.json",index)
     dump("state/gws_semantic_index.json",semantic_index)
     metrics={
-        "schema_version":4,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),
-        "strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"ownership_rejects_quarantined":quarantined,
+        "schema_version":5,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),
+        "strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"scope_nonbusiness_rejected":scope_rejected,
+        "ownership_rejects_quarantined":quarantined,
         "run_highs_quarantined_for_reverify":run_highs_quarantined,
         "strict_run_quarantine_id":str(run_quarantine.get("strict_workflow_run_id") or "") if run_quarantine else "",
         "retryable":retryable,"remaining_source_backlog":total_remaining,"canonical_high_persisted_here":0,
         "semantic_resolution_attempted":semantic_attempted,"semantic_resolution_resolved":semantic_resolved,
         "semantic_resolution_retryable":semantic_retryable,"semantic_hard_review_added":len(semantic_hard),
-        "note":"HIGH is pre-canonical. Quarantined-run HIGHs are forced non-terminal and must pass latest-main strict reverify. Semantic/Qwen is shadow-only and never forces HIGH/REJECT."
+        "note":"HIGH is pre-canonical. Explicit public/non-business source categories are rejected before HIGH persistence. Quarantined-run HIGHs are forced non-terminal. Semantic/Qwen is shadow-only."
     }
     dump("metrics/gws_verify_latest.json",metrics); append("metrics/gws_verify_history.jsonl",[metrics]); print("GWS_PENDING_VERIFY_AGG="+json.dumps(metrics,separators=(",",":")))
 
