@@ -3,5 +3,6 @@
     31988317771,
     31991651388
   ],
-  "reason": "purge any stale broker leases from old strict #117 and cancelled #124; both are superseded and must not consume spmbiz GWS capacity"
+  "reason": "retry stale broker lease purge after granting cancel controller contents:write; old strict #117 and cancelled #124 must consume zero spmbiz GWS capacity",
+  "retry_nonce": "2026-08-17T03:44:00Z"
 }
