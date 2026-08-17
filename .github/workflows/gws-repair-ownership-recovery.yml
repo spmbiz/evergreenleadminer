@@ -1,0 +1,107 @@
+name: GWS Repair Ownership Recovery Batch
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-repair-ownership-recovery.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gws-repair-ownership-recovery-batch
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Restore 230-row recovery batch and split 21 post-134 rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL_PATH='gpt/gws_review/ownership_recall_31982166413.jsonl'
+          POST134_PATH='gpt/gws_review/ownership_recall_31982166413_post134_21.jsonl'
+          ORIGINAL_COMMIT='5e44b37806ab2a23707fc8486878b4ba5a57e455'
+          POST134_COMMIT='2212d40811849e5fc45cdc281ae26cb5ea78412f'
+
+          git show "${ORIGINAL_COMMIT}:${ORIGINAL_PATH}" > "$ORIGINAL_PATH"
+          git show "${POST134_COMMIT}:${ORIGINAL_PATH}" > "$POST134_PATH"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          original = Path('gpt/gws_review/ownership_recall_31982166413.jsonl')
+          post = Path('gpt/gws_review/ownership_recall_31982166413_post134_21.jsonl')
+          pending_path = Path('gpt/gws_pending_batches.json')
+
+          def rows(path):
+              return [x for x in path.read_text(encoding='utf-8').splitlines() if x.strip()]
+
+          original_count = len(rows(original))
+          post_count = len(rows(post))
+          if original_count != 230:
+              raise SystemExit(f'original recovery restore count mismatch: {original_count}')
+          if post_count != 21:
+              raise SystemExit(f'post134 recovery split count mismatch: {post_count}')
+
+          data = json.loads(pending_path.read_text(encoding='utf-8'))
+          batches = data.setdefault('batches', [])
+          original_name = str(original)
+          post_name = str(post)
+          found_original = False
+          for batch in batches:
+              if str(batch.get('batch') or '') == original_name:
+                  found_original = True
+                  batch['records'] = 230
+                  batch['verification_total'] = 230
+                  # Recall-safe reset: planner/verify index still suppresses already-terminal rows.
+                  batch['verification_remaining'] = 230
+                  batch['status'] = 'pending'
+                  batch['reviewed_at'] = None
+          if not found_original:
+              batches.append({
+                  'batch': original_name,
+                  'created_at': '2026-08-17T00:29:41+00:00',
+                  'fleet_run_id': 'ownership-recall-31982166413',
+                  'provider': 'ownership_recovery',
+                  'records': 230,
+                  'reviewed_at': None,
+                  'status': 'pending',
+                  'verification_remaining': 230,
+                  'verification_total': 230,
+              })
+              data['pending_records'] = int(data.get('pending_records') or 0) + 230
+
+          if not any(str(b.get('batch') or '') == post_name for b in batches):
+              batches.append({
+                  'batch': post_name,
+                  'created_at': '2026-08-17T00:36:23+00:00',
+                  'fleet_run_id': 'ownership-recall-31982166413-post134',
+                  'provider': 'ownership_recovery',
+                  'records': 21,
+                  'reviewed_at': None,
+                  'status': 'pending',
+                  'verification_remaining': 21,
+                  'verification_total': 21,
+              })
+              data['pending_records'] = int(data.get('pending_records') or 0) + 21
+
+          pending_path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps({'restored_original': original_count, 'split_post134': post_count, 'pending_records': data.get('pending_records')}, separators=(',', ':')))
+          PY
+
+          git config user.name 'gws-recovery-repair'
+          git config user.email 'actions@users.noreply.github.com'
+          git add "$ORIGINAL_PATH" "$POST134_PATH" gpt/gws_pending_batches.json
+          git diff --cached --stat
+          git commit -m '[gws-recovery-repair] restore 230 + split post134 21 [skip ci]'
+          git push origin HEAD:main
