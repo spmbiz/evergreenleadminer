@@ -1,0 +1,63 @@
+name: GWS Wire Source Website Safe Verifier
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-wire-source-safe.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gws-wire-source-safe
+  cancel-in-progress: false
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Replace only verifier entrypoint, preserve all workflow semantics
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          paths=[
+            Path('.github/workflows/gws-autonomous-fleet.yml'),
+            Path('.github/workflows/gws-pending-search-verify.yml'),
+          ]
+          old='python tools/gws_search_verify_ownership_safe.py'
+          new='python tools/gws_search_verify_source_safe.py'
+          for p in paths:
+              text=p.read_text(encoding='utf-8')
+              if new in text:
+                  print(f'{p}: already source-safe')
+                  continue
+              if old not in text:
+                  raise SystemExit(f'{p}: expected ownership-safe verifier entrypoint not found')
+              p.write_text(text.replace(old,new),encoding='utf-8')
+              print(f'{p}: wired source-safe')
+          PY
+          git diff --check
+          grep -n 'gws_search_verify_.*safe.py' .github/workflows/gws-autonomous-fleet.yml .github/workflows/gws-pending-search-verify.yml
+      - name: Commit wiring only
+        run: |
+          set -euo pipefail
+          git config user.name 'gws-source-safe-wire'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows/gws-autonomous-fleet.yml .github/workflows/gws-pending-search-verify.yml
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m '[gws-source-safe] wire strict verifier [skip ci]'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+            sleep $((attempt*2))
+          done
+          exit 1
