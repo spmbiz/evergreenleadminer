@@ -1,12 +1,12 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "github": {
     "capacity": 20,
     "lease_ttl_minutes": 55,
     "planner_concurrency_group": "ai-prod-global-capacity-broker",
     "exploit_share": 0.7,
     "explore_share": 0.3,
-    "idle_capacity_policy": "bounded_by_workload_cap",
+    "idle_capacity_policy": "borrow_idle_slots_without_preemption",
     "preemption_policy": "natural_completion_only"
   },
   "workloads": {
@@ -19,10 +19,10 @@
     },
     "tenders": {
       "enabled": true,
-      "mode": "remote-demand",
+      "mode": "remote-demand-with-idle-burst",
       "weight": 0.5,
       "min_slots_when_demanding": 10,
-      "max_slots": 10,
+      "max_slots": 20,
       "repo": "walidgdg1-ai/tender-engine"
     },
     "gws": {
