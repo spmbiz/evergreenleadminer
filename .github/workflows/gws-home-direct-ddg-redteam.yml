@@ -1,0 +1,84 @@
+name: GWS Home Direct DuckDuckGo Redteam
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-direct-ddg-redteam.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gws-home-direct-ddg-redteam
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Refresh current main and resolve Python
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@('C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe','C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe')
+          $py=$null; foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
+          if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
+          if(-not $py){throw 'Usable Python not found'}
+          $py | Out-File -Encoding ascii .gws-ddg-python.txt
+          & $py -m pip install --disable-pip-version-check 'ddgs>=9,<10'
+          if($LASTEXITCODE -ne 0){throw "ddgs install failed: $LASTEXITCODE"}
+      - name: Direct DuckDuckGo backend probe on six known controls
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop';$py=(Get-Content .gws-ddg-python.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force results\gws_direct_ddg | Out-Null
+          @'
+          import json,time
+          from pathlib import Path
+          from ddgs import DDGS
+
+          cases=[
+            {'label':'super_boni','kind':'salvage','name':'Épicerie Super Boni','postcode':'1160','address':'Rue Edouard Henrard 5','phone':'+3226725830'},
+            {'label':'fernanda_castillo','kind':'salvage','name':'Dentiste Castillo Fernanda','postcode':'1190','address':'Chaussée de Bruxelles 277','phone':'+32472965962'},
+            {'label':'claire_dufeil','kind':'salvage','name':'Claire Dufeil kinésithérapeute','postcode':'1190','address':'Avenue Maréchal Joffre 64','phone':'+32486388501'},
+            {'label':'darmal','kind':'salvage','name':'Darmal épicerie','postcode':'1160','address':'Place Edouard Pinoy 8','phone':''},
+            {'label':'catherine_pineux','kind':'owned_control','name':'Pineux Catherine','postcode':'1190','address':'Avenue du Globe 27','phone':'0498817690'},
+            {'label':'the_kooples','kind':'owned_control','name':'The Kooples','postcode':'1050','address':'Avenue Louise 72','phone':''},
+          ]
+          out=[]
+          for c in cases:
+            queries=[f'"{c["name"]}" {c["postcode"]}',f'"{c["name"]}" "{c["address"]}"',f'{c["name"]} official website']
+            if c['phone']: queries.insert(2,f'"{c["phone"]}"')
+            qout=[]
+            for q in queries[:4]:
+              t=time.time()
+              try:
+                rows=DDGS(timeout=20).text(q,backend='duckduckgo',region='be-fr',safesearch='off',max_results=8) or []
+                qout.append({'query':q,'status':'OK','elapsed':round(time.time()-t,2),'results':[{'title':str(x.get('title') or ''),'url':str(x.get('href') or x.get('url') or ''),'body':str(x.get('body') or '')[:300]} for x in rows[:8]]})
+              except Exception as exc:
+                qout.append({'query':q,'status':'ERROR','elapsed':round(time.time()-t,2),'error':type(exc).__name__+': '+str(exc)[:180],'results':[]})
+            out.append({**c,'queries':qout})
+          Path('results/gws_direct_ddg/report.json').write_text(json.dumps(out,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          compact=[]
+          for c in out:
+            compact.append({'label':c['label'],'kind':c['kind'],'query_statuses':[x['status'] for x in c['queries']],'result_counts':[len(x['results']) for x in c['queries']],'top_urls':[x['results'][0]['url'] if x['results'] else '' for x in c['queries']]})
+          print('GWS_DIRECT_DDG_REDTEAM='+json.dumps(compact,ensure_ascii=False,separators=(',',':')))
+          '@ | & $py -
+          if($LASTEXITCODE -ne 0){throw "Direct DDG probe failed: $LASTEXITCODE"}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-direct-ddg-${{ github.run_id }}
+          path: results/gws_direct_ddg/
+          retention-days: 3
+          compression-level: 6
