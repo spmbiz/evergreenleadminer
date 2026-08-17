@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "github": {
-    "capacity": 20,
+    "capacity": 60,
     "lease_ttl_minutes": 55,
     "planner_concurrency_group": "ai-prod-global-capacity-broker",
     "exploit_share": 0.7,
@@ -12,24 +12,24 @@
   "workloads": {
     "hospitality": {
       "enabled": true,
-      "weight": 0.25,
-      "min_slots_when_demanding": 5,
-      "max_slots": 20,
+      "weight": 0.3333333333333333,
+      "min_slots_when_demanding": 20,
+      "max_slots": 60,
       "repo": "spmbiz/evergreenleadminer"
     },
     "tenders": {
       "enabled": true,
       "mode": "remote-demand",
-      "weight": 0.25,
-      "min_slots_when_demanding": 5,
-      "max_slots": 20,
+      "weight": 0.3333333333333333,
+      "min_slots_when_demanding": 20,
+      "max_slots": 60,
       "repo": "spmbiz/tender-engine"
     },
     "gws": {
       "enabled": true,
-      "weight": 0.25,
-      "min_slots_when_demanding": 5,
-      "max_slots": 20,
+      "weight": 0.3333333333333333,
+      "min_slots_when_demanding": 20,
+      "max_slots": 60,
       "repo": "spmbiz/evergreenleadminer"
     }
   }
