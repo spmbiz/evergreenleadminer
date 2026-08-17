@@ -1,15 +1,17 @@
 {
   "autoscaling": {
-    "after": 16,
+    "after": 20,
     "before": 20,
-    "reason": "backoff_errors"
+    "reason": "hold_cancelled_missing_excluded"
   },
+  "cancelled_missing_workers": 9,
   "coverage_delta": {
+    "tasks_cancelled_missing": 9,
     "tasks_completed": 11,
-    "tasks_failed_or_missing": 9
+    "tasks_failed_or_missing": 0
   },
   "duplicates": 25,
-  "errors": 9,
+  "errors": 0,
   "gpt_review_added": 40,
   "gpt_review_pending": 306,
   "new_unique": 36,
@@ -19,7 +21,7 @@
   "provider_usage": {
     "github": {
       "active_observed_before": 0,
-      "limit": 30,
+      "limit": 20,
       "queued_observed_before": 0,
       "selected_workers": 20
     }
@@ -29,7 +31,7 @@
   "review_batch": "gpt/gws_review/2026-08-17T034653Z_31988666057-1.jsonl",
   "run_id": "31988666057-1",
   "schema_version": 1,
-  "status": "CYCLE_PARTIAL",
+  "status": "CYCLE_PARTIAL_CANCELLED",
   "uncertain": 7,
   "updated_at": "2026-08-17T03:46:53+00:00"
 }
