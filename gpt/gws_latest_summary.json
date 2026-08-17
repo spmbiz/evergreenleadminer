@@ -1,11 +1,11 @@
 {
   "autoscaling": {
     "after": 2,
-    "before": 6,
+    "before": 2,
     "reason": "backoff_errors"
   },
   "coverage_delta": {
-    "tasks_completed": 6,
+    "tasks_completed": 0,
     "tasks_failed_or_missing": 2
   },
   "duplicates": 0,
@@ -19,17 +19,17 @@
   "provider_usage": {
     "github": {
       "active_observed_before": 0,
-      "limit": 8,
+      "limit": 2,
       "queued_observed_before": 0,
-      "selected_workers": 8
+      "selected_workers": 2
     }
   },
   "qualified_for_strict_review": 0,
   "raw_discovered": 1179,
   "review_batch": null,
-  "run_id": "32038281272-1",
+  "run_id": "32041530074-1",
   "schema_version": 1,
   "status": "CYCLE_PARTIAL",
   "uncertain": 0,
-  "updated_at": "2026-08-17T14:57:34+00:00"
+  "updated_at": "2026-08-17T15:16:19+00:00"
 }
