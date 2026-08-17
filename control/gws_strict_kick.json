@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-08-17T03:52:30Z",
-  "reason": "post-purge clean restart: drain current strict backlog from latest source-safe state; preserve strict HIGH semantics and same-worker Qwen sidecar"
+  "requested_at": "2026-08-17T03:54:00Z",
+  "reason": "strict-first backpressure after stale GWS lease purge: drain current pending/retryable backlog on latest source-safe main with 20-slot cap, 15 records/worker, quarantined former HIGHs first, Qwen inline disabled, no canonical writes"
 }
