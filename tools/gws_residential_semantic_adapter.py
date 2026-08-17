@@ -12,9 +12,13 @@ def host(u):
     try:return (urlparse(str(u or '')).hostname or '').lower().removeprefix('www.')
     except Exception:return ''
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--root',default='data/gws/residential_ingress');ap.add_argument('--out',required=True);a=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--root',default='data/gws/residential_ingress');ap.add_argument('--input',default='');ap.add_argument('--out',required=True);a=ap.parse_args()
     latest={}
-    for p in sorted(Path(a.root).glob('*.jsonl')) if Path(a.root).exists() else []:
+    if a.input:
+        p=Path(a.input); paths=[p] if p.exists() else []
+    else:
+        paths=sorted(Path(a.root).glob('*.jsonl')) if Path(a.root).exists() else []
+    for p in paths:
         for line in p.read_text(encoding='utf-8').splitlines():
             if not line.strip():continue
             ev=json.loads(line); key=str(ev.get('record_key') or '')
