@@ -10,6 +10,7 @@ It never emits strict HIGH and does not change canonical verification semantics.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import gws_source_overture as base
@@ -18,15 +19,33 @@ import gws_source_overture as base
 _legacy_category_type = base.category_type
 
 
+def _category_tokens(value: Any) -> str:
+    """Normalize one structured category while preserving token boundaries.
+
+    Overture categories are underscore-delimited. Matching by raw substring is
+    unsafe: e.g. ``pub`` used to match ``public_plaza`` and materialized public
+    squares as pubs. A padded underscore string lets short needles such as
+    ``pub``, ``bar`` or ``gym`` match only real category tokens while still
+    allowing phrases such as ``cocktail_bar`` or ``real_estate_agency``.
+    """
+    normalized = base.norm(value).replace(" ", "_")
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return f"_{normalized}_" if normalized else "_"
+
+
+def _matches_category(basic: Any, primary: Any, needle: str) -> bool:
+    token = re.sub(r"_+", "_", base.norm(needle).replace(" ", "_")).strip("_")
+    if not token:
+        return False
+    marker = f"_{token}_"
+    return marker in _category_tokens(primary) or marker in _category_tokens(basic)
+
+
 def category_type(basic: Any, primary: Any) -> str:
     # Preserve every mapping that already worked before this extension.
     legacy = _legacy_category_type(basic, primary)
     if legacy:
         return legacy
-
-    c = base.norm(primary or basic).replace(" ", "_")
-    b = base.norm(basic).replace(" ", "_")
-    hay = f"{b} {c}"
 
     # Outputs intentionally contain the same vocabulary used by
     # config/gws_fleet.json keywords so gws_fleet_worker.target_row() can select
@@ -34,13 +53,14 @@ def category_type(basic: Any, primary: Any) -> str:
     rules: list[tuple[tuple[str, ...], str]] = [
         # restaurants_cafes
         (("restaurant",), "Restaurant"),
-        (("coffee_shop", "coffeehouse", "cafe", "café"), "Cafe"),
+        (("coffee_shop", "coffeehouse", "cafe"), "Cafe"),
         (("tea_room", "tea_house"), "Tea room"),
         (("fast_food",), "Fast food"),
         (("pizzeria", "pizza_restaurant"), "Pizzeria"),
         (("brasserie",), "Brasserie"),
 
-        # bars_nightlife
+        # bars_nightlife. Short tokens are intentionally boundary-matched so
+        # ``pub`` never matches ``public_plaza`` / ``public_utility_company``.
         (("cocktail_bar",), "Cocktail bar"),
         (("nightclub", "night_club"), "Nightclub"),
         (("tavern",), "Tavern"),
@@ -99,7 +119,7 @@ def category_type(basic: Any, primary: Any) -> str:
         (("physiotherapist", "physical_therapy", "physiotherapy"), "Physiotherapy physiotherapist"),
         (("chiropractor",), "Chiropractor"),
         (("psychologist", "psychotherapy"), "Psychologist"),
-        (("speech_therap", "speech_patholog"), "Speech therapy"),
+        (("speech_therapy", "speech_therapist", "speech_pathology", "speech_pathologist"), "Speech therapy"),
         (("medical_clinic", "health_clinic", "clinic"), "Clinic"),
 
         # fitness_sports_dance
@@ -143,7 +163,7 @@ def category_type(basic: Any, primary: Any) -> str:
         (("translation_service", "translator"), "Translation"),
     ]
     for needles, typ in rules:
-        if any(needle in hay for needle in needles):
+        if any(_matches_category(basic, primary, needle) for needle in needles):
             return typ
     return ""
 
