@@ -5,8 +5,8 @@
   "policy": {
     "benchmark_first": true,
     "canonical_mutation": "single-writer aggregate only",
-    "source_slot_cap_per_cycle": 4,
-    "production_shard_query_count": 30,
+    "source_slot_cap_per_cycle": 12,
+    "production_shard_query_count": 10,
     "revisit_hours": 0.0833,
     "rotation_epoch_minutes": 5,
     "max_queries_per_canary": 30,
@@ -15,7 +15,7 @@
     "provider_delay_seconds": 0.05,
     "stop_after_first_successful_provider": true,
     "target_geographies": "US + Canada + Western Europe + Australia/New Zealand premium short-stay markets",
-    "catalog_strategy": "stable 4-shard planner IDs rotated every 5 minutes through a structured long-tail catalog",
+    "catalog_strategy": "stable broker-capacity-aware FreshSearch shards rotated every 5 minutes through a structured long-tail catalog",
     "promotion_evidence": {
       "run_id": 31961438776,
       "catalog_queries_total": 17628,
