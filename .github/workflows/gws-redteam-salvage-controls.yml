@@ -1,0 +1,140 @@
+name: GWS Redteam Salvage vs Owned Controls
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-redteam-salvage-controls.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gws-redteam-salvage-controls
+  cancel-in-progress: true
+
+jobs:
+  redteam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install production verifier dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - name: Select four salvage candidates and two owned-site controls from durable evidence
+        run: |
+          set -euo pipefail
+          mkdir -p results/gws_redteam_salvage
+          python - <<'PY'
+          import hashlib, json, re, unicodedata
+          from pathlib import Path
+
+          targets = {
+              'super_boni': ('salvage', ['super boni']),
+              'fernanda_castillo': ('salvage', ['fernanda castillo', 'castillo fernanda']),
+              'claire_dufeil': ('salvage', ['claire dufeil']),
+              'darmal': ('salvage', ['darmal']),
+              'catherine_pineux': ('owned_control', ['catherine pineux', 'pineux catherine']),
+              'the_kooples': ('owned_control', ['the kooples']),
+          }
+
+          def norm(s):
+              s=unicodedata.normalize('NFKD', str(s or '')).encode('ascii','ignore').decode().lower()
+              return re.sub(r'\s+',' ', re.sub(r'[^a-z0-9]+',' ',s)).strip()
+
+          latest = {}
+          paths = sorted(Path('data/gws/verification').glob('*.jsonl')) + sorted(Path('gpt/gws_verified_review').glob('*.jsonl'))
+          for p in paths:
+              try: lines=p.read_text(encoding='utf-8').splitlines()
+              except Exception: continue
+              for line in lines:
+                  if not line.strip(): continue
+                  try: r=json.loads(line)
+                  except Exception: continue
+                  hay=' | '.join([str(r.get('hub_name') or ''),str(r.get('overture_name') or ''),str(r.get('hub_address') or ''),str(r.get('hub_phone') or ''),str(r.get('overture_phone') or '')])
+                  h=norm(hay)
+                  for label,(kind,patterns) in targets.items():
+                      if not any(norm(x) in h for x in patterns): continue
+                      key=str(r.get('record_key') or r.get('hub_objectid') or '')
+                      if not key: continue
+                      ts=str(r.get('observed_at') or '')
+                      old=latest.get(label)
+                      if old is None or ts >= old[0]: latest[label]=(ts,r,p)
+
+          missing=[x for x in targets if x not in latest]
+          if missing: raise SystemExit('Missing durable redteam targets: '+','.join(missing))
+
+          rows=[]; manifest=[]
+          for label,(kind,_) in targets.items():
+              ts,r,p=latest[label]
+              x=dict(r)
+              old=str(x.get('fingerprint') or x.get('source_fingerprint') or '')
+              fresh=hashlib.sha256((old+'|salvage-controls-v1|'+label).encode()).hexdigest()
+              x['redteam_original_fingerprint']=old
+              x['fingerprint']=fresh; x['source_fingerprint']=fresh
+              x['outcome']='REVIEW'; x['reason']='REDTEAM_SALVAGE_CONTROL_REVERIFY'
+              x['verification_status']='PENDING_SEARCH_VERIFY'; x['needs_gpt_review']=True
+              x['redteam_label']=label; x['redteam_expected_class']=kind; x['redteam_source_path']=str(p)
+              rows.append(x)
+              manifest.append({'label':label,'expected_class':kind,'business':x.get('hub_name') or x.get('overture_name'),'record_key':x.get('record_key'),'source':str(p),'previous_status':r.get('verification_status'),'previous_reason':r.get('reason')})
+
+          Path('results/gws_redteam_salvage/input.jsonl').write_text(''.join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+'\n' for x in rows),encoding='utf-8')
+          Path('results/gws_redteam_salvage/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          print('GWS_REDTEAM_SALVAGE_INPUT='+json.dumps(manifest,ensure_ascii=False,separators=(',',':')))
+          PY
+      - name: Start hosted OpenSERP or fallback
+        id: openserp
+        shell: bash
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then echo 'url=http://127.0.0.1:7000' >> "$GITHUB_OUTPUT"; else echo 'url=' >> "$GITHUB_OUTPUT"; fi
+          exit 0
+      - name: Refresh current Overture evidence
+        run: |
+          python tools/gws_pending_verify_worker.py \
+            --input results/gws_redteam_salvage/input.jsonl \
+            --worker-index 0 --worker-count 1 \
+            --outdir results/gws_redteam_salvage/worker --threads 16
+          test "$(grep -cve '^$' results/gws_redteam_salvage/worker/records.jsonl)" -eq 6
+      - name: Run current source-safe verifier
+        env:
+          OPENSERP_URL: ${{ steps.openserp.outputs.url }}
+        run: python tools/gws_search_verify_source_safe.py --shard-dir results/gws_redteam_salvage/worker --config config/gws_search_verify.json
+      - name: Assert owned-site controls cannot survive HIGH and summarize salvage candidates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('results/gws_redteam_salvage/worker/records.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          out=[]; bad=[]
+          for r in rows:
+              item={
+                'label':r.get('redteam_label'),'expected_class':r.get('redteam_expected_class'),
+                'business':r.get('hub_name') or r.get('overture_name'),
+                'status':r.get('verification_status'),'reason':r.get('reason'),
+                'owned_website':r.get('owned_website'),'overture_websites':r.get('overture_websites'),
+                'source_precheck':(r.get('source_website_precheck') or {}).get('status'),
+                'direct_domain':(r.get('direct_domain_high_challenge') or {}).get('status'),
+                'final_challenge':(r.get('final_high_challenge') or {}).get('status'),
+                'certificate_verified':bool((r.get('certificate') or {}).get('verified')),
+              }
+              out.append(item)
+              if item['expected_class']=='owned_control' and str(item['status']).upper()=='HIGH': bad.append(item)
+          Path('results/gws_redteam_salvage/report.json').write_text(json.dumps(out,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          print('GWS_REDTEAM_SALVAGE_REPORT='+json.dumps(out,ensure_ascii=False,separators=(',',':')))
+          if bad: raise SystemExit('P0: known owned-site control survived as HIGH: '+json.dumps(bad,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-redteam-salvage-controls-${{ github.run_id }}
+          path: results/gws_redteam_salvage/
+          retention-days: 3
+          compression-level: 6
