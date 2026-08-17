@@ -1,0 +1,321 @@
+name: Hospitality Bundled Fleet 24/7
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'control/hospitality_bundled_test.json'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: hospitality-bundled-fleet
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    outputs:
+      cycle_id: ${{ steps.prepare.outputs.cycle_id }}
+      worker_count: ${{ steps.prepare.outputs.worker_count }}
+      qwen_revision: ${{ steps.prepare.outputs.qwen_revision }}
+      qwen_file: ${{ steps.prepare.outputs.qwen_file }}
+      qwen_image: ${{ steps.prepare.outputs.qwen_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install bundled worker dependencies once
+        run: python -m pip install --disable-pip-version-check duckdb requests ijson osmium 'ddgs>=9,<10'
+
+      - id: prepare
+        name: Plan 20 logical shards while consuming one physical runner slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p planner planner/canonical planner/intelligence_sidecar results
+          python tools/fleet_runtime.py init
+
+          # The global broker now accounts for physical GitHub jobs, not logical
+          # scrape shards. This bundled cycle consumes exactly one hosted runner.
+          python tools/global_capacity_broker.py reserve \
+            --workload hospitality \
+            --requested 1 \
+            --run-id "$RUN_ID" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out planner/broker.json
+
+          # Execute up to 20 useful logical source shards inside that one runner.
+          python tools/hospitality_plan_with_inflight.py \
+            --provider github \
+            --capacity 20 \
+            --out planner/plan.json
+
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir planner/canonical \
+            --clobber || true
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-intelligence.sqlite' \
+            --dir planner/canonical \
+            --clobber || true
+
+          python - <<'PY'
+          import gzip,json,sqlite3,os
+          from pathlib import Path
+          plan=Path('planner/plan.json')
+          p=json.loads(plan.read_text(encoding='utf-8'))
+          db=Path('planner/canonical/hospitality-canonical.sqlite')
+          out=Path('planner/canonical-domains.txt.gz')
+          domains=[]
+          if db.is_file():
+              con=sqlite3.connect(db)
+              try:
+                  domains=[str(r[0]).strip().lower() for r in con.execute("SELECT domain FROM leads WHERE domain IS NOT NULL AND domain<>''")]
+              finally:
+                  con.close()
+          with gzip.open(out,'wt',encoding='utf-8') as f:
+              for d in sorted(set(domains)):
+                  f.write(d+'\n')
+          print(json.dumps({'canonical_domains':len(set(domains))}))
+          PY
+
+          python tools/hospitality_compound_intelligence.py plan \
+            --harvest-plan planner/plan.json \
+            --canonical-db planner/canonical/hospitality-canonical.sqlite \
+            --intelligence-db planner/canonical/hospitality-intelligence.sqlite \
+            --config config/hospitality_intelligence_v2.json \
+            --outdir planner/intelligence_sidecar
+
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('planner/plan.json'))
+          tasks=p.get('include') or []
+          model=next((t for t in tasks if int(t.get('compound_intel_records') or 0)>0), {})
+          print('cycle_id='+str(p.get('cycle_id') or 'none'))
+          print('worker_count='+str(len(tasks)))
+          print('qwen_revision='+str(model.get('compound_qwen_revision') or ''))
+          print('qwen_file='+str(model.get('compound_qwen_file') or ''))
+          print('qwen_image='+str(model.get('compound_qwen_image') or ''))
+          PY
+          rm -rf planner/canonical
+
+      - name: Execute all planned Hospitality shards concurrently inside this runner
+        run: |
+          set -euo pipefail
+          python tools/hospitality_bundle_worker.py harvest \
+            --plan planner/plan.json \
+            --canonical-domains planner/canonical-domains.txt.gz \
+            --results-root results \
+            --parallel 20
+
+      - name: Restore Qwen model cache once for the whole logical fleet
+        if: steps.prepare.outputs.qwen_revision != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-${{ steps.prepare.outputs.qwen_revision }}
+
+      - name: Start one shared Qwen server fail-open
+        if: steps.prepare.outputs.qwen_revision != ''
+        env:
+          MODEL_FILE: ${{ steps.prepare.outputs.qwen_file }}
+          LLAMA_CPP_IMAGE: ${{ steps.prepare.outputs.qwen_image }}
+        run: |
+          set +e
+          if [ -s "model_cache/$MODEL_FILE" ] && [ "$(stat -c%s "model_cache/$MODEL_FILE" 2>/dev/null || echo 0)" -gt 1000000000 ] && bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$MODEL_FILE"; then
+            echo 'QWEN_URL=http://127.0.0.1:8080' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=ready_bundled' >> "$GITHUB_ENV"
+          else
+            echo 'QWEN_URL=http://127.0.0.1:65534' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=cache_miss_or_unavailable_fail_open' >> "$GITHUB_ENV"
+          fi
+          exit 0
+
+      - name: Start one shared OpenSERP fail-open to DDGS
+        if: steps.prepare.outputs.qwen_revision != ''
+        run: |
+          set +e
+          if bash tools/start_openserp_ci.sh; then
+            echo 'OPENSERP_URL=http://127.0.0.1:7000' >> "$GITHUB_ENV"
+          else
+            echo 'OPENSERP_URL=' >> "$GITHUB_ENV"
+          fi
+          exit 0
+
+      - name: Run compound intelligence against the shared Qwen sidecar
+        if: steps.prepare.outputs.qwen_revision != ''
+        run: |
+          set -euo pipefail
+          python tools/hospitality_bundle_worker.py intelligence \
+            --plan planner/plan.json \
+            --planner-root planner \
+            --results-root results \
+            --qwen-url "${QWEN_URL:-http://127.0.0.1:65534}" \
+            --config config/hospitality_intelligence_v2.json \
+            --parallel 4
+
+      - name: Publish bundled transport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-bundled-${{ steps.prepare.outputs.cycle_id }}
+          path: |
+            planner/
+            results/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
+
+      - name: Release the one physical broker slot
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY" || true
+
+  aggregate:
+    needs: bundle
+    if: always() && needs.bundle.outputs.cycle_id != '' && needs.bundle.outputs.cycle_id != 'none'
+    concurrency:
+      group: hospitality-canonical-writer
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CYCLE_ID: ${{ needs.bundle.outputs.cycle_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download bundled transport
+        uses: actions/download-artifact@v4
+        with:
+          name: hospitality-bundled-${{ needs.bundle.outputs.cycle_id }}
+          path: incoming
+
+      - name: Restore canonical state
+        run: |
+          set -euo pipefail
+          mkdir -p canonical aggregate_out intelligence compound_intelligence_out
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-canonical.sqlite' --dir canonical --clobber
+          gh release download harvest-state --repo "$GITHUB_REPOSITORY" --pattern 'hospitality-intelligence.sqlite' --dir intelligence --clobber || true
+
+      - name: Single-writer canonical aggregate from all logical shards
+        run: |
+          set -euo pipefail
+          python tools/hospitality_fleet_aggregate.py \
+            --results-root incoming/results \
+            --cycle-id "$CYCLE_ID" \
+            --provider github \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --outdir aggregate_out
+          python tools/hospitality_scheduler.py after --metrics metrics/latest.json
+
+      - name: Compound Intelligence fill-only merge
+        run: |
+          set -euo pipefail
+          python tools/hospitality_compound_intelligence.py aggregate \
+            --incoming incoming/results \
+            --harvest-plan incoming/planner/plan.json \
+            --canonical-db canonical/hospitality-canonical.sqlite \
+            --intelligence-db intelligence/hospitality-intelligence.sqlite \
+            --outdir compound_intelligence_out \
+            --run-id "compound-${CYCLE_ID}"
+          python - <<'PY'
+          import json,os,shutil
+          from pathlib import Path
+          status=Path('compound_intelligence_out/compound-status.json')
+          metrics=Path('metrics/latest.json')
+          if status.is_file() and metrics.is_file():
+              s=json.loads(status.read_text(encoding='utf-8'))
+              m=json.loads(metrics.read_text(encoding='utf-8'))
+              m['compound_intelligence']=s
+              m['physical_runners']=1
+              m['logical_worker_mode']='bundled-20-way'
+              metrics.write_text(json.dumps(m,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          if status.is_file():
+              shutil.copy2(status, Path('aggregate_out')/f"compound-intelligence-{os.environ['CYCLE_ID']}.json")
+          PY
+
+      - name: Preserve observations and package immutable cycle bundle
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,gzip,json,os
+          from pathlib import Path
+          cycle=os.environ['CYCLE_ID']
+          root=Path('incoming/results')
+          out=Path('aggregate_out')/f'observations-{cycle}.jsonl.gz'
+          n=0
+          with gzip.open(out,'wt',encoding='utf-8') as z:
+              for p in root.rglob('v6_fast_ready.csv'):
+                  with p.open(encoding='utf-8',newline='') as f:
+                      for r in csv.DictReader(f):
+                          r['_transport_path']=str(p)
+                          z.write(json.dumps(r,ensure_ascii=False)+'\n')
+                          n+=1
+          print(json.dumps({'observations_persisted':n}))
+          PY
+          BUNDLE="aggregate_out/hospitality-bundle-${CYCLE_ID}.tar.gz"
+          FILES=$(find aggregate_out -maxdepth 1 -type f \( -name 'partition-*.jsonl.gz' -o -name 'gpt-review-*.jsonl' -o -name 'observations-*.jsonl.gz' -o -name 'aggregate_summary.json' -o -name 'compound-intelligence-*.json' \) -print)
+          tar -czf "$BUNDLE" $FILES
+          echo "BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+          echo "HISTORY_TAG=harvest-history-$(date -u +%F)" >> "$GITHUB_ENV"
+
+      - name: Persist canonical state and immutable history
+        run: |
+          set -euo pipefail
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file canonical/hospitality-canonical.sqlite
+          if [ -f compound_intelligence_out/merged.ok ] && [ -s intelligence/hospitality-intelligence.sqlite ]; then
+            python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag harvest-state --file intelligence/hospitality-intelligence.sqlite
+          fi
+          python tools/fleet_runtime.py upload --repo "$GITHUB_REPOSITORY" --tag "$HISTORY_TAG" --file "$BUNDLE"
+
+      - name: Commit small scheduler and metric state safely
+        run: |
+          set -euo pipefail
+          GENERATED="$(mktemp -d)"
+          for rel in state/coverage.json state/checkpoints.json state/source_state.json state/hospitality_scheduler.json metrics/latest.json metrics/history.jsonl gpt/latest_summary.json gpt/pending_batches.json; do
+            if [ -f "$rel" ]; then
+              mkdir -p "$GENERATED/$(dirname "$rel")"
+              cp "$rel" "$GENERATED/$rel"
+            fi
+          done
+          git config user.name "ai-prod-harvest-bot"
+          git config user.email "actions@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            python tools/merge_hospitality_state.py --generated "$GENERATED"
+            git add state/coverage.json state/checkpoints.json state/source_state.json state/hospitality_scheduler.json metrics/latest.json metrics/history.jsonl gpt/latest_summary.json gpt/pending_batches.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "fleet: hospitality bundled checkpoint ${CYCLE_ID} [skip ci]"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep $((attempt * 2))
+          done
+          exit 1
+
+      - name: Immediately queue the next bundled cycle after durable persistence
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run hospitality-bundled-fleet.yml --ref main
