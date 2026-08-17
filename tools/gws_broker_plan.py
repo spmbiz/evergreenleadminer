@@ -8,9 +8,10 @@ GitHub activity probe; all GWS source-health, task, lease and matrix logic stays
 inside gws_fleet_plan.py.
 
 When a validated Overture supply matrix matches the current durable source
-release+SHA, this wrapper also avoids proven source-empty territory×family shards
-and gives a bounded priority bonus to high-supply shards. This is discovery
-routing only: it never changes website-state classification or strict HIGH rules.
+release+SHA *and* the current category-mapper semantics, this wrapper also avoids
+proven source-empty territory×family shards and gives a bounded priority bonus to
+high-supply shards. This is discovery routing only: it never changes website-state
+classification or strict HIGH rules.
 """
 from __future__ import annotations
 
@@ -21,6 +22,11 @@ from pathlib import Path
 import sys
 
 import gws_fleet_plan as gp
+
+# Bump whenever category->GWS-family materialization semantics change. A supply
+# matrix produced by an older mapper is discovery-routing evidence from a different
+# universe and must fail closed instead of steering current work.
+CURRENT_SUPPLY_MAPPER_VERSION = "overture-category-token-safe-v2"
 
 
 def emit_zero(outdir: Path):
@@ -54,17 +60,21 @@ def _load(path: str, default):
 
 
 def install_supply_routing() -> dict:
-    """Monkey-patch only planner task ordering when the matrix is source-current."""
+    """Monkey-patch only planner task ordering when matrix+source+mapper are current."""
     supply = _load("state/gws_supply_matrix.json", {})
     source_state = _load("state/gws_source_state.json", {})
     overture = source_state.get("sources", {}).get("overture_direct", {})
     release_ok = bool(supply.get("source_release")) and supply.get("source_release") == overture.get("release")
     sha_ok = bool(supply.get("source_sha256")) and supply.get("source_sha256") == overture.get("sha256")
-    active = bool(release_ok and sha_ok)
+    mapper_ok = supply.get("mapper_version") == CURRENT_SUPPLY_MAPPER_VERSION
+    active = bool(release_ok and sha_ok and mapper_ok)
     status = {
         "active": active,
         "release_match": release_ok,
         "sha_match": sha_ok,
+        "mapper_match": mapper_ok,
+        "current_mapper_version": CURRENT_SUPPLY_MAPPER_VERSION,
+        "matrix_mapper_version": supply.get("mapper_version"),
         "source_release": overture.get("release"),
         "matrix_release": supply.get("source_release"),
         "zero_tasks": int(supply.get("zero_task_count") or 0),
@@ -122,10 +132,6 @@ def main():
         return
 
     # Capacity is already atomically reserved by global_capacity_broker.py.
-    # gws_fleet_plan.py currently calls github_repo_job_counts(), not the old
-    # github_active_jobs() helper. Stub the live probe so --fixed-capacity is
-    # consumed as the already-leased budget instead of subtracting account-wide
-    # jobs a second time. Keep the old symbol stub too for backward compatibility.
     gp.github_repo_job_counts = lambda *args, **kwargs: (0, 0, [])
     if hasattr(gp, "github_active_jobs"):
         gp.github_active_jobs = lambda *args, **kwargs: (0, [])
