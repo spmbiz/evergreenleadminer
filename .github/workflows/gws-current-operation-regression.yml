@@ -49,3 +49,5 @@ jobs:
           $env:PYTHONPATH='tools'
           & $py tools\test_gws_current_operation_regression.py
           if($LASTEXITCODE -ne 0){throw "Current-operation regression failed: $LASTEXITCODE"}
+
+# Trigger marker: v2-current-operation-gate
