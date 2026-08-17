@@ -1,0 +1,36 @@
+name: One-shot Validate Broker Concurrency
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/_once_validate_broker_concurrency.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile broker entrypoints
+        run: python -m py_compile tools/global_capacity_broker_v3.py tools/global_capacity_broker.py
+      - name: Import reconciliation helpers
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0,'tools')
+          import global_capacity_broker_v3 as v3
+          import global_capacity_broker as broker
+          assert callable(v3.save_reservation_reconciled)
+          assert callable(v3.release_lease_reconciled)
+          assert callable(broker.release)
+          print('BROKER_CONCURRENCY_SMOKE_OK')
+          PY
