@@ -10,6 +10,10 @@ on:
     branches: [main]
     paths:
       - 'control/gws_strict_kick.json'
+      - '.github/workflows/gws-pending-search-verify.yml'
+      - 'tools/gws_compound_semantic.py'
+      - 'tools/gws_compound_semantic_aggregate.py'
+      - 'config/gws_semantic_v1.json'
 
 permissions:
   contents: write
@@ -100,7 +104,7 @@ jobs:
       max-parallel: ${{ fromJSON(needs.plan.outputs.workers) }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,8 +113,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install verifier dependencies
-        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp
+      - name: Install verifier and sidecar dependencies
+        run: python -m pip install --disable-pip-version-check duckdb requests 'ddgs>=9,<10' aiohttp 'huggingface_hub>=0.34,<2'
       - uses: actions/download-artifact@v4
         with:
           name: gws-pending-verify-plan-${{ github.run_id }}
@@ -141,6 +145,85 @@ jobs:
             --outdir "$out" \
             --threads 8
           python tools/gws_search_verify_source_safe.py --shard-dir "$out" --config config/gws_search_verify.json
+
+      - id: semantic
+        name: Select fresh ambiguous rows for same-runner Qwen sidecar
+        shell: bash
+        run: |
+          out="results/gws_verify_shards/${{ matrix.worker_index }}"
+          python tools/gws_compound_semantic.py \
+            --shard-dir "$out" \
+            --outdir "$out/compound_semantic" \
+            --config config/gws_semantic_v1.json \
+            --worker-index "${{ matrix.worker_index }}"
+
+      - id: semantic_model
+        name: Read pinned Qwen sidecar config
+        if: steps.semantic.outputs.selected != '0'
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          q=json.load(open('config/gws_semantic_v1.json'))['qwen']
+          print('repo='+q['model_repo'])
+          print('revision='+q['model_revision'])
+          print('file='+q['model_file'])
+          print('image='+q['llama_cpp_image'])
+          PY
+
+      - name: Restore Qwen model cache on same GWS worker
+        if: steps.semantic.outputs.selected != '0'
+        uses: actions/cache@v4
+        id: semantic_model_cache
+        with:
+          path: model_cache
+          key: qwen3-4b-q4km-${{ steps.semantic_model.outputs.revision }}
+
+      - name: Recover pinned Qwen model if cache is cold
+        if: steps.semantic.outputs.selected != '0' && steps.semantic_model_cache.outputs.cache-hit != 'true'
+        env:
+          MODEL_REPO: ${{ steps.semantic_model.outputs.repo }}
+          MODEL_REVISION: ${{ steps.semantic_model.outputs.revision }}
+          MODEL_FILE: ${{ steps.semantic_model.outputs.file }}
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p model_cache
+          python -c "import os; from huggingface_hub import hf_hub_download; hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')"
+          test -s "model_cache/$MODEL_FILE"
+
+      - name: Start Qwen sidecar fail-open on same GWS worker
+        if: steps.semantic.outputs.selected != '0'
+        env:
+          MODEL_FILE: ${{ steps.semantic_model.outputs.file }}
+          LLAMA_CPP_IMAGE: ${{ steps.semantic_model.outputs.image }}
+        shell: bash
+        run: |
+          set +e
+          if [ -s "model_cache/$MODEL_FILE" ] && bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$MODEL_FILE"; then
+            echo 'QWEN_URL=http://127.0.0.1:8080' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=ready_compound_gws' >> "$GITHUB_ENV"
+          else
+            echo 'QWEN_URL=http://127.0.0.1:65534' >> "$GITHUB_ENV"
+            echo 'QWEN_RUNTIME=unavailable_fail_open' >> "$GITHUB_ENV"
+            echo 'GWS compound Qwen unavailable; strict verification remains valid and semantic stays retryable.'
+          fi
+          exit 0
+
+      - name: Run semantic shadow on the already allocated GWS worker
+        if: steps.semantic.outputs.selected != '0'
+        env:
+          OPENSERP_URL: ${{ steps.openserp.outputs.url }}
+        shell: bash
+        run: |
+          out="results/gws_verify_shards/${{ matrix.worker_index }}"
+          python tools/gws_semantic_worker.py \
+            --input "$out/compound_semantic/selected.jsonl" \
+            --config config/gws_semantic_v1.json \
+            --qwen-url "$QWEN_URL" \
+            --worker-index "${{ matrix.worker_index }}" \
+            --outdir "$out/compound_semantic/worker"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -152,8 +235,11 @@ jobs:
   aggregate:
     needs: [plan, verify]
     if: always() && needs.plan.outputs.workers != '0'
+    concurrency:
+      group: gws-semantic-ledger-writer
+      cancel-in-progress: false
     runs-on: ubuntu-slim
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -170,7 +256,9 @@ jobs:
           path: results/gws_verify_shards
       - name: Aggregate strict verification results
         run: python tools/gws_pending_verify_aggregate.py --root results/gws_verify_shards
-      - name: Persist verification ledger and handoff
+      - name: Persist same-runner Qwen shadow outputs without changing strict truth
+        run: python tools/gws_compound_semantic_aggregate.py --root results/gws_verify_shards --config config/gws_semantic_v1.json
+      - name: Persist verification ledger, semantic sidecar and handoff
         run: |
           set -euo pipefail
           git config user.name 'evergreen-gws-verify'
@@ -185,10 +273,13 @@ jobs:
             data/gws/verification/ \
             metrics/gws_verify_latest.json \
             metrics/gws_verify_history.jsonl
+          for p in data/gws/semantic gpt/gws_semantic_review metrics/gws_compound_semantic_latest.json metrics/gws_compound_semantic_history.jsonl; do
+            [ -e "$p" ] && git add "$p"
+          done
           if git diff --cached --quiet; then
-            echo 'No GWS verification delta.'
+            echo 'No GWS verification/semantic delta.'
           else
-            git commit -m "[gws-verify-state] pending search verification ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "[gws-verify-state] strict + same-runner Qwen ${GITHUB_RUN_ID} [skip ci]"
             pushed=0
             for attempt in 1 2 3; do
               if git push origin HEAD:main; then pushed=1; break; fi
