@@ -11,7 +11,9 @@ on:
       - 'tools/gws_home_openserp_worker_ownership_safe.py'
       - 'tools/gws_fleet_preaggregate_ownership_guard.py'
       - 'tools/gws_pending_verify_plan.py'
+      - 'tools/gws_source_overture_extended.py'
       - 'tools/test_gws_ownership_regression.py'
+      - 'tools/test_gws_overture_category_mapping.py'
       - 'gpt/gws_pending_batches.json'
       - '.github/workflows/gws-autonomous-fleet.yml'
       - '.github/workflows/gws-home-pending-residential.yml'
@@ -37,6 +39,10 @@ jobs:
         env:
           PYTHONPATH: tools
         run: python tools/test_gws_ownership_regression.py
+      - name: Run Overture category token regression suite
+        env:
+          PYTHONPATH: tools
+        run: python tools/test_gws_overture_category_mapping.py
       - name: Assert live recovery backlog is actually prioritized
         env:
           PYTHONPATH: tools
