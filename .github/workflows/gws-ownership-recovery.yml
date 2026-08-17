@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'tools/gws_ownership_gate.py'
       - 'tools/gws_ownership_recovery_scan.py'
       - '.github/workflows/gws-ownership-recovery.yml'
 
