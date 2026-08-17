@@ -1,0 +1,24 @@
+name: Temporary Native Actions Dispatcher
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: startsWith(github.event.pull_request.head.ref, 'ops/native-actions-probe-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch current-main GWS strict and Hospitality
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run gws-pending-search-verify.yml --repo "$GITHUB_REPOSITORY" --ref main
+          gh workflow run hospitality-autonomous-fleet.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo 'NATIVE_DISPATCH_OK=1'
