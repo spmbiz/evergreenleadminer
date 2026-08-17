@@ -1,8 +1,8 @@
 {
-  "requested_at": "2026-08-16T23:08:00Z",
+  "requested_at": "2026-08-17T01:21:00Z",
   "requested_by": "GPT-5.6 Sol",
-  "mode": "three-way-broker-live-validation",
+  "mode": "post-quality-and-capacity-live-validation",
   "force_workers": 0,
   "force_lane": "",
-  "note": "Live validation after global broker fair-share fix. Run durable Hospitality autoscaler while Tenders and GWS are active. Expect nonzero Hospitality allocation when physical capacity exists, fair targets preserved for all demanding workloads, no site_recovery, and compound Qwen on the same harvest workers without separate Hospitality Intelligence starvation."
+  "note": "Live validation after Commercial Fit V2 and broker-capacity FreshSearch merge. Use durable autoscaler and global broker unchanged; verify planner can consume all Hospitality slots actually granted by the broker up to useful backlog, while preserving GWS/Tenders fair-share, single-writer canonical persistence, dedupe, and compound Qwen sidecars."
 }
