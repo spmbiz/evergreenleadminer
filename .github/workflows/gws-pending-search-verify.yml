@@ -52,7 +52,7 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "Planning from durable main SHA $(git rev-parse HEAD)"
       - name: Preview useful pending-verification demand
-        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_preplan --max-workers 20 --per-worker 70
+        run: python tools/gws_pending_verify_plan.py --outdir results/gws_verify_preplan --max-workers 20 --per-worker 30
       - id: reserve
         name: Reserve fair-share global GWS capacity
         env:
@@ -87,7 +87,7 @@ jobs:
           python tools/gws_pending_verify_plan.py \
             --outdir results/gws_verify_plan \
             --max-workers "${ALLOCATED:-0}" \
-            --per-worker 70
+            --per-worker 30
       - uses: actions/upload-artifact@v4
         if: steps.plan.outputs.workers != '0'
         with:
@@ -130,123 +130,149 @@ jobs:
           else
             echo 'url=' >> "$GITHUB_OUTPUT"
             echo 'mode=fallback_search_fabric' >> "$GITHUB_OUTPUT"
-            echo 'OpenSERP unavailable; continuing exclusion-only through fallback providers.'
+            echo 'OpenSERP unavailable; fallback may exclude owned sites but can never certify HIGH.'
           fi
           exit 0
       - name: Refresh current identity and verify pending partition
         env:
           OPENSERP_URL: ${{ steps.openserp.outputs.url }}
         run: |
-          out="results/gws_verify_shards/${{ matrix.worker_index }}"
+          set -euo pipefail
+          mkdir -p results/gws_verify_worker
           python tools/gws_pending_verify_worker.py \
             --input results/gws_verify_plan/pending.jsonl \
-            --worker-index ${{ matrix.worker_index }} \
-            --worker-count ${{ matrix.worker_count }} \
-            --outdir "$out" \
-            --threads 8
-          python tools/gws_search_verify_source_safe.py --shard-dir "$out" --config config/gws_search_verify.json
-
-      - id: semantic
-        name: Select fresh ambiguous rows for same-runner Qwen sidecar
-        shell: bash
+            --worker-index "${{ matrix.worker_index }}" \
+            --worker-count "${{ matrix.worker_count }}" \
+            --outdir results/gws_verify_worker \
+            --threads 16
+          python tools/gws_search_verify_source_safe.py \
+            --shard-dir results/gws_verify_worker \
+            --config config/gws_search_verify.json
+      - name: Select fresh ambiguous rows for same-runner Qwen sidecar
+        if: always()
         run: |
-          out="results/gws_verify_shards/${{ matrix.worker_index }}"
           python tools/gws_compound_semantic.py \
-            --shard-dir "$out" \
-            --outdir "$out/compound_semantic" \
-            --config config/gws_semantic_v1.json \
-            --worker-index "${{ matrix.worker_index }}"
-
-      - id: semantic_model
-        name: Read pinned Qwen sidecar config
-        if: steps.semantic.outputs.selected != '0'
+            --root results/gws_verify_worker \
+            --out results/gws_verify_worker/compound_semantic/input.jsonl \
+            --config config/gws_semantic_v1.json
+      - name: Read pinned Qwen sidecar config
+        if: always()
+        id: qcfg
+        shell: bash
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          q=json.load(open('config/gws_semantic_v1.json'))['qwen']
+          from pathlib import Path
+          c=json.loads(Path('config/gws_semantic_v1.json').read_text())
+          q=c['qwen']
+          selected=0
+          p=Path('results/gws_verify_worker/compound_semantic/input.jsonl')
+          if p.exists(): selected=sum(1 for x in p.read_text(encoding='utf-8').splitlines() if x.strip())
+          print('selected='+str(selected))
           print('repo='+q['model_repo'])
           print('revision='+q['model_revision'])
           print('file='+q['model_file'])
-          print('image='+q['llama_cpp_image'])
+          print('label='+q['model_label'])
           PY
-
       - name: Restore Qwen model cache on same GWS worker
-        if: steps.semantic.outputs.selected != '0'
-        uses: actions/cache@v4
-        id: semantic_model_cache
+        if: always() && steps.qcfg.outputs.selected != '0'
+        id: qcache
+        uses: actions/cache/restore@v4
         with:
-          path: model_cache
-          key: qwen3-4b-q4km-${{ steps.semantic_model.outputs.revision }}
-
+          path: ~/.cache/gws-qwen
+          key: gws-qwen-${{ runner.os }}-${{ runner.arch }}-${{ steps.qcfg.outputs.label }}-${{ steps.qcfg.outputs.revision }}
       - name: Recover pinned Qwen model if cache is cold
-        if: steps.semantic.outputs.selected != '0' && steps.semantic_model_cache.outputs.cache-hit != 'true'
+        if: always() && steps.qcfg.outputs.selected != '0' && steps.qcache.outputs.cache-hit != 'true'
         env:
-          MODEL_REPO: ${{ steps.semantic_model.outputs.repo }}
-          MODEL_REVISION: ${{ steps.semantic_model.outputs.revision }}
-          MODEL_FILE: ${{ steps.semantic_model.outputs.file }}
-          HF_HUB_DISABLE_PROGRESS_BARS: '1'
-        shell: bash
+          QWEN_REPO: ${{ steps.qcfg.outputs.repo }}
+          QWEN_REVISION: ${{ steps.qcfg.outputs.revision }}
+          QWEN_FILE: ${{ steps.qcfg.outputs.file }}
         run: |
           set -euo pipefail
-          mkdir -p model_cache
-          python -c "import os; from huggingface_hub import hf_hub_download; hf_hub_download(repo_id=os.environ['MODEL_REPO'], filename=os.environ['MODEL_FILE'], revision=os.environ['MODEL_REVISION'], local_dir='model_cache')"
-          test -s "model_cache/$MODEL_FILE"
-
+          python - <<'PY'
+          import os
+          from huggingface_hub import hf_hub_download
+          path=hf_hub_download(
+              repo_id=os.environ['QWEN_REPO'],
+              filename=os.environ['QWEN_FILE'],
+              revision=os.environ['QWEN_REVISION'],
+              local_dir=os.path.expanduser('~/.cache/gws-qwen'),
+              local_dir_use_symlinks=False,
+          )
+          print('QWEN_MODEL='+path)
+          PY
       - name: Start Qwen sidecar fail-open on same GWS worker
-        if: steps.semantic.outputs.selected != '0'
-        env:
-          MODEL_FILE: ${{ steps.semantic_model.outputs.file }}
-          LLAMA_CPP_IMAGE: ${{ steps.semantic_model.outputs.image }}
+        if: always() && steps.qcfg.outputs.selected != '0'
+        id: qwen
         shell: bash
+        env:
+          MODEL_FILE: ${{ steps.qcfg.outputs.file }}
         run: |
           set +e
-          if [ -s "model_cache/$MODEL_FILE" ] && bash tools/start_qwen4b_ci.sh "$PWD/model_cache" "$MODEL_FILE"; then
-            echo 'QWEN_URL=http://127.0.0.1:8080' >> "$GITHUB_ENV"
-            echo 'QWEN_RUNTIME=ready_compound_gws' >> "$GITHUB_ENV"
-          else
-            echo 'QWEN_URL=http://127.0.0.1:65534' >> "$GITHUB_ENV"
-            echo 'QWEN_RUNTIME=unavailable_fail_open' >> "$GITHUB_ENV"
-            echo 'GWS compound Qwen unavailable; strict verification remains valid and semantic stays retryable.'
+          model="$HOME/.cache/gws-qwen/$MODEL_FILE"
+          if [ ! -s "$model" ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'Qwen model unavailable; compound semantic sidecar skipped.'
+            exit 0
           fi
+          cid=$(docker run -d --rm --name "gws-qwen-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.worker_index }}" \
+            -p 127.0.0.1::8080 \
+            -v "$HOME/.cache/gws-qwen:/models:ro" \
+            ghcr.io/ggml-org/llama.cpp:server \
+            -m "/models/$MODEL_FILE" -c 4096 -np 1 --host 0.0.0.0 --port 8080 2>/dev/null)
+          if [ -z "$cid" ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          port=$(docker port "$cid" 8080/tcp 2>/dev/null | awk -F: '{print $NF}' | tail -n1)
+          for i in $(seq 1 80); do
+            if [ -n "$port" ] && curl -fsS --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              echo "url=http://127.0.0.1:${port}/v1/chat/completions" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'ready=false' >> "$GITHUB_OUTPUT"
+          docker rm -f "$cid" >/dev/null 2>&1 || true
           exit 0
-
       - name: Run semantic shadow on the already allocated GWS worker
-        if: steps.semantic.outputs.selected != '0'
+        if: always() && steps.qcfg.outputs.selected != '0' && steps.qwen.outputs.ready == 'true'
+        continue-on-error: true
         env:
           OPENSERP_URL: ${{ steps.openserp.outputs.url }}
-        shell: bash
+          QWEN_URL: ${{ steps.qwen.outputs.url }}
         run: |
-          out="results/gws_verify_shards/${{ matrix.worker_index }}"
-          python tools/gws_semantic_worker.py \
-            --input "$out/compound_semantic/selected.jsonl" \
-            --config config/gws_semantic_v1.json \
+          python tools/gws_home_semantic_worker.py \
+            --input results/gws_verify_worker/compound_semantic/input.jsonl \
+            --outdir results/gws_verify_worker/compound_semantic/worker \
+            --endpoint "$OPENSERP_URL" \
+            --engines bing,duckduckgo \
             --qwen-url "$QWEN_URL" \
-            --worker-index "${{ matrix.worker_index }}" \
-            --outdir "$out/compound_semantic/worker"
-
+            --qwen-model qwen3-4b \
+            --max-candidates 8 \
+            --record-concurrency 3 \
+            --sleep-min 0.02 \
+            --sleep-max 0.08
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gws-pending-verify-shard-${{ matrix.worker_index }}
-          path: results/gws_verify_shards/${{ matrix.worker_index }}/
+          path: results/gws_verify_worker/
           retention-days: 1
           compression-level: 6
 
   aggregate:
     needs: [plan, verify]
     if: always() && needs.plan.outputs.workers != '0'
-    concurrency:
-      group: gws-semantic-ledger-writer
-      cancel-in-progress: false
     runs-on: ubuntu-slim
-    timeout-minutes: 20
-    env:
-      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
-      - name: Refresh durable state base
+      - name: Refresh durable main before aggregate
         run: |
           git fetch origin main
           git reset --hard origin/main
@@ -254,59 +280,42 @@ jobs:
         with:
           pattern: gws-pending-verify-shard-*
           path: results/gws_verify_shards
-      - name: Aggregate strict verification results
-        run: python tools/gws_pending_verify_aggregate.py --root results/gws_verify_shards
-      - name: Persist same-runner Qwen shadow outputs without changing strict truth
-        run: python tools/gws_compound_semantic_aggregate.py --root results/gws_verify_shards --config config/gws_semantic_v1.json
-      - name: Persist verification ledger, semantic sidecar and handoff
+      - name: Aggregate strict results and preserve retryable backlog
+        run: python tools/gws_pending_verify_aggregate.py --root results/gws_verify_shards --plan-dir results/gws_verify_plan
+      - name: Persist verification durable state
         run: |
           set -euo pipefail
-          git config user.name 'evergreen-gws-verify'
+          git config user.name 'gws-strict-verifier'
           git config user.email 'actions@users.noreply.github.com'
-          git add \
-            state/gws_verify_index.json \
-            state/gws_semantic_index.json \
-            gpt/gws_pending_batches.json \
-            gpt/gws_verified_pending.json \
-            gpt/gws_verified_review/ \
-            gpt/gws_semantic_hard_review/ \
-            data/gws/verification/ \
-            metrics/gws_verify_latest.json \
-            metrics/gws_verify_history.jsonl
-          for p in data/gws/semantic gpt/gws_semantic_review metrics/gws_compound_semantic_latest.json metrics/gws_compound_semantic_history.jsonl; do
-            [ -e "$p" ] && git add "$p"
-          done
+          git add state/gws_verify_index.json state/gws_semantic_index.json metrics/gws_verify_latest.json gpt/gws_pending_batches.json gpt/gws_verified_pending.json gpt/gws_verified_review/ data/gws/verification/
           if git diff --cached --quiet; then
-            echo 'No GWS verification/semantic delta.'
-          else
-            git commit -m "[gws-verify-state] strict + same-runner Qwen ${GITHUB_RUN_ID} [skip ci]"
-            pushed=0
-            for attempt in 1 2 3; do
-              if git push origin HEAD:main; then pushed=1; break; fi
-              git rebase --abort >/dev/null 2>&1 || true
-              git fetch origin main
-              if ! git rebase origin/main; then
-                git rebase --abort >/dev/null 2>&1 || true
-                echo 'Concurrent verification-state conflict; refusing unsafe merge.' >&2
-                exit 1
-              fi
-              sleep $((attempt * 3))
-            done
-            test "$pushed" = 1
+            echo 'No strict verification delta.'
+            exit 0
           fi
+          git commit -m "[gws-verify] strict search verification ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git rebase --abort >/dev/null 2>&1 || true
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git rebase --abort >/dev/null 2>&1 || true
+              echo 'Concurrent strict-state conflict; refusing unsafe merge.' >&2
+              exit 1
+            fi
+            sleep $((attempt*3))
+          done
+          exit 1
 
-  release_capacity:
+  release_capacity_lease:
     needs: [plan, verify, aggregate]
     if: always()
     concurrency:
       group: ai-prod-global-capacity-broker
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Release global GWS capacity lease
+      - name: Release broker capacity lease
         env:
-          GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
         run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
