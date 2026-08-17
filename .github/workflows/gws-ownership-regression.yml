@@ -8,6 +8,8 @@ on:
       - 'tools/gws_ownership_gate.py'
       - 'tools/gws_search_verify_ownership_safe.py'
       - 'tools/gws_home_openserp_worker_ownership_safe.py'
+      - 'tools/gws_fleet_preaggregate_ownership_guard.py'
+      - 'tools/gws_pending_verify_plan.py'
       - 'tools/test_gws_ownership_regression.py'
       - '.github/workflows/gws-autonomous-fleet.yml'
       - '.github/workflows/gws-home-pending-residential.yml'
@@ -31,3 +33,23 @@ jobs:
         env:
           PYTHONPATH: tools
         run: python tools/test_gws_ownership_regression.py
+      - name: Assert live recovery backlog is actually prioritized
+        env:
+          PYTHONPATH: tools
+        run: |
+          python tools/gws_pending_verify_plan.py --outdir results/gws_ownership_plan_assert --max-workers 1 --per-worker 12
+          python - <<'PY'
+          import json
+          p=json.load(open('results/gws_ownership_plan_assert/plan.json',encoding='utf-8'))
+          print('OWNERSHIP_RECALL_PLAN_ASSERT='+json.dumps({
+              'eligible':p.get('eligible'),
+              'selected':p.get('selected'),
+              'ownership_recall_eligible':p.get('ownership_recall_eligible'),
+              'ownership_recall_selected':p.get('ownership_recall_selected'),
+              'suppressed_terminal':p.get('suppressed_terminal'),
+          },separators=(',',':')))
+          if int(p.get('ownership_recall_eligible') or 0) <= 0:
+              raise SystemExit('Expected ownership recall rows to be eligible')
+          if int(p.get('ownership_recall_selected') or 0) <= 0:
+              raise SystemExit('Ownership recall rows exist but planner did not select any')
+          PY
