@@ -16,6 +16,7 @@ on:
       - 'control/gws_home_pending_kick.json'
       - 'tools/gws_home_openserp_worker_v55.py'
       - 'tools/gws_home_openserp_worker_ownership_safe.py'
+      - 'tools/gws_residential_ingress_adapter.py'
       - 'tools/gws_ownership_gate.py'
       - 'tools/test_gws_ownership_regression.py'
       - '.github/workflows/gws-home-pending-residential.yml'
@@ -174,23 +175,40 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Residential worker failed with exit $LASTEXITCODE" }
           Get-Content results\gws_home_pending\worker\summary.json
 
-      - name: Normalize residential observations for durable ingress
+      - name: Normalize raw worker output into durable residential ingress
         if: always()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           $py = (Get-Content .gws-home-python.txt -Raw).Trim()
+          $selectedLine = Get-Content results\gws_home_pending\selected.txt
+          $selected = [int](($selectedLine -split '=')[1])
           $results = 'results\gws_home_pending\worker\results.jsonl'
-          $out = 'results\gws_home_pending\residential_observations.jsonl'
-          if (-not (Test-Path $results) -or (Get-Item $results).Length -eq 0) {
+          $out = 'results\gws_home_pending\residential_ingress.jsonl'
+          if ($selected -le 0) {
             New-Item -ItemType File -Force -Path $out | Out-Null
-            Write-Host 'No residential observations to normalize.'
+            'normalized=0' | Out-File -Encoding ascii results\gws_home_pending\normalized.txt
+            Write-Host 'No selected work; ingress normalization skipped.'
             exit 0
           }
-          & $py tools\gws_residential_semantic_adapter.py --input $results --out $out
-          if ($LASTEXITCODE -ne 0) { throw "Residential observation adapter failed with exit $LASTEXITCODE" }
+          if (-not (Test-Path $results) -or (Get-Item $results).Length -eq 0) {
+            New-Item -ItemType File -Force -Path $out | Out-Null
+            'normalized=0' | Out-File -Encoding ascii results\gws_home_pending\normalized.txt
+            throw 'Selected residential work produced no worker results.'
+          }
+          & $py tools\gws_residential_ingress_adapter.py --input $results --out $out
+          if ($LASTEXITCODE -ne 0) { throw "Residential ingress adapter failed with exit $LASTEXITCODE" }
+          $normalized = 0
+          if ((Get-Item $out).Length -gt 0) {
+            $normalized = (Get-Content $out | Measure-Object -Line).Lines
+          }
+          "normalized=$normalized" | Out-File -Encoding ascii results\gws_home_pending\normalized.txt
+          Write-Host "HOME_INGRESS_NORMALIZED=$normalized selected=$selected"
+          if ($normalized -ne $selected) {
+            throw "Residential ingress count mismatch selected=$selected normalized=$normalized. Partial evidence remains available for durable persistence."
+          }
 
-      - name: Persist immutable residential evidence and wake semantic fleet
+      - name: Persist immutable residential ingress with readback and wake semantic fleet
         if: always()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
@@ -198,24 +216,31 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $obs = 'results\gws_home_pending\residential_observations.jsonl'
-          if (-not (Test-Path $obs) -or (Get-Item $obs).Length -eq 0) {
-            Write-Host 'No useful residential evidence to persist.'
+          $ingress = 'results\gws_home_pending\residential_ingress.jsonl'
+          if (-not (Test-Path $ingress) -or (Get-Item $ingress).Length -eq 0) {
+            Write-Host 'No residential ingress evidence to persist.'
             exit 0
           }
-          $dest = "data\gws\observations\home_openserp\$env:RUN_ID"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Copy-Item $obs (Join-Path $dest 'residential_observations.jsonl') -Force
-          Copy-Item results\gws_home_pending\worker\summary.json (Join-Path $dest 'worker_summary.json') -Force
+          $normalized = (Get-Content $ingress | Measure-Object -Line).Lines
+          if ($normalized -le 0) { throw 'Non-empty ingress file has zero lines.' }
+
+          $repoPath = "data/gws/residential_ingress/run_$env:RUN_ID.jsonl"
+          $destDir = 'data\gws\residential_ingress'
+          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+          Copy-Item $ingress ("data\gws\residential_ingress\run_$env:RUN_ID.jsonl") -Force
+
+          $auditDest = "data\gws\observations\home_openserp\$env:RUN_ID"
+          New-Item -ItemType Directory -Force -Path $auditDest | Out-Null
+          Copy-Item results\gws_home_pending\worker\summary.json (Join-Path $auditDest 'worker_summary.json') -Force
           if (Test-Path results\gws_home_pending\worker\progress.json) {
-            Copy-Item results\gws_home_pending\worker\progress.json (Join-Path $dest 'worker_progress.json') -Force
+            Copy-Item results\gws_home_pending\worker\progress.json (Join-Path $auditDest 'worker_progress.json') -Force
           }
+
           git config user.name 'gws-home-residential'
           git config user.email 'actions@users.noreply.github.com'
-          git add $dest
+          git add $repoPath $auditDest
           if (git diff --cached --quiet) {
-            Write-Host 'No residential evidence delta.'
-            exit 0
+            throw 'Residential ingress existed locally but produced no durable git delta.'
           }
           git commit -m "[gws-home-evidence] residential pending $env:RUN_ID [skip ci]"
           $pushed = $false
@@ -230,8 +255,18 @@ jobs:
             if ($LASTEXITCODE -eq 0) { $pushed = $true; break }
             Start-Sleep -Seconds (2 * $attempt)
           }
-          if (-not $pushed) { throw 'Failed to persist residential evidence after retries.' }
-          gh api --method POST "repos/$env:GITHUB_REPOSITORY/dispatches" -f event_type='gws_residential_evidence_ready'
+          if (-not $pushed) { throw 'Failed to persist residential ingress after retries.' }
+
+          git fetch origin main
+          $readback = @(git show "origin/main:$repoPath")
+          if ($LASTEXITCODE -ne 0) { throw "Durable residential ingress readback failed for $repoPath" }
+          $readbackCount = ($readback | Where-Object { $_ -ne '' } | Measure-Object -Line).Lines
+          Write-Host "HOME_INGRESS_READBACK=$readbackCount expected=$normalized path=$repoPath"
+          if ($readbackCount -ne $normalized) {
+            throw "Residential ingress readback mismatch expected=$normalized actual=$readbackCount"
+          }
+
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/dispatches" -f event_type='gws_semantic_refill'
 
       - uses: actions/upload-artifact@v4
         if: always()
