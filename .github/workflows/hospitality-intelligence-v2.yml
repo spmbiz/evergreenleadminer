@@ -36,7 +36,7 @@ env:
 jobs:
   plan:
     concurrency:
-      group: ai-prod-global-capacity-broker
+      group: ai-prod-global-capacity-broker-hospitality
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
