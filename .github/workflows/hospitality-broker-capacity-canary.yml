@@ -1,7 +1,9 @@
 name: Hospitality Broker Capacity Canary
 on:
   push:
-    branches: [agent/hospitality-full-broker-capacity]
+    branches:
+      - agent/hospitality-full-broker-capacity
+      - agent/hospitality-spmbiz-20-capacity
     paths:
       - 'tools/hospitality_master_plan.py'
       - 'config/hospitality_fresh_search_sources.json'
@@ -31,15 +33,14 @@ jobs:
           now = dt.datetime.now(dt.timezone.utc)
           fresh, errors, cap = hm.fresh_search_tasks(now, {})
           assert not errors, errors
-          assert cap == 12, cap
-          assert len(fresh) == 12, len(fresh)
-          assert max(int(x['search_queries']) for x in fresh) <= 10
+          assert cap == 20, cap
+          assert len(fresh) == 20, len(fresh)
+          assert max(int(x['search_queries']) for x in fresh) <= 6
 
           hm.atp_tasks = lambda now, coverage: ([], [], 0)
           hm.osm_tasks = lambda now, coverage: ([], [], 0)
-          hm.fresh_search_tasks = lambda now, coverage: (fresh, [], 12)
+          hm.fresh_search_tasks = lambda now, coverage: (fresh, [], 20)
 
-          original_load = hm.fr.load_json
           def fake_load(path, default=None):
               p = Path(path)
               if p.name == 'coverage.json':
@@ -59,7 +60,7 @@ jobs:
               return R()
           hm.subprocess.run = fake_run
 
-          for capacity in (8, 12):
+          for capacity in (8, 12, 20):
               out = Path(f'/tmp/plan-{capacity}.json')
               sys.argv = ['hospitality_master_plan.py', '--provider', 'github', '--capacity', str(capacity), '--out', str(out)]
               hm.main()
@@ -69,5 +70,5 @@ jobs:
               assert len(plan['include']) == capacity, (capacity, len(plan['include']))
               assert plan['selected_lane_counts'] == {'fresh_search': capacity}, plan['selected_lane_counts']
               assert all(x['slot'] == i for i, x in enumerate(plan['include']))
-          print('PASS: FreshSearch can consume all broker-granted Hospitality slots at capacity 8/12')
+          print('PASS: FreshSearch can consume all broker-granted Hospitality slots at capacity 8/12/20')
           PY
