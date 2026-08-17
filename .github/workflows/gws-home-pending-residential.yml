@@ -4,15 +4,25 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      max_candidates:
+        description: Max pending candidates to inspect on the home residential lane
+        required: false
+        default: '12'
   push:
     branches: [main]
     paths:
       - 'gpt/gws_pending_batches.json'
       - 'control/gws_home_pending_kick.json'
+      - 'tools/gws_home_openserp_worker_v55.py'
+      - 'tools/gws_home_openserp_worker_ownership_safe.py'
+      - 'tools/gws_ownership_gate.py'
+      - 'tools/test_gws_ownership_regression.py'
       - '.github/workflows/gws-home-pending-residential.yml'
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: gws-home-pending-residential
@@ -21,147 +31,212 @@ concurrency:
 jobs:
   residential_pending:
     runs-on: [self-hosted, Windows, X64, gws-home]
-    timeout-minutes: 90
+    timeout-minutes: 45
     env:
-      PYTHONPATH: tools
-      GH_TOKEN: ${{ github.token }}
+      MAX_CANDIDATES: ${{ github.event.inputs.max_candidates || '12' }}
+      OPENSERP_HOME_DIR: 'C:\Users\walid\openserp-home\OpenSERP'
+      OPENSERP_HOME_PORT: '7000'
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Refresh current durable main
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: powershell
         run: |
           git fetch origin main
           git reset --hard origin/main
+          Write-Host "Residential GWS pending lane on $(git rev-parse HEAD)"
 
       - name: Ensure residential OpenSERP before any Python setup
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: .\tools\windows\start_openserp_home.ps1 -Port 7000
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $port = [int]$env:OPENSERP_HOME_PORT
+          $root = $env:OPENSERP_HOME_DIR
+          function Test-OpenSerp {
+            param([int]$Port)
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 4 -Uri "http://127.0.0.1:$Port/health"
+              return ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300)
+            } catch { return $false }
+          }
+          if (Test-OpenSerp -Port $port) {
+            Write-Host "OPENSERP_HOME_OK backend=existing port=$port"
+            exit 0
+          }
+          if (-not (Test-Path (Join-Path $root 'OpenSerp.AppHost.exe'))) {
+            throw "OpenSERP binary missing at $root"
+          }
+          Start-Process -FilePath (Join-Path $root 'OpenSerp.AppHost.exe') -ArgumentList "--urls=http://127.0.0.1:$port" -WorkingDirectory $root -WindowStyle Hidden
+          for ($i=0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-OpenSerp -Port $port) {
+              Write-Host "OPENSERP_HOME_OK backend=started port=$port"
+              exit 0
+            }
+          }
+          throw "OpenSERP failed to become healthy on port $port"
 
       - name: Resolve existing local Python
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          $candidates = New-Object System.Collections.Generic.List[string]
-          $pythonCmd = Get-Command python.exe -ErrorAction SilentlyContinue
-          if ($pythonCmd) { $candidates.Add($pythonCmd.Source) }
-          $patterns = @(
-            'C:\Users\*\AppData\Local\Programs\Python\Python*\python.exe',
-            'C:\Program Files\Python*\python.exe',
-            'C:\Program Files (x86)\Python*\python.exe',
-            'C:\Python*\python.exe'
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            'C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe',
+            'C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe',
+            'C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe',
+            'C:\Python313\python.exe',
+            'C:\Python312\python.exe',
+            'C:\Python311\python.exe'
           )
-          foreach ($pattern in $patterns) {
-            Get-Item $pattern -ErrorAction SilentlyContinue | ForEach-Object { $candidates.Add($_.FullName) }
+          $py = $null
+          foreach ($candidate in $candidates) {
+            if (Test-Path $candidate) { $py = $candidate; break }
           }
-          $selected = $null
-          foreach ($candidate in ($candidates | Select-Object -Unique | Sort-Object -Descending)) {
-            if (-not (Test-Path $candidate)) { continue }
-            try {
-              $version = & $candidate --version 2>&1
-              if ($LASTEXITCODE -eq 0 -and "$version" -match '^Python 3\.') {
-                $selected = $candidate
-                Write-Host "GWS_HOME_PYTHON_FOUND=$candidate VERSION=$version"
-                break
-              }
-            } catch {}
+          if (-not $py) {
+            $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
+            if ($cmd -and $cmd.Source -notlike '*WindowsApps*') { $py = $cmd.Source }
           }
-          if (-not $selected) { throw 'No usable Python 3 installation found on gws-home runner, including user-local Python installs.' }
-          "GWS_HOME_PYTHON_EXE=$selected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not $py) { throw 'Usable local Python not found; refusing Microsoft Store alias.' }
+          Write-Host "Using Python $py"
+          $py | Out-File -Encoding ascii .gws-home-python.txt
 
-      - id: plan
-        name: Select bounded high-value current pending batch
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+      - name: Ownership recall regression smoke
+        shell: powershell
         run: |
-          $py=$env:GWS_HOME_PYTHON_EXE
-          if (-not $py -or -not (Test-Path $py)) { throw 'Resolved Python path missing.' }
-          & $py tools\gws_pending_verify_plan.py --outdir results\gws_home_pending_plan --max-workers 1 --per-worker 12
-          if ($LASTEXITCODE -ne 0) { throw "Pending planner failed exit=$LASTEXITCODE" }
-          $plan = Get-Content results\gws_home_pending_plan\plan.json -Raw | ConvertFrom-Json
-          "selected=$($plan.selected)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "GWS_HOME_PENDING_SELECTED=$($plan.selected) ELIGIBLE=$($plan.eligible)"
+          $ErrorActionPreference = 'Stop'
+          $py = (Get-Content .gws-home-python.txt -Raw).Trim()
+          & $py tools\test_gws_ownership_regression.py
+          if ($LASTEXITCODE -ne 0) { throw "Ownership regression failed with exit $LASTEXITCODE" }
+
+      - name: Select bounded high-value current pending batch
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = (Get-Content .gws-home-python.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force -Path results\gws_home_pending | Out-Null
+          & $py tools\gws_pending_verify_plan.py --outdir results\gws_home_pending\plan --max-workers 1 --per-worker $env:MAX_CANDIDATES
+          if ($LASTEXITCODE -ne 0) { throw "Planner failed with exit $LASTEXITCODE" }
+          if (-not (Test-Path results\gws_home_pending\plan\pending.jsonl)) {
+            New-Item -ItemType File -Force -Path results\gws_home_pending\plan\pending.jsonl | Out-Null
+          }
+          $count = 0
+          if ((Get-Item results\gws_home_pending\plan\pending.jsonl).Length -gt 0) {
+            $count = (Get-Content results\gws_home_pending\plan\pending.jsonl | Measure-Object -Line).Lines
+          }
+          Write-Host "HOME_PENDING_SELECTED=$count"
+          "selected=$count" | Out-File -Encoding ascii results\gws_home_pending\selected.txt
 
       - name: Adapt current pending records for residential worker
-        if: steps.plan.outputs.selected != '0'
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        if: always()
+        shell: powershell
         run: |
-          $py=$env:GWS_HOME_PYTHON_EXE
-          & $py tools\gws_home_pending_adapter.py --input results\gws_home_pending_plan\pending.jsonl --output results\gws_home_pending_plan\home_input.jsonl
-          if ($LASTEXITCODE -ne 0) { throw "Pending adapter failed exit=$LASTEXITCODE" }
+          $ErrorActionPreference = 'Stop'
+          $py = (Get-Content .gws-home-python.txt -Raw).Trim()
+          $selectedLine = Get-Content results\gws_home_pending\selected.txt
+          $selected = [int](($selectedLine -split '=')[1])
+          if ($selected -le 0) {
+            Write-Host 'No pending records selected; adapter skipped.'
+            New-Item -ItemType File -Force -Path results\gws_home_pending\residential_input.jsonl | Out-Null
+            exit 0
+          }
+          & $py tools\gws_home_pending_adapter.py `
+            --input results\gws_home_pending\plan\pending.jsonl `
+            --out results\gws_home_pending\residential_input.jsonl
+          if ($LASTEXITCODE -ne 0) { throw "Adapter failed with exit $LASTEXITCODE" }
 
       - name: Run bounded residential OpenSERP evidence pass
-        if: steps.plan.outputs.selected != '0'
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        if: always()
+        shell: powershell
         run: |
-          $py=$env:GWS_HOME_PYTHON_EXE
-          & $py tools\gws_home_openserp_worker_v55.py `
-            --input results\gws_home_pending_plan\home_input.jsonl `
-            --outdir results\gws_home_pending_openserp `
-            --endpoint http://127.0.0.1:7000 `
+          $ErrorActionPreference = 'Stop'
+          $py = (Get-Content .gws-home-python.txt -Raw).Trim()
+          $selectedLine = Get-Content results\gws_home_pending\selected.txt
+          $selected = [int](($selectedLine -split '=')[1])
+          New-Item -ItemType Directory -Force -Path results\gws_home_pending\worker | Out-Null
+          if ($selected -le 0) {
+            Write-Host 'No pending records selected; worker skipped.'
+            '{"schema":"gws-home-openserp-worker-v5","attempted":0,"statuses":{},"final_high":0,"note":"No pending work selected."}' | Out-File -Encoding utf8 results\gws_home_pending\worker\summary.json
+            New-Item -ItemType File -Force -Path results\gws_home_pending\worker\results.jsonl | Out-Null
+            exit 0
+          }
+          & $py tools\gws_home_openserp_worker_ownership_safe.py `
+            --input results\gws_home_pending\residential_input.jsonl `
+            --outdir results\gws_home_pending\worker `
+            --endpoint "http://127.0.0.1:$env:OPENSERP_HOME_PORT" `
             --engines bing,duckduckgo `
-            --max-candidates 12 `
+            --max-candidates $env:MAX_CANDIDATES `
             --candidate-concurrency 6 `
-            --sleep-min 0.25 `
-            --sleep-max 0.55
-          if ($LASTEXITCODE -ne 0) { throw "Residential OpenSERP worker failed exit=$LASTEXITCODE" }
+            --sleep-min 0.05 `
+            --sleep-max 0.15
+          if ($LASTEXITCODE -ne 0) { throw "Residential worker failed with exit $LASTEXITCODE" }
+          Get-Content results\gws_home_pending\worker\summary.json
 
       - name: Normalize residential observations for durable ingress
-        if: steps.plan.outputs.selected != '0'
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        if: always()
+        shell: powershell
         run: |
-          $py=$env:GWS_HOME_PYTHON_EXE
-          & $py tools\gws_home_ingress_adapter.py --input results\gws_home_pending_openserp\results.jsonl --output results\gws_home_pending_openserp\residential_ingress.jsonl
-          if ($LASTEXITCODE -ne 0) { throw "Ingress adapter failed exit=$LASTEXITCODE" }
+          $ErrorActionPreference = 'Stop'
+          $py = (Get-Content .gws-home-python.txt -Raw).Trim()
+          $results = 'results\gws_home_pending\worker\results.jsonl'
+          $out = 'results\gws_home_pending\residential_observations.jsonl'
+          if (-not (Test-Path $results) -or (Get-Item $results).Length -eq 0) {
+            New-Item -ItemType File -Force -Path $out | Out-Null
+            Write-Host 'No residential observations to normalize.'
+            exit 0
+          }
+          & $py tools\gws_residential_semantic_adapter.py --input $results --out $out
+          if ($LASTEXITCODE -ne 0) { throw "Residential observation adapter failed with exit $LASTEXITCODE" }
 
       - name: Persist immutable residential evidence and wake semantic fleet
-        if: steps.plan.outputs.selected != '0'
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        if: always()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          $ErrorActionPreference='Stop'
+          $ErrorActionPreference = 'Stop'
+          $obs = 'results\gws_home_pending\residential_observations.jsonl'
+          if (-not (Test-Path $obs) -or (Get-Item $obs).Length -eq 0) {
+            Write-Host 'No useful residential evidence to persist.'
+            exit 0
+          }
+          $dest = "data\gws\observations\home_openserp\$env:RUN_ID"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item $obs (Join-Path $dest 'residential_observations.jsonl') -Force
+          Copy-Item results\gws_home_pending\worker\summary.json (Join-Path $dest 'worker_summary.json') -Force
+          if (Test-Path results\gws_home_pending\worker\progress.json) {
+            Copy-Item results\gws_home_pending\worker\progress.json (Join-Path $dest 'worker_progress.json') -Force
+          }
           git config user.name 'gws-home-residential'
           git config user.email 'actions@users.noreply.github.com'
-          git fetch origin main
-          git pull --rebase origin main
-          $stamp=(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
-          $dest="data/gws/residential_ingress/$stamp.jsonl"
-          Copy-Item results\gws_home_pending_openserp\residential_ingress.jsonl $dest
-          New-Item -ItemType Directory -Force "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID" | Out-Null
-          Copy-Item results\gws_home_pending_openserp\summary.json "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID/worker_summary.json"
-          Copy-Item results\gws_home_pending_openserp\results.jsonl "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID/residential_observations.jsonl"
-          git add $dest "data/gws/observations/home_openserp/$env:GITHUB_RUN_ID"
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "[gws-residential] evidence ingress $env:GITHUB_RUN_ID [skip ci]"
-            $pushed=$false
-            foreach ($attempt in 1..3) {
-              git push origin HEAD:main
-              if ($LASTEXITCODE -eq 0) { $pushed=$true; break }
+          git add $dest
+          if (git diff --cached --quiet) {
+            Write-Host 'No residential evidence delta.'
+            exit 0
+          }
+          git commit -m "[gws-home-evidence] residential pending $env:RUN_ID [skip ci]"
+          $pushed = $false
+          for ($attempt=1; $attempt -le 4; $attempt++) {
+            git fetch origin main
+            git rebase origin/main
+            if ($LASTEXITCODE -ne 0) {
               git rebase --abort 2>$null
-              git fetch origin main
-              git rebase origin/main
-              if ($LASTEXITCODE -ne 0) { throw 'Residential evidence rebase conflict; refusing unsafe merge.' }
-              Start-Sleep -Seconds ($attempt * 3)
+              throw 'Unsafe residential evidence rebase conflict; refusing to overwrite durable state.'
             }
-            if (-not $pushed) { throw 'Could not persist residential evidence after retries.' }
+            git push origin HEAD:main
+            if ($LASTEXITCODE -eq 0) { $pushed = $true; break }
+            Start-Sleep -Seconds (2 * $attempt)
           }
-          $headers=@{
-            Authorization="Bearer $env:GH_TOKEN"
-            Accept='application/vnd.github+json'
-            'X-GitHub-Api-Version'='2022-11-28'
-          }
-          $body=@{event_type='gws_semantic_refill';client_payload=@{source='gws-home-residential';run_id="$env:GITHUB_RUN_ID"}} | ConvertTo-Json -Depth 4
-          Invoke-RestMethod -Method Post -Headers $headers -ContentType 'application/json' -Body $body -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/dispatches" | Out-Null
-          Write-Host "GWS_HOME_RESIDENTIAL_PERSISTED=$dest"
+          if (-not $pushed) { throw 'Failed to persist residential evidence after retries.' }
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/dispatches" -f event_type='gws_residential_evidence_ready'
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gws-home-pending-residential-${{ github.run_id }}
-          path: |
-            results/gws_home_pending_plan/
-            results/gws_home_pending_openserp/
-          if-no-files-found: warn
-          retention-days: 2
+          name: gws-home-pending-${{ github.run_id }}
+          path: results/gws_home_pending/
+          retention-days: 1
+          compression-level: 6
