@@ -1,0 +1,52 @@
+name: GWS Home Quarantine Stale Scope Highs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-quarantine-stale-scope.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Refresh main, quarantine four audited scope-false highs, persist and read back
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@('C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe','C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe')
+          $py=$null; foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
+          if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
+          if(-not $py){throw 'Usable Python not found'}
+          & $py tools\gws_quarantine_scope_false_highs_31986876407.py
+          if($LASTEXITCODE -ne 0){throw "Scope quarantine failed: $LASTEXITCODE"}
+          git config user.name 'gws-scope-quarantine'
+          git config user.email 'actions@users.noreply.github.com'
+          git add gpt/gws_review/2026-08-17T023942Z_31986876407-1.jsonl gpt/gws_pending_batches.json state/gws_scope_quarantine_31986876407.json
+          if(git diff --cached --quiet){throw 'Expected quarantine delta is empty'}
+          git commit -m '[gws-scope-quarantine] remove stale public-place technical HIGHs [skip ci]'
+          $pushed=$false
+          for($i=1;$i -le 4;$i++){
+            git push origin HEAD:main
+            if($LASTEXITCODE -eq 0){$pushed=$true;break}
+            git fetch origin main
+            git rebase origin/main
+            if($LASTEXITCODE -ne 0){git rebase --abort 2>$null;throw 'Unsafe quarantine rebase conflict'}
+            Start-Sleep -Seconds (2*$i)
+          }
+          if(-not $pushed){throw 'Failed to push scope quarantine'}
+          git fetch origin main
+          $receipt=git show 'origin/main:state/gws_scope_quarantine_31986876407.json'
+          if($LASTEXITCODE -ne 0){throw 'Scope quarantine receipt readback failed'}
+          Write-Host $receipt
