@@ -23,13 +23,20 @@ def place_address(v):
     return base.txt(x)
 
 
+def norm_phone(v):
+    d=re.sub(r"\D+","",base.txt(v))
+    if d.startswith("0032"): d="32"+d[4:]
+    if d.startswith("0") and len(d)>=9: d="32"+d[1:]
+    return d
+
+
 def load_places(ids,release,threads):
     if not ids: return {}
     esc=",".join("'"+str(x).replace("'","''")+"'" for x in sorted(ids))
     w,s,e,n=BBOX
     path=f"s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/*"
     con=duckdb.connect(); con.execute(f"PRAGMA threads={max(1,threads)}"); con.execute("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';")
-    q=f"""SELECT id,names.primary AS name,addresses,phones,operating_status,confidence FROM read_parquet('{path}',hive_partitioning=1)
+    q=f"""SELECT id,names.primary AS name,addresses,phones,websites,socials,emails,brand,operating_status,confidence FROM read_parquet('{path}',hive_partitioning=1)
     WHERE bbox.xmax>={w} AND bbox.xmin<={e} AND bbox.ymax>={s} AND bbox.ymin<={n} AND id IN ({esc})"""
     cur=con.execute(q); cols=[d[0] for d in cur.description]
     return {str(r[0]):dict(zip(cols,r)) for r in cur.fetchall()}
@@ -51,15 +58,32 @@ def main():
             ovaddr=place_address(p.get("addresses")); haddr=str(r.get("hub_address") or ""); pc=str(r.get("hub_postalcode") or "")
             ht=base.tokens(haddr); ot=base.tokens(ovaddr); ao=len(ht&ot)/max(1,len(ht)) if ht else 0.0
             raw=json.dumps(p.get("addresses"),ensure_ascii=False,default=str); pm=bool(pc and re.search(r"(?<!\d)"+re.escape(pc)+r"(?!\d)",raw))
-            r.update({"overture_resolved":True,"overture_address":ovaddr,"overture_addresses":raw,"address_overlap":round(ao,3),"postcode_match":pm,"phone_exact":False,"overture_operating_status":base.txt(p.get("operating_status")),"overture_current_confidence":base.txt(p.get("confidence"))})
+            ov_phone=base.first(p.get("phones")); hub_phone=base.txt(r.get("hub_phone"))
+            r.update({
+                "overture_resolved":True,
+                "overture_name":base.txt(p.get("name")),
+                "overture_address":ovaddr,
+                "overture_addresses":raw,
+                "address_overlap":round(ao,3),
+                "postcode_match":pm,
+                "overture_phone":ov_phone,
+                "phone_exact":bool(hub_phone and ov_phone and norm_phone(hub_phone)==norm_phone(ov_phone)),
+                "overture_email":base.first(p.get("emails")),
+                "overture_websites":json.dumps(p.get("websites"),ensure_ascii=False,default=str) if p.get("websites") else "",
+                "overture_socials":json.dumps(p.get("socials"),ensure_ascii=False,default=str) if p.get("socials") else "",
+                "overture_brand":base.brand_name(p.get("brand")),
+                "overture_operating_status":base.txt(p.get("operating_status")),
+                "overture_current_confidence":base.txt(p.get("confidence")),
+            })
             counts["identity_refreshed"]+=1
+            if p.get("websites"): counts["current_source_websites_refreshed"]+=1
         else:
             r.update({"overture_resolved":False,"address_overlap":0.0,"postcode_match":False,"phone_exact":False})
             counts["identity_missing"]+=1
         r["verification_status"]="PENDING_SEARCH_VERIFY"; r["needs_gpt_review"]=True; out.append(r)
     d=Path(a.outdir); d.mkdir(parents=True,exist_ok=True)
     (d/"records.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+"\n" for x in out),encoding="utf-8")
-    metrics={"schema_version":1,"status":"completed","worker_index":a.worker_index,"worker_count":a.worker_count,"records_materialized":len(out),"review_candidates":len(out),"identity_refresh":dict(counts),"elapsed_seconds":round(time.time()-z,2)}
+    metrics={"schema_version":2,"status":"completed","worker_index":a.worker_index,"worker_count":a.worker_count,"records_materialized":len(out),"review_candidates":len(out),"identity_refresh":dict(counts),"source_website_refresh_enabled":True,"elapsed_seconds":round(time.time()-z,2)}
     (d/"metrics.json").write_text(json.dumps(metrics,indent=2)+"\n",encoding="utf-8"); (d/"checkpoint.json").write_text(json.dumps({"status":"completed","worker_index":a.worker_index},indent=2)+"\n",encoding="utf-8")
     print("GWS_PENDING_VERIFY_WORKER="+json.dumps(metrics,separators=(",",":")))
 
