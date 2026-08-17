@@ -6,6 +6,7 @@ from pathlib import Path
 
 import gws_ownership_gate as own
 import gws_home_openserp_worker_ownership_safe as residential_safe
+import gws_fleet_preaggregate_ownership_guard as preagg
 
 
 def evidence(url: str, *, domain: float = 1.0, address: float = 1.0, phone: bool = True):
@@ -96,11 +97,52 @@ class ResidentialWrapperRegression(unittest.TestCase):
         self.assertNotIn("identity_match_withheld", ev)
 
 
+class PreAggregateRegression(unittest.TestCase):
+    def test_preaggregate_quarantines_unproven_directory_reject(self):
+        row = {
+            "hub_name": "Darmal",
+            "outcome": "REJECT",
+            "reason": "OWNED_SITE_FOUND_PASS1",
+            "verification_status": "REJECT",
+            "owned_website": "https://combook.be/darmal",
+            "web_pass1": evidence("https://combook.be/darmal"),
+            "certificate": {"verified": False},
+        }
+        guarded, changed = preagg.guard(row)
+        self.assertTrue(changed)
+        self.assertEqual(guarded["outcome"], "UNCERTAIN")
+        self.assertEqual(guarded["verification_status"], "UNCERTAIN")
+        self.assertEqual(guarded["owned_website"], "")
+        self.assertTrue(guarded["needs_gpt_review"])
+
+    def test_preaggregate_preserves_true_first_party_reject(self):
+        row = {
+            "hub_name": "Tagawa Delta",
+            "outcome": "REJECT",
+            "reason": "OWNED_SITE_FOUND_PASS1",
+            "verification_status": "REJECT",
+            "owned_website": "https://tagawa.eu/",
+            "web_pass1": evidence("https://tagawa.eu/", domain=0.8),
+        }
+        guarded, changed = preagg.guard(row)
+        self.assertFalse(changed)
+        self.assertEqual(guarded["outcome"], "REJECT")
+        self.assertTrue(guarded["preaggregate_ownership_guard_passed"])
+
+
 class WiringRegression(unittest.TestCase):
     def test_autonomous_uses_ownership_safe_strict_verifier(self):
         text = Path(".github/workflows/gws-autonomous-fleet.yml").read_text(encoding="utf-8")
         self.assertIn("gws_search_verify_ownership_safe.py", text)
         self.assertNotIn("python tools/gws_search_verify.py --shard-dir", text)
+
+    def test_autonomous_runs_preaggregate_ownership_guard(self):
+        text = Path(".github/workflows/gws-autonomous-fleet.yml").read_text(encoding="utf-8")
+        guard = "gws_fleet_preaggregate_ownership_guard.py --root results/shards"
+        aggregate = "gws_fleet_aggregate.py --provider github"
+        self.assertIn(guard, text)
+        self.assertIn(aggregate, text)
+        self.assertLess(text.index(guard), text.index(aggregate))
 
 
 if __name__ == "__main__":
