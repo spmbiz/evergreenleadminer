@@ -14,7 +14,7 @@ THIRD_PARTY_SUFFIXES = {
     "findyourhairstylist.com", "wasgij.com", "gundam-official.com", "marinelink.com",
     "library.ucsb.edu", "cybo.com", "top10place.com", "belgiumyp.com", "revieweuro.com",
     "tartine-et-boterham.be", "companyweb.be", "pagesdor.be", "goudengids.be",
-    "fresha.com", "treatwell.be", "treatwell.com", "yelp.com", "tripadvisor.com",
+    "fresha.com", "treatwell.be", "treatwell.com", "planity.com", "yelp.com", "tripadvisor.com",
     "facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "youtube.com",
     "booking.com", "mapstr.com", "waze.com", "google.com", "bing.com", "duckduckgo.com",
     "amazon.com", "walmart.com", "target.com", "fandom.com", "wikipedia.org",
@@ -27,9 +27,9 @@ THIRD_PARTY_SUFFIXES = {
     "restaurantguru.com", "restaurantguru.it", "restaurantguru.ru",
     "bizique.be", "epiceriebelgique.com", "allo-bruxelles.be", "nosavis.be",
     "cylex-belgie.be", "atout-commerces.be",
-    # Red-team verified platform/directory hosts. Optios is salon-management/
-    # online-booking infrastructure; Hey Restaurants is a restaurant discovery
-    # directory. Client/profile pages on these hosts are never first-party sites.
+    # Red-team verified platform/directory hosts. Optios and Planity are salon
+    # booking/software infrastructure; Hey Restaurants is restaurant discovery.
+    # Client/profile pages on these hosts are never first-party sites.
     "optios.net", "hey-restaurants.com",
 }
 
