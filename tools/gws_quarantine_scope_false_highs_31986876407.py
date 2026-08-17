@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 BATCH = Path("gpt/gws_review/2026-08-17T023942Z_31986876407-1.jsonl")
+BATCH_KEY = BATCH.as_posix()
 PENDING = Path("gpt/gws_pending_batches.json")
 TARGETS = {
     "overture:92af277e-ec0c-4291-a26c-a2b0c3bca6fc": "public_utility_company",
@@ -83,7 +84,7 @@ def main() -> int:
     target_batch = None
     total_pending = 0
     for b in pending.get("batches") or []:
-        if str(b.get("batch") or "") == str(BATCH):
+        if str(b.get("batch") or "").replace("\\", "/") == BATCH_KEY:
             target_batch = b
             b["verification_total"] = len(rows)
             b["verification_remaining"] = sum(
@@ -103,7 +104,7 @@ def main() -> int:
     receipt = {
         "schema": "gws-scope-quarantine-v1",
         "source_run_id": "31986876407",
-        "batch": str(BATCH),
+        "batch": BATCH_KEY,
         "corrected": changed,
         "record_keys": sorted(TARGETS),
         "pending_records_after": total_pending,
