@@ -1,0 +1,73 @@
+name: Hospitality Broker Capacity Canary
+on:
+  push:
+    branches: [agent/hospitality-full-broker-capacity]
+    paths:
+      - 'tools/hospitality_master_plan.py'
+      - 'config/hospitality_fresh_search_sources.json'
+      - '.github/workflows/hospitality-broker-capacity-canary.yml'
+
+jobs:
+  planner-capacity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile planner
+        run: python -m py_compile tools/hospitality_master_plan.py tools/hospitality_plan_with_inflight.py
+      - name: Verify FreshSearch sharding and broker-capacity selection
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools')
+          import hospitality_master_plan as hm
+
+          now = dt.datetime.now(dt.timezone.utc)
+          fresh, errors, cap = hm.fresh_search_tasks(now, {})
+          assert not errors, errors
+          assert cap == 12, cap
+          assert len(fresh) == 12, len(fresh)
+          assert max(int(x['search_queries']) for x in fresh) <= 10
+
+          hm.atp_tasks = lambda now, coverage: ([], [], 0)
+          hm.osm_tasks = lambda now, coverage: ([], [], 0)
+          hm.fresh_search_tasks = lambda now, coverage: (fresh, [], 12)
+
+          original_load = hm.fr.load_json
+          def fake_load(path, default=None):
+              p = Path(path)
+              if p.name == 'coverage.json':
+                  return {'shards': {}}
+              if p.exists():
+                  try:
+                      return json.loads(p.read_text())
+                  except Exception:
+                      pass
+              return default if default is not None else {}
+          hm.fr.load_json = fake_load
+
+          def fake_run(cmd, cwd=None, check=None, stdout=None):
+              out = Path(cmd[cmd.index('--out') + 1])
+              out.write_text(json.dumps({'include': [], 'useful_backlog': 0, 'lane_backlog': {}}))
+              class R: returncode = 0
+              return R()
+          hm.subprocess.run = fake_run
+
+          for capacity in (8, 12):
+              out = Path(f'/tmp/plan-{capacity}.json')
+              sys.argv = ['hospitality_master_plan.py', '--provider', 'github', '--capacity', str(capacity), '--out', str(out)]
+              hm.main()
+              plan = json.loads(out.read_text())
+              assert plan['capacity'] == capacity
+              assert plan['source_slot_cap'] == capacity
+              assert len(plan['include']) == capacity, (capacity, len(plan['include']))
+              assert plan['selected_lane_counts'] == {'fresh_search': capacity}, plan['selected_lane_counts']
+              assert all(x['slot'] == i for i, x in enumerate(plan['include']))
+          print('PASS: FreshSearch can consume all broker-granted Hospitality slots at capacity 8/12')
+          PY

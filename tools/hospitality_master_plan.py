@@ -193,9 +193,9 @@ def main():
     osm, osm_errors, osm_cap = osm_tasks(now, coverage)
     fresh, fresh_errors, fresh_cap = fresh_search_tasks(now, coverage)
 
-    # Enforce each source's own slot ceiling before applying the global source
-    # ceiling. The final selection below also reserves one bounded ATP slot when
-    # a GREEN ATP source is due, so FreshSearch cannot permanently starve it.
+    # Enforce each source's own slot ceiling before applying the broker-granted
+    # cycle capacity. A high-yield source may now consume idle Hospitality slots,
+    # while the global broker still protects GWS/Tenders fairness account-wide.
     source_due = (
         fresh[:max(0, fresh_cap)]
         + atp[:max(0, atp_cap)]
@@ -210,7 +210,10 @@ def main():
         ),
         reverse=True,
     )
-    total_source_cap = min(4, max(0, atp_cap) + max(0, osm_cap) + max(0, fresh_cap))
+    total_source_cap = min(
+        max(0, int(a.capacity)),
+        max(0, atp_cap) + max(0, osm_cap) + max(0, fresh_cap),
+    )
 
     force = (a.force_lane or "").lower().strip()
     if force in ("atp", "alltheplaces", "atp_directory_contact"):
