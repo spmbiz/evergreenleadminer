@@ -1,0 +1,103 @@
+name: GWS Home DuckDuckGo Transport Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-ddg-transport-probe.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gws-home-ddg-transport-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Resolve Python and dependencies
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          $candidates=@('C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe','C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe')
+          $py=$null; foreach($p in $candidates){if(Test-Path $p){$py=$p;break}}
+          if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
+          if(-not $py){throw 'Usable Python not found'}
+          $py | Out-File -Encoding ascii .gws-ddg-transport-python.txt
+          & $py -m pip install --disable-pip-version-check 'ddgs>=9,<10' requests beautifulsoup4
+          if($LASTEXITCODE -ne 0){throw "dependency install failed: $LASTEXITCODE"}
+      - name: Probe DDG backend plus HTML and Lite transports
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop';$py=(Get-Content .gws-ddg-transport-python.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force results\gws_ddg_transport | Out-Null
+          @'
+          import json,time
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+          from ddgs import DDGS
+
+          queries=[
+            'The Kooples',
+            'Pineux Catherine kinepineux',
+            'Epicerie Super Boni Bruxelles',
+            'Darmal epicerie Auderghem',
+          ]
+          headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151 Safari/537.36'}
+          session=requests.Session(); session.headers.update(headers)
+          report=[]
+          for q in queries:
+            item={'query':q,'ddgs':{},'html':{},'lite':{}}
+            for region in ('wt-wt','fr-fr','us-en'):
+              t=time.time()
+              try:
+                rows=DDGS(timeout=15).text(q,backend='duckduckgo',region=region,safesearch='off',max_results=8) or []
+                item['ddgs'][region]={'status':'OK','elapsed':round(time.time()-t,2),'count':len(rows),'top':[str(x.get('href') or x.get('url') or '') for x in rows[:4]]}
+              except Exception as exc:
+                item['ddgs'][region]={'status':'ERROR','elapsed':round(time.time()-t,2),'error':type(exc).__name__+': '+str(exc)[:180]}
+            for mode,url in [('html','https://html.duckduckgo.com/html/'),('lite','https://lite.duckduckgo.com/lite/')]:
+              t=time.time()
+              try:
+                r=session.get(url,params={'q':q,'kl':'wt-wt','kp':'-2'},timeout=20,allow_redirects=True)
+                body=r.text
+                soup=BeautifulSoup(body,'html.parser')
+                links=[]
+                selectors=['a.result__a','a.result-link','a[href]']
+                for sel in selectors:
+                  for a in soup.select(sel):
+                    href=str(a.get('href') or '').strip(); text=' '.join(a.get_text(' ',strip=True).split())
+                    if not href or href.startswith('#') or href.startswith('javascript:'):continue
+                    if 'duckduckgo.com' in href and '/l/?' not in href:continue
+                    links.append({'text':text[:160],'href':href[:500]})
+                  if links:break
+                item[mode]={'status':'OK' if r.status_code<400 else 'HTTP_ERROR','http_status':r.status_code,'elapsed':round(time.time()-t,2),'bytes':len(body),'count':len(links),'top':links[:6],'title':soup.title.get_text(' ',strip=True)[:120] if soup.title else ''}
+              except Exception as exc:
+                item[mode]={'status':'ERROR','elapsed':round(time.time()-t,2),'error':type(exc).__name__+': '+str(exc)[:180]}
+            report.append(item)
+          Path('results/gws_ddg_transport/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          compact=[]
+          for x in report:
+            compact.append({'query':x['query'],'ddgs':{k:{'status':v.get('status'),'count':v.get('count',0),'error':v.get('error','')} for k,v in x['ddgs'].items()},'html':{'status':x['html'].get('status'),'http':x['html'].get('http_status'),'count':x['html'].get('count',0),'title':x['html'].get('title','')},'lite':{'status':x['lite'].get('status'),'http':x['lite'].get('http_status'),'count':x['lite'].get('count',0),'title':x['lite'].get('title','')}})
+          print('GWS_DDG_TRANSPORT_PROBE='+json.dumps(compact,ensure_ascii=False,separators=(',',':')))
+          '@ | & $py -
+          if($LASTEXITCODE -ne 0){throw "DDG transport probe failed: $LASTEXITCODE"}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-ddg-transport-${{ github.run_id }}
+          path: results/gws_ddg_transport/
+          retention-days: 3
+          compression-level: 6
