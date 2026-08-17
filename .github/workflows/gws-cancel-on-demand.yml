@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   cancel:
+    concurrency:
+      group: ai-prod-global-capacity-broker
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
