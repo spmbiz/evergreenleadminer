@@ -132,7 +132,12 @@ def quarantine_run_high(row, run_quarantine):
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",default="results/gws_verify_shards"); a=ap.parse_args()
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--root",default="results/gws_verify_shards")
+    # Compatibility with the fleet workflow. The plan directory is transport-only;
+    # aggregation intentionally derives canonical state from worker result shards.
+    ap.add_argument("--plan-dir",default=None)
+    a=ap.parse_args()
     index=load("state/gws_verify_index.json",{"schema_version":1,"records":{}}); records=index.setdefault("records",{})
     semantic_index=load("state/gws_semantic_index.json",{"schema_version":1,"records":{}}); semantic_records=semantic_index.setdefault("records",{})
     raw_rows=[]
