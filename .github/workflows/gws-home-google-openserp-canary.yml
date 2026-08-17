@@ -1,0 +1,77 @@
+name: GWS Home Google OpenSERP Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-google-openserp-canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gws-home-google-openserp-canary
+  cancel-in-progress: true
+
+jobs:
+  google_canary:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Ensure local OpenSERP
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          .\tools\windows\start_openserp_home.ps1 -Port 7000
+
+      - name: Probe Google through residential OpenSERP
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $queries = @('cafe Ixelles Bruxelles','coiffeur Uccle Bruxelles')
+          $i = 0
+          foreach ($q in $queries) {
+            $i++
+            $encoded = [uri]::EscapeDataString($q)
+            $uri = "http://127.0.0.1:7000/google/search?text=$encoded&limit=5&lang=FR&region=BE"
+            $status = 0
+            $body = ''
+            $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+              $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 45 -Uri $uri
+              $status = [int]$resp.StatusCode
+              $body = [string]$resp.Content
+            } catch {
+              if ($_.Exception.Response) {
+                try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+                try {
+                  $stream = $_.Exception.Response.GetResponseStream()
+                  $reader = New-Object System.IO.StreamReader($stream)
+                  $body = $reader.ReadToEnd()
+                  $reader.Dispose()
+                } catch {}
+              }
+              if (-not $body) { $body = [string]$_.Exception.Message }
+            }
+            $elapsed.Stop()
+            $parsed = $false
+            $count = 0
+            $jsonError = ''
+            try {
+              $obj = $body | ConvertFrom-Json
+              if ($null -ne $obj.results) {
+                $parsed = $true
+                $count = @($obj.results).Count
+              }
+              if ($obj.error) { $jsonError = [string]$obj.error }
+            } catch {}
+            $captcha = ($body -match '(?i)captcha|unusual traffic|sorry/index|recaptcha')
+            $blocked = ($status -in @(202,403,429,503)) -or $captcha
+            Write-Host ("GOOGLE_OPENSERP_CANARY query_index={0} status={1} parsed={2} results={3} blocked={4} captcha_marker={5} elapsed_ms={6} json_error={7}" -f $i,$status,$parsed,$count,$blocked,$captcha,$elapsed.ElapsedMilliseconds,$jsonError)
+            if ($i -lt $queries.Count) { Start-Sleep -Seconds 6 }
+          }
