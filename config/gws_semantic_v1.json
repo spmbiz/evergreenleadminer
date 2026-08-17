@@ -3,12 +3,12 @@
   "enabled": true,
   "mode": "shadow",
   "compound_sidecar": {
-    "enabled": true,
+    "enabled": false,
     "records_per_verify_worker": 8,
     "max_records_per_20_worker_cycle": 160,
     "fail_open": true,
     "strict_truth_mutations": false,
-    "standalone_semantic_role": "benchmark_and_overflow_backfill"
+    "standalone_semantic_role": "deferred_benchmark_and_overflow_after_strict_drain"
   },
   "rollout": {
     "smoke_records": 8,
