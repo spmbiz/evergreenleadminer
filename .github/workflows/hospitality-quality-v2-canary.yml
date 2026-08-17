@@ -1,0 +1,75 @@
+name: Hospitality Commercial Fit V2 Canary
+
+on:
+  push:
+    branches: [agent/hospitality-quality-v2]
+    paths:
+      - 'tools/hospitality_quality_v2.py'
+      - 'tools/hospitality_quality_audit.py'
+      - 'tools/v6_live_verify.py'
+      - 'tools/hospitality_intelligence_outreach_gate.py'
+      - 'tools/build_sheet_sync_staging.py'
+      - 'tools/test_hospitality_quality_v2.py'
+      - 'tools/test_hospitality_intelligence_outreach_gate.py'
+      - '.github/workflows/hospitality-quality-v2-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  quality-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run strict quality regression tests
+        run: |
+          PYTHONPATH=tools python -m unittest -v \
+            tools/test_hospitality_quality_v2.py \
+            tools/test_hospitality_intelligence_outreach_gate.py
+      - name: Compile affected tools
+        run: |
+          python -m py_compile \
+            tools/hospitality_quality_v2.py \
+            tools/hospitality_quality_audit.py \
+            tools/v6_live_verify.py \
+            tools/hospitality_intelligence_outreach_gate.py \
+            tools/build_sheet_sync_staging.py
+      - name: Restore durable canonical read-only
+        run: |
+          mkdir -p audit/db audit/out
+          gh release download harvest-state \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hospitality-canonical.sqlite' \
+            --dir audit/db --clobber
+      - name: Audit full canonical without mutation
+        run: |
+          PYTHONPATH=tools python tools/hospitality_quality_audit.py \
+            --db audit/db/hospitality-canonical.sqlite \
+            --outdir audit/out
+          cat audit/out/quality-audit-summary.json
+      - name: Exercise strict Sheet staging gate
+        run: |
+          rm -rf audit/staging
+          PYTHONPATH=tools python tools/build_sheet_sync_staging.py \
+            --queue gpt/sheet_sync_queue \
+            --out audit/staging \
+            --chunk-rows 500
+          cat audit/staging/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hospitality-commercial-fit-v2-audit-${{ github.run_id }}
+          path: |
+            audit/out/quality-audit-summary.json
+            audit/out/quality-audit-suspects.csv
+            audit/out/quality-overlay.jsonl
+            audit/staging/manifest.json
+            audit/staging/quality-quarantine.jsonl
+          retention-days: 3
