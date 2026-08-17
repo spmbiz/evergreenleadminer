@@ -27,6 +27,10 @@ THIRD_PARTY_SUFFIXES = {
     "restaurantguru.com", "restaurantguru.it", "restaurantguru.ru",
     "bizique.be", "epiceriebelgique.com", "allo-bruxelles.be", "nosavis.be",
     "cylex-belgie.be", "atout-commerces.be",
+    # Red-team verified platform/directory hosts. Optios is salon-management/
+    # online-booking infrastructure; Hey Restaurants is a restaurant discovery
+    # directory. Client/profile pages on these hosts are never first-party sites.
+    "optios.net", "hey-restaurants.com",
 }
 
 GENERIC_NAME_TOKENS = {
