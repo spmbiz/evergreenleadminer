@@ -16,6 +16,7 @@ import os
 from collections import Counter
 from pathlib import Path
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 
@@ -88,6 +89,93 @@ def save_remote_state(repo: str, state: dict):
         p = Path(td) / STATE_ASSET
         p.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         fr.release_upload(repo, STATE_TAG, str(p))
+
+
+def _settle_delay(run_id: str, attempt: int) -> float:
+    jitter = (sum(ord(ch) for ch in str(run_id)) % 19) / 100.0
+    return min(1.5, 0.20 * max(1, attempt) + jitter)
+
+
+def save_reservation_reconciled(repo: str, intended_state: dict, lease: dict | None, attempts: int = 4):
+    """Converge a reservation into the shared release asset.
+
+    GWS and Hospitality planners are intentionally allowed to plan concurrently.
+    The release asset is not a compare-and-swap store, so a single blind write can
+    lose a sibling lease. Each non-zero reserve therefore performs several
+    read/merge/write rounds with deterministic jitter. Once either writer has seen
+    the sibling lease, subsequent rounds preserve it. A zero-slot decision does
+    not write lease state at all.
+    """
+    if lease is None:
+        return {"confirmed": True, "attempts": 0, "mode": "zero_slot_no_write"}
+
+    run_id = str(lease.get("run_id") or "")
+    if not run_id:
+        raise RuntimeError("refusing to persist broker lease without run_id")
+
+    rounds = max(3, int(attempts))
+    for attempt in range(1, rounds + 1):
+        fresh = load_remote_state(repo)
+        fresh_leases = prune_leases(fresh)
+        merged = [x for x in fresh_leases if str(x.get("run_id") or "") != run_id]
+        merged.append(lease)
+        candidate = dict(fresh)
+        candidate["schema_version"] = 3
+        candidate["leases"] = merged
+        candidate["last_decision"] = intended_state.get("last_decision")
+        save_remote_state(repo, candidate)
+        time.sleep(_settle_delay(run_id, attempt))
+
+    final = load_remote_state(repo)
+    confirmed = any(
+        str(x.get("run_id") or "") == run_id
+        and int(x.get("slots") or 0) == int(lease.get("slots") or 0)
+        for x in (final.get("leases") or [])
+    )
+    if not confirmed:
+        raise RuntimeError(f"broker reserve reconciliation failed run_id={run_id} rounds={rounds}")
+    return {"confirmed": True, "attempts": rounds, "mode": "optimistic_merge_settled"}
+
+
+def release_lease_reconciled(repo: str, run_id: str, attempts: int = 4):
+    """Converge removal of one run lease without dropping concurrent reserves."""
+    run_id = str(run_id)
+    initial = load_remote_state(repo)
+    initial_matches = [x for x in (initial.get("leases") or []) if str(x.get("run_id") or "") == run_id]
+    if not initial_matches:
+        return {
+            "released": 0,
+            "released_slots": 0,
+            "matched_leases": [],
+            "confirmed": True,
+            "attempts": 0,
+            "mode": "absent_no_write",
+        }
+
+    rounds = max(3, int(attempts))
+    seen_matches = list(initial_matches)
+    for attempt in range(1, rounds + 1):
+        fresh = load_remote_state(repo)
+        leases = prune_leases(fresh)
+        matches = [x for x in leases if str(x.get("run_id") or "") == run_id]
+        if matches:
+            seen_matches = matches
+        fresh["schema_version"] = 3
+        fresh["leases"] = [x for x in leases if str(x.get("run_id") or "") != run_id]
+        save_remote_state(repo, fresh)
+        time.sleep(_settle_delay(run_id, attempt))
+
+    final = load_remote_state(repo)
+    if any(str(x.get("run_id") or "") == run_id for x in (final.get("leases") or [])):
+        raise RuntimeError(f"broker release reconciliation failed run_id={run_id} rounds={rounds}")
+    return {
+        "released": len(initial_matches),
+        "released_slots": sum(max(0, int(x.get("slots") or 0)) for x in initial_matches),
+        "matched_leases": initial_matches,
+        "confirmed": True,
+        "attempts": rounds,
+        "mode": "optimistic_remove_settled",
+    }
 
 
 def useful_hospitality_count():
@@ -408,22 +496,28 @@ def reserve(args):
     state["schema_version"] = 3
     state["leases"] = leases
     state["last_decision"] = decision
+    persistence = {"confirmed": True, "attempts": 0, "mode": "dry_run"}
     if not args.dry_run:
-        save_remote_state(args.repo, state)
+        persistence = save_reservation_reconciled(args.repo, state, lease)
     payload = dict(decision)
-    payload.update({"lease": lease, "dry_run": bool(args.dry_run)})
+    payload.update({"lease": lease, "dry_run": bool(args.dry_run), "reservation_persistence": persistence})
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, indent=2))
 
 
 def release(args):
-    state = load_remote_state(args.repo)
-    before = len(state.get("leases") or [])
-    state["leases"] = [l for l in state.get("leases") or [] if str(l.get("run_id")) != str(args.run_id)]
-    after = len(state["leases"])
-    save_remote_state(args.repo, state)
-    print(json.dumps({"released": before - after, "run_id": str(args.run_id)}))
+    result = release_lease_reconciled(args.repo, args.run_id)
+    print(json.dumps({
+        "released": int(result.get("released") or 0),
+        "released_slots": int(result.get("released_slots") or 0),
+        "run_id": str(args.run_id),
+        "release_persistence": {
+            "confirmed": bool(result.get("confirmed")),
+            "attempts": int(result.get("attempts") or 0),
+            "mode": result.get("mode"),
+        },
+    }))
 
 
 def status(args):
