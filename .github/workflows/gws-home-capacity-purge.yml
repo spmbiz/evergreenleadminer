@@ -6,15 +6,14 @@ on:
     branches: [main]
     paths:
       - 'control/gws_cancel_run.json'
-      - '.github/workflows/gws-home-capacity-purge.yml'
 
 permissions:
   actions: write
   contents: write
 
 concurrency:
-  group: gws-home-capacity-purge
-  cancel-in-progress: true
+  group: ai-prod-global-capacity-broker
+  cancel-in-progress: false
 
 jobs:
   purge:
