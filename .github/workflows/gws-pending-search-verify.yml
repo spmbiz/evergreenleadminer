@@ -319,4 +319,6 @@ jobs:
       - name: Release broker capacity lease
         env:
           RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python tools/global_capacity_broker.py release --run-id "$RUN_ID" --repo "$GITHUB_REPOSITORY"
