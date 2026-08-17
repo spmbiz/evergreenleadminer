@@ -13,6 +13,7 @@ on:
       - 'tools/gws_pending_verify_plan.py'
       - 'tools/gws_source_overture_extended.py'
       - 'tools/test_gws_ownership_regression.py'
+      - 'tools/test_gws_brand_domain_regression.py'
       - 'tools/test_gws_overture_category_mapping.py'
       - 'tools/test_gws_cancel_guard.py'
       - 'gpt/gws_pending_batches.json'
@@ -40,6 +41,10 @@ jobs:
         env:
           PYTHONPATH: tools
         run: python tools/test_gws_ownership_regression.py
+      - name: Run distinctive brand-domain regression suite
+        env:
+          PYTHONPATH: tools
+        run: python tools/test_gws_brand_domain_regression.py
       - name: Run Overture category token regression suite
         env:
           PYTHONPATH: tools
