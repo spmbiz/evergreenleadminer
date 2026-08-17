@@ -1,0 +1,149 @@
+name: GWS Home Redteam Salvage Controls
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gws-home-redteam-salvage-controls.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gws-home-redteam-salvage-controls
+  cancel-in-progress: true
+
+jobs:
+  redteam:
+    runs-on: [self-hosted, Windows, X64, gws-home]
+    timeout-minutes: 30
+    env:
+      OPENSERP_HOME_DIR: 'C:\Users\walid\openserp-home\OpenSERP'
+      OPENSERP_HOME_PORT: '7000'
+      OPENSERP_URL: 'http://127.0.0.1:7000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Refresh current main
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git reset --hard origin/main
+          Write-Host "HOME_REDTEAM_COMMIT=$(git rev-parse HEAD)"
+
+      - name: Ensure residential OpenSERP
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          $port=[int]$env:OPENSERP_HOME_PORT; $root=$env:OPENSERP_HOME_DIR
+          function Test-OpenSerp { try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 4 -Uri "http://127.0.0.1:$port/health"; return ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300) } catch { return $false } }
+          if (-not (Test-OpenSerp)) {
+            Start-Process -FilePath (Join-Path $root 'OpenSerp.AppHost.exe') -ArgumentList "--urls=http://127.0.0.1:$port" -WorkingDirectory $root -WindowStyle Hidden
+            for($i=0;$i -lt 30;$i++){ Start-Sleep 1; if(Test-OpenSerp){ break } }
+          }
+          if(-not (Test-OpenSerp)){ throw 'OpenSERP unavailable for redteam' }
+          Write-Host 'HOME_REDTEAM_OPENSERP=OK engines=bing,duckduckgo-configured-by-local-service'
+
+      - name: Resolve Python
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          $candidates=@('C:\Users\walid\AppData\Local\Programs\Python\Python313\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python312\python.exe','C:\Users\walid\AppData\Local\Programs\Python\Python311\python.exe','C:\Python313\python.exe','C:\Python312\python.exe','C:\Python311\python.exe')
+          $py=$null; foreach($p in $candidates){ if(Test-Path $p){$py=$p;break} }
+          if(-not $py){$cmd=Get-Command python.exe -ErrorAction SilentlyContinue;if($cmd -and $cmd.Source -notlike '*WindowsApps*'){$py=$cmd.Source}}
+          if(-not $py){throw 'Usable Python not found'}
+          $py | Out-File -Encoding ascii .gws-redteam-python.txt
+          & $py tools\test_gws_ownership_regression.py
+          if($LASTEXITCODE -ne 0){throw "Regression gate failed: $LASTEXITCODE"}
+
+      - name: Select durable salvage candidates and owned controls
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'; $py=(Get-Content .gws-redteam-python.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force results\gws_home_redteam\worker | Out-Null
+          @'
+          import hashlib,json,re,unicodedata
+          from pathlib import Path
+          targets={
+            'super_boni':('salvage',['super boni']),
+            'fernanda_castillo':('salvage',['fernanda castillo','castillo fernanda']),
+            'claire_dufeil':('salvage',['claire dufeil']),
+            'darmal':('salvage',['darmal']),
+            'catherine_pineux':('owned_control',['catherine pineux','pineux catherine']),
+            'the_kooples':('owned_control',['the kooples']),
+          }
+          def norm(s):
+            s=unicodedata.normalize('NFKD',str(s or '')).encode('ascii','ignore').decode().lower()
+            return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9]+',' ',s)).strip()
+          latest={}
+          paths=sorted(Path('data/gws/verification').glob('*.jsonl'))+sorted(Path('gpt/gws_verified_review').glob('*.jsonl'))
+          for p in paths:
+            try: lines=p.read_text(encoding='utf-8').splitlines()
+            except: continue
+            for line in lines:
+              if not line.strip(): continue
+              try:r=json.loads(line)
+              except:continue
+              hay=norm(' | '.join(str(r.get(k) or '') for k in ('hub_name','overture_name','hub_address','hub_phone','overture_phone')))
+              for label,(kind,patterns) in targets.items():
+                if not any(norm(x) in hay for x in patterns):continue
+                key=str(r.get('record_key') or r.get('hub_objectid') or '')
+                if not key:continue
+                ts=str(r.get('observed_at') or '')
+                if label not in latest or ts>=latest[label][0]:latest[label]=(ts,r,str(p))
+          missing=[x for x in targets if x not in latest]
+          if missing:raise SystemExit('Missing redteam records: '+','.join(missing))
+          rows=[]; manifest=[]
+          for label,(kind,_) in targets.items():
+            ts,r,p=latest[label]; x=dict(r)
+            old=str(x.get('fingerprint') or x.get('source_fingerprint') or '')
+            fresh=hashlib.sha256((old+'|home-redteam-v1|'+label).encode()).hexdigest()
+            x['fingerprint']=fresh;x['source_fingerprint']=fresh;x['redteam_original_fingerprint']=old
+            x['outcome']='REVIEW';x['reason']='HOME_REDTEAM_REVERIFY';x['verification_status']='PENDING_SEARCH_VERIFY';x['needs_gpt_review']=True
+            x['redteam_label']=label;x['redteam_expected_class']=kind;x['redteam_source_path']=p
+            rows.append(x);manifest.append({'label':label,'expected':kind,'business':x.get('hub_name') or x.get('overture_name'),'record_key':key,'source':p,'previous_status':r.get('verification_status'),'previous_reason':r.get('reason')})
+          Path('results/gws_home_redteam/worker/records.jsonl').write_text(''.join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+'\n' for x in rows),encoding='utf-8')
+          Path('results/gws_home_redteam/manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          print('HOME_REDTEAM_INPUT='+json.dumps(manifest,ensure_ascii=False,separators=(',',':')))
+          '@ | & $py -
+          if($LASTEXITCODE -ne 0){throw "Selection failed: $LASTEXITCODE"}
+
+      - name: Run current source-safe strict verifier through local OpenSERP
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop';$py=(Get-Content .gws-redteam-python.txt -Raw).Trim()
+          & $py tools\gws_search_verify_source_safe.py --shard-dir results\gws_home_redteam\worker --config config\gws_search_verify.json
+          if($LASTEXITCODE -ne 0){throw "Source-safe verifier failed: $LASTEXITCODE"}
+
+      - name: Summarize and assert controls
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop';$py=(Get-Content .gws-redteam-python.txt -Raw).Trim()
+          @'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('results/gws_home_redteam/worker/records.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          report=[];bad=[]
+          for r in rows:
+            item={'label':r.get('redteam_label'),'expected':r.get('redteam_expected_class'),'business':r.get('hub_name') or r.get('overture_name'),'status':r.get('verification_status'),'reason':r.get('reason'),'owned':r.get('owned_website'),'source_precheck':(r.get('source_website_precheck') or {}).get('status'),'direct_domain':(r.get('direct_domain_high_challenge') or {}).get('status'),'final_challenge':(r.get('final_high_challenge') or {}).get('status'),'certificate_verified':bool((r.get('certificate') or {}).get('verified'))}
+            report.append(item)
+            if item['expected']=='owned_control' and str(item['status']).upper()=='HIGH':bad.append(item)
+          Path('results/gws_home_redteam/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,default=str)+'\n',encoding='utf-8')
+          print('HOME_REDTEAM_REPORT='+json.dumps(report,ensure_ascii=False,separators=(',',':')))
+          if bad:raise SystemExit('P0 owned-site control survived HIGH: '+json.dumps(bad,ensure_ascii=False))
+          '@ | & $py -
+          if($LASTEXITCODE -ne 0){throw "Control assertion failed: $LASTEXITCODE"}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gws-home-redteam-${{ github.run_id }}
+          path: results/gws_home_redteam/
+          retention-days: 3
+          compression-level: 6
