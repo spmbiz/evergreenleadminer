@@ -139,7 +139,7 @@ jobs:
             echo 'OpenSERP unavailable; GWS continues with DDGS/SearXNG exclusion-only fallback.'
           fi
           exit 0
-      - name: Run provider-neutral GWS shard plus strict search verification
+      - name: Run provider-neutral GWS shard plus strict ownership-safe verification
         env:
           TASK_ID: ${{ matrix.task_id }}
           WORKLOAD_ID: ${{ matrix.workload_id }}
@@ -169,7 +169,7 @@ jobs:
             --outdir "$out" \
             --threads 16
           python tools/gws_worker_postprocess.py --shard-dir "$out"
-          python tools/gws_search_verify.py --shard-dir "$out" --config config/gws_search_verify.json
+          python tools/gws_search_verify_ownership_safe.py --shard-dir "$out" --config config/gws_search_verify.json
       - name: Upload one-day shard transport
         if: always()
         uses: actions/upload-artifact@v4
