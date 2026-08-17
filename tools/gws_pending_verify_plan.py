@@ -9,11 +9,20 @@ from pathlib import Path
 SOUTH=("Uccle","Ixelles","Saint-Gilles","Forest","Auderghem","Watermael-Boitsfort")
 HARD_TERMINAL_SEARCH_STATUSES={"HIGH","REJECT","DUPLICATE","ERROR_HARD"}
 SOFT_SEARCH_STATUSES={"MEDIUM","UNCERTAIN"}
+OWNERSHIP_RECALL_VERSION="gws-ownership-recall-v1"
 
 
 def load(path,default):
     try: return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception: return default
+
+
+def is_ownership_recall(r):
+    return bool(
+        str(r.get("reverification_reason") or "")==OWNERSHIP_RECALL_VERSION
+        or str(r.get("reason") or "").upper()=="OWNERSHIP_GATE_RECALL_REMEDIATION"
+        or str(r.get("source_batch") or "").split("/")[-1].startswith("ownership_recall_")
+    )
 
 
 def main():
@@ -82,10 +91,14 @@ def main():
         if r.get("outcome")=="REJECT" and not semantic_recheck: continue
         rows.append(r)
 
-    # Resolve South Brussels first; within each geography prioritize semantic
-    # rechecks so already-expensive UNCERTAIN records actually converge.
+    # Recall safety: South Brussels remains first, but within the same geography
+    # ownership-recall remediation outranks ordinary retryables. These rows were
+    # previously terminal REJECTs under a weaker ownership classifier, so delaying
+    # them risks continuing to miss true HIGHs. This changes ordering only; it does
+    # not weaken any verification or HIGH gate.
     rows.sort(key=lambda r:(
         0 if str(r.get("territory") or "") in SOUTH else 1,
+        0 if is_ownership_recall(r) else 1,
         0 if r.get("semantic_resolution") else 1,
         str(r.get("territory") or ""),
         str(r.get("hub_name") or ""),
@@ -100,7 +113,7 @@ def main():
     (out/"pending.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in selected),encoding="utf-8")
     matrix={"include":[{"worker_index":i,"worker_count":workers} for i in range(workers)]}
     plan={
-        "schema_version":5,
+        "schema_version":6,
         "eligible":eligible_total,
         "selected":len(selected),
         "deferred":max(0,eligible_total-len(selected)),
@@ -108,6 +121,8 @@ def main():
         "per_worker_target":per_worker,
         "suppressed_terminal":suppressed_terminal,
         "retryable_or_pending_seen":retryable_or_pending,
+        "ownership_recall_eligible":sum(1 for x in rows if is_ownership_recall(x)),
+        "ownership_recall_selected":sum(1 for x in selected if is_ownership_recall(x)),
         "semantic_rechecks_eligible":semantic_rechecks,
         "semantic_rechecks_selected":sum(1 for x in selected if x.get("semantic_resolution")),
         "semantic_candidates_forwarded":sum(1 for x in selected if x.get("semantic_candidate_url")),
