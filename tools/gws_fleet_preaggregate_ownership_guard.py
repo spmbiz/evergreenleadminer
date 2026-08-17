@@ -1,17 +1,42 @@
 #!/usr/bin/env python3
-"""Fail-safe ownership guard for autonomous GWS shard output.
+"""Fail-safe guard immediately before the autonomous GWS single writer.
 
-Runs immediately before the existing single-writer aggregate. It never creates
-HIGH. It only prevents an unproven owned-site REJECT from becoming terminal by
-quarantining it to UNCERTAIN + review while preserving the original evidence.
+Two independent protections live here:
+1. an explicitly cancelled run is stopped before any source-state or canonical
+   aggregation write, even when GitHub schedules the aggregate through `if: always()`;
+2. an unproven owned-site REJECT is quarantined to UNCERTAIN + review.
+
+This module never creates HIGH.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import gws_ownership_gate as ownership
+
+
+def _explicit_cancel_target() -> str:
+    try:
+        data = json.loads(Path("control/gws_cancel_run.json").read_text(encoding="utf-8"))
+        return str(data.get("run_id") or "").strip()
+    except Exception:
+        return ""
+
+
+def assert_not_explicitly_cancelled() -> None:
+    current = str(os.getenv("GITHUB_RUN_ID") or "").strip()
+    target = _explicit_cancel_target()
+    if current and target and current == target:
+        reason = ""
+        try:
+            reason = str(json.loads(Path("control/gws_cancel_run.json").read_text(encoding="utf-8")).get("reason") or "")
+        except Exception:
+            pass
+        print("GWS_PREAGGREGATE_CANCEL_GUARD=" + json.dumps({"run_id": current, "cancel_target": target, "blocked": True, "reason": reason}, separators=(",", ":")))
+        raise SystemExit(f"Explicitly cancelled GWS run {current}; refusing pre-aggregate persistence")
 
 
 def ownership_pass_for(row: dict) -> dict:
@@ -61,6 +86,7 @@ def guard(row: dict) -> tuple[dict, bool]:
 
 
 def main() -> int:
+    assert_not_explicitly_cancelled()
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default="results/shards")
     args = ap.parse_args()
