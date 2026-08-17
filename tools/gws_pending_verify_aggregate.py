@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 from pathlib import Path
 
 import gws_ownership_gate as ownership
@@ -61,6 +62,52 @@ def quarantine_unproven_reject(row):
     return r, True
 
 
+def current_run_quarantine() -> dict:
+    run_id=str(os.environ.get("GITHUB_RUN_ID") or "").strip()
+    if not run_id:
+        return {}
+    q=load(Path("state/gws_strict_run_quarantine")/f"{run_id}.json",{})
+    if q and q.get("canonical_eligible") is False:
+        return q
+    return {}
+
+
+def quarantine_run_high(row, run_quarantine):
+    """Prevent a superseded strict HIGH from becoming terminal in the verify index.
+
+    Evidence is preserved, but the record is routed back through latest-main strict
+    verification. This changes no other status and can never manufacture HIGH.
+    """
+    r=dict(row)
+    if not run_quarantine:
+        return r, False
+    if str(r.get("verification_status") or "").upper()!="HIGH":
+        return r, False
+    if str(r.get("reason") or "").upper()!="VERIFIED_NO_WEBSITE":
+        return r, False
+    previous={
+        "outcome":r.get("outcome"),
+        "reason":r.get("reason"),
+        "verification_status":r.get("verification_status"),
+        "certificate_digest":r.get("certificate_digest"),
+        "certificate":r.get("certificate"),
+    }
+    r["run_quarantine_previous"]=previous
+    r["run_quarantine_id"]=str(run_quarantine.get("strict_workflow_run_id") or os.environ.get("GITHUB_RUN_ID") or "")
+    r["run_quarantine_status"]=str(run_quarantine.get("status") or "QUARANTINED_REQUIRE_LATEST_MAIN_REVERIFY")
+    r["outcome"]="REVIEW"
+    r["reason"]="STRICT_RUN_QUARANTINED_REVERIFY_REQUIRED"
+    r["verification_status"]="ERROR_RETRYABLE"
+    r["needs_gpt_review"]=True
+    cert=dict(r.get("certificate") or {})
+    cert["verified"]=False
+    cert["run_quarantined"]=True
+    cert["superseded_certificate_digest"]=str(r.get("certificate_digest") or "")
+    r["certificate"]=cert
+    r["certificate_digest"]=""
+    return r, True
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--root",default="results/gws_verify_shards"); a=ap.parse_args()
     index=load("state/gws_verify_index.json",{"schema_version":1,"records":{}}); records=index.setdefault("records",{})
@@ -70,10 +117,14 @@ def main():
         for line in (d/"records.jsonl").read_text(encoding="utf-8").splitlines():
             if line.strip(): raw_rows.append(json.loads(line))
 
-    rows=[]; quarantined=0
+    run_quarantine=current_run_quarantine()
+    rows=[]; quarantined=0; run_highs_quarantined=0
     for raw in raw_rows:
         clean, q=quarantine_unproven_reject(raw)
-        rows.append(clean); quarantined += int(q)
+        clean, rq=quarantine_run_high(clean, run_quarantine)
+        rows.append(clean)
+        quarantined += int(q)
+        run_highs_quarantined += int(rq)
 
     ts=now(); date=ts[:10]; ready=[]; highs=[]; retryable=0; rejects=0
     semantic_attempted=0; semantic_resolved=0; semantic_hard=[]; semantic_retryable=0
@@ -89,6 +140,7 @@ def main():
             "reason":r.get("reason"),"verification_provider":r.get("verification_provider"),"certificate_digest":r.get("certificate_digest"),
             "owned_website":r.get("owned_website"),"last_verified":ts,"source_batch":r.get("source_batch"),
             "semantic_resolution_fingerprint":sem_fp,"semantic_resolution_attempt":sem_attempt,"semantic_resolution_route":sem_route,
+            "run_quarantine_id":r.get("run_quarantine_id"),"run_quarantine_status":r.get("run_quarantine_status"),
         }
         records[key]=entry
 
@@ -109,9 +161,6 @@ def main():
                 sem["resolution_status"]="STRICT_RETRYABLE"
                 semantic_retryable+=1
             elif status in {"MEDIUM","UNCERTAIN"}:
-                # Do not loop the same expensive evidence indefinitely and do not
-                # force a verdict. Persist a hard-case handoff for GPT/web or future
-                # genuinely new evidence.
                 sem["resolution_status"]="HARD_REVIEW_REQUIRED"
                 sem["resolution_final_status"]="UNCERTAIN"
                 hard=dict(r)
@@ -156,12 +205,14 @@ def main():
     dump("state/gws_verify_index.json",index)
     dump("state/gws_semantic_index.json",semantic_index)
     metrics={
-        "schema_version":3,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),
+        "schema_version":4,"at":ts,"attempted":len(rows),"ready_for_canonical_review":len(ready),
         "strict_high_verified_no_website":len(highs),"rejected_owned_or_other":rejects,"ownership_rejects_quarantined":quarantined,
+        "run_highs_quarantined_for_reverify":run_highs_quarantined,
+        "strict_run_quarantine_id":str(run_quarantine.get("strict_workflow_run_id") or "") if run_quarantine else "",
         "retryable":retryable,"remaining_source_backlog":total_remaining,"canonical_high_persisted_here":0,
         "semantic_resolution_attempted":semantic_attempted,"semantic_resolution_resolved":semantic_resolved,
         "semantic_resolution_retryable":semantic_retryable,"semantic_hard_review_added":len(semantic_hard),
-        "note":"HIGH is pre-canonical. Semantic/Qwen is shadow-only; soft cases may authorize a bounded strict recheck but never force HIGH/REJECT. Inconclusive rechecks are preserved for hard GPT/web review."
+        "note":"HIGH is pre-canonical. Quarantined-run HIGHs are forced non-terminal and must pass latest-main strict reverify. Semantic/Qwen is shadow-only and never forces HIGH/REJECT."
     }
     dump("metrics/gws_verify_latest.json",metrics); append("metrics/gws_verify_history.jsonl",[metrics]); print("GWS_PENDING_VERIFY_AGG="+json.dumps(metrics,separators=(",",":")))
 
