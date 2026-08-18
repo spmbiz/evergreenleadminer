@@ -51,17 +51,17 @@ jobs:
           echo "immutable_bundles_downloaded=$COUNT"
           test "$COUNT" -gt 20
 
-      - name: Preserve current corrupt canonical for audit
+      - name: Preserve current corrupt canonical for audit when present
         run: |
           set -euo pipefail
-          gh release download harvest-state \
+          if gh release download harvest-state \
             --repo "$GITHUB_REPOSITORY" \
             --pattern 'hospitality-canonical.sqlite' \
             --dir corrupt_backup \
-            --clobber
-          cp corrupt_backup/hospitality-canonical.sqlite \
-            recovery_out/hospitality-canonical-corrupt-before-recovery.sqlite
-          python - <<'PY'
+            --clobber 2>canonical-download.err; then
+            cp corrupt_backup/hospitality-canonical.sqlite \
+              recovery_out/hospitality-canonical-corrupt-before-recovery.sqlite
+            python - <<'PY'
           import json, sqlite3
           from pathlib import Path
           p=Path('corrupt_backup/hospitality-canonical.sqlite')
@@ -70,9 +70,17 @@ jobs:
               c=sqlite3.connect(p); n=int(c.execute('select count(*) from leads').fetchone()[0]); c.close()
           except Exception as e:
               print({'corrupt_snapshot_error':type(e).__name__})
-          Path('recovery_out/corrupt-snapshot.json').write_text(json.dumps({'rows':n,'bytes':p.stat().st_size},indent=2)+'\n')
+          Path('recovery_out/corrupt-snapshot.json').write_text(json.dumps({'status':'present','rows':n,'bytes':p.stat().st_size},indent=2)+'\n')
           print({'corrupt_snapshot_rows':n,'bytes':p.stat().st_size})
           PY
+          elif grep -q 'no assets match the file pattern' canonical-download.err; then
+            cat canonical-download.err >&2
+            printf '%s\n' '{"status":"missing","rows":null,"bytes":0}' > recovery_out/corrupt-snapshot.json
+            echo 'Current hospitality-canonical.sqlite is absent; continuing with immutable-history rebuild.'
+          else
+            cat canonical-download.err >&2
+            exit 1
+          fi
 
       - name: Rebuild canonical from immutable partitions
         run: |
