@@ -11,8 +11,19 @@ from pathlib import Path
 import duckdb
 import gws_fleet_worker as base
 
-DEFAULT_RELEASE="2026-06-17.0"
+DEFAULT_RELEASE="latest"
 BBOX=(4.20,50.75,4.55,50.95)
+
+
+def resolve_release(value: str) -> str:
+    requested=str(value or "").strip()
+    if requested and requested.casefold() != "latest":
+        return requested
+    # Reuse the hardened resolver already used by the v5.3 certifier. It reads
+    # Overture's official STAC catalog, validates the release and still honors
+    # OVERTURE_RELEASE when an intentional pin is required.
+    from gws_no_website_certifier_v53_core import resolve_overture_release
+    return resolve_overture_release()
 
 
 def place_address(v):
@@ -51,7 +62,8 @@ def main():
         bucket=int(__import__('hashlib').sha256(key.encode()).hexdigest()[:8],16)%max(1,a.worker_count)
         if bucket==a.worker_index: part.append(row)
     ids={str(x.get("overture_id")) for x in part if x.get("overture_id")}
-    z=time.time(); places=load_places(ids,a.release,a.threads); out=[]; counts=Counter()
+    release=resolve_release(a.release)
+    z=time.time(); places=load_places(ids,release,a.threads); out=[]; counts=Counter()
     for row in part:
         r=dict(row); oid=str(r.get("overture_id") or ""); p=places.get(oid)
         if p:
@@ -83,7 +95,7 @@ def main():
         r["verification_status"]="PENDING_SEARCH_VERIFY"; r["needs_gpt_review"]=True; out.append(r)
     d=Path(a.outdir); d.mkdir(parents=True,exist_ok=True)
     (d/"records.jsonl").write_text("".join(json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)+"\n" for x in out),encoding="utf-8")
-    metrics={"schema_version":2,"status":"completed","worker_index":a.worker_index,"worker_count":a.worker_count,"records_materialized":len(out),"review_candidates":len(out),"identity_refresh":dict(counts),"source_website_refresh_enabled":True,"elapsed_seconds":round(time.time()-z,2)}
+    metrics={"schema_version":2,"status":"completed","worker_index":a.worker_index,"worker_count":a.worker_count,"records_materialized":len(out),"review_candidates":len(out),"identity_refresh":dict(counts),"source_website_refresh_enabled":True,"overture_release":release,"elapsed_seconds":round(time.time()-z,2)}
     (d/"metrics.json").write_text(json.dumps(metrics,indent=2)+"\n",encoding="utf-8"); (d/"checkpoint.json").write_text(json.dumps({"status":"completed","worker_index":a.worker_index},indent=2)+"\n",encoding="utf-8")
     print("GWS_PENDING_VERIFY_WORKER="+json.dumps(metrics,separators=(",",":")))
 
