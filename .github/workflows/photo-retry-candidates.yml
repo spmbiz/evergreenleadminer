@@ -1,0 +1,46 @@
+name: Photo Retry Candidates
+
+on:
+  workflow_dispatch:
+
+jobs:
+  candidates:
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    defaults:
+      run:
+        working-directory: photo-harvest-next93
+    env:
+      RETRY_BATCH_INDEX: ${{ matrix.batch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest-next93/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Collect retry candidates
+        shell: bash
+        run: |
+          set -o pipefail
+          python retry_candidates.py 2>&1 | tee "retry-${RETRY_BATCH_INDEX}.log"
+      - name: Upload candidates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retry-candidates-${{ matrix.batch }}
+          path: |
+            photo-harvest-next93/retry-candidates-batch-*.zip
+            photo-harvest-next93/retry-candidates-batch-*/manifest.csv
+            photo-harvest-next93/retry-candidates-batch-*/README.txt
+            photo-harvest-next93/retry-candidates-batch-*/contact_sheet.jpg
+            photo-harvest-next93/retry-*.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7

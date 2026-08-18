@@ -1,0 +1,50 @@
+name: Photo Harvest Next 93
+
+on:
+  workflow_dispatch:
+
+jobs:
+  harvest:
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: photo-harvest-next93
+    env:
+      BATCH_INDEX: ${{ matrix.batch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest-next93/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Harvest batch
+        shell: bash
+        run: |
+          set -o pipefail
+          python harvest_next.py 2>&1 | tee "batch-${BATCH_INDEX}.log"
+      - name: Show totals
+        if: always()
+        run: cat "people-photos-next93-batch-$(printf '%02d' ${BATCH_INDEX})/README.txt" || true
+      - name: Upload batch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: people-photos-next93-batch-${{ matrix.batch }}
+          path: |
+            photo-harvest-next93/people-photos-next93-batch-*.zip
+            photo-harvest-next93/people-photos-next93-batch-*/manifest.csv
+            photo-harvest-next93/people-photos-next93-batch-*/failures.csv
+            photo-harvest-next93/people-photos-next93-batch-*/README.txt
+            photo-harvest-next93/people-photos-next93-batch-*/contact_sheet.jpg
+            photo-harvest-next93/batch-*.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7

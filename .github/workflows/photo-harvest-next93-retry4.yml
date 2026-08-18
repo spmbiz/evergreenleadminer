@@ -1,0 +1,40 @@
+name: Photo Harvest Next93 Retry4
+
+on:
+  workflow_dispatch:
+
+jobs:
+  retry4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: photo-harvest-next93
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest-next93/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Harvest four incomplete people
+        run: python retry4.py 2>&1 | tee retry4.log
+      - name: Show totals
+        if: always()
+        run: cat people-photos-next93-retry4/README.txt || true
+      - name: Upload retry artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: people-photos-next93-retry4
+          path: |
+            photo-harvest-next93/people-photos-next93-retry4.zip
+            photo-harvest-next93/people-photos-next93-retry4/manifest.csv
+            photo-harvest-next93/people-photos-next93-retry4/failures.csv
+            photo-harvest-next93/people-photos-next93-retry4/README.txt
+            photo-harvest-next93/retry4.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
