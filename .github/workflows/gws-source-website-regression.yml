@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'tools/gws_search_verify_source_safe.py'
+      - 'tools/gws_search_verify_current_safe.py'
       - 'tools/gws_ownership_gate.py'
       - 'tools/gws_pending_verify_worker.py'
       - 'tools/test_gws_source_website_regression.py'
@@ -33,11 +34,12 @@ jobs:
         env:
           PYTHONPATH: tools
         run: python tools/test_gws_source_website_regression.py
-      - name: Assert both strict production paths use source-safe verifier
+      - name: Assert both strict production paths preserve source-safe verifier
         run: |
           set -euo pipefail
           grep -q 'python tools/gws_search_verify_source_safe.py' .github/workflows/gws-autonomous-fleet.yml
-          grep -q 'python tools/gws_search_verify_source_safe.py' .github/workflows/gws-pending-search-verify.yml
+          grep -q 'python tools/gws_search_verify_current_safe.py' .github/workflows/gws-pending-search-verify.yml
+          grep -q 'import gws_search_verify_source_safe as source' tools/gws_search_verify_current_safe.py
           if grep -q 'python tools/gws_search_verify_ownership_safe.py' .github/workflows/gws-autonomous-fleet.yml; then exit 1; fi
           if grep -q 'python tools/gws_search_verify_ownership_safe.py' .github/workflows/gws-pending-search-verify.yml; then exit 1; fi
           echo 'SOURCE_SAFE_WIRING_OK=1'
