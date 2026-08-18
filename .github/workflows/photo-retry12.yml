@@ -1,0 +1,42 @@
+name: Photo Retry 12
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: photo-harvest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: photo-harvest/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Retry 12 incomplete people
+        run: python retry_harvest.py 2>&1 | tee retry12.log
+      - name: Show totals
+        if: always()
+        run: cat people-photos-retry12/README.txt || true
+      - name: Upload retry ZIP and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: people-photos-retry12
+          path: |
+            photo-harvest/people-photos-retry12.zip
+            photo-harvest/people-photos-retry12/manifest.csv
+            photo-harvest/people-photos-retry12/failures.csv
+            photo-harvest/people-photos-retry12/README.txt
+            photo-harvest/retry12.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
