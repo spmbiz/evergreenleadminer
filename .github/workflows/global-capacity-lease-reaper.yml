@@ -35,14 +35,14 @@ jobs:
           python tools/global_capacity_broker.py release \
             --run-id "$SOURCE_RUN_ID" \
             --repo "$GITHUB_REPOSITORY"
-      - name: Reap expired or no-longer-active leases and refresh broker snapshot
+      - name: Refresh broker status and expiry view
         if: github.event_name != 'workflow_run'
         run: |
           set -euo pipefail
-          python tools/global_capacity_broker.py snapshot \
+          python tools/global_capacity_broker.py status \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --repo "$GITHUB_REPOSITORY"
       - name: Explain cleanup contract
         if: always()
         run: |
-          echo 'Strict GWS releases its own lease in-workflow. This reaper remains for lanes that need workflow_run cleanup plus scheduled stale/expired-lease safety.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Strict GWS releases its own lease in-workflow. Workflow-run cleanup releases matched leases explicitly; the scheduled pass refreshes the broker expiry/live-job view using the supported status command.' >> "$GITHUB_STEP_SUMMARY"
