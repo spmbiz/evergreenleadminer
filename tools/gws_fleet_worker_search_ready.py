@@ -13,6 +13,24 @@ from collections import defaultdict
 import gws_fleet_worker as base
 
 
+# The legacy worker still defaults to a dated Overture release. Keep explicit
+# --release pins working, but resolve the normal/default path through the same
+# hardened STAC resolver used by the strict v5.3 certifier.
+base.DEFAULT_RELEASE = "latest"
+_base_query_overture = base.query_overture
+
+
+def query_overture_current(targets: list[dict], release: str, threads: int):
+    requested=str(release or "").strip()
+    if not requested or requested.casefold() == "latest":
+        from gws_no_website_certifier_v53_core import resolve_overture_release
+        requested=resolve_overture_release()
+    return _base_query_overture(targets, requested, threads)
+
+
+base.query_overture = query_overture_current
+
+
 def norm_phone(v) -> str:
     d=re.sub(r"\D+","",base.txt(v))
     if d.startswith("0032"): d="32"+d[4:]
