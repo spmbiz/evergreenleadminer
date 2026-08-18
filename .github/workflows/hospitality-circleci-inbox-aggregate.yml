@@ -34,15 +34,25 @@ jobs:
           set -euo pipefail
           git config user.name "ai-prod-hospitality-circleci-ingest"
           git config user.email "actions@users.noreply.github.com"
-          git add \
-            state/hospitality_circleci_inbox.json \
-            state/coverage.json \
-            state/checkpoints.json \
-            state/source_state.json \
-            metrics/latest.json \
-            metrics/history.jsonl \
-            gpt/latest_summary.json \
+          paths=(
+            state/hospitality_circleci_inbox.json
+            state/coverage.json
+            state/checkpoints.json
+            state/source_state.json
+            metrics/latest.json
+            metrics/history.jsonl
+            gpt/latest_summary.json
             gpt/pending_batches.json
+          )
+          stage=()
+          for path in "${paths[@]}"; do
+            if [[ -e "$path" ]] || git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+              stage+=("$path")
+            fi
+          done
+          if ((${#stage[@]})); then
+            git add -A -- "${stage[@]}"
+          fi
           if git diff --cached --quiet; then
             echo "No CircleCI hospitality inbox delta."
             exit 0
