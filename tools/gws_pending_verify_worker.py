@@ -12,6 +12,10 @@ import duckdb
 import gws_fleet_worker as base
 
 DEFAULT_RELEASE="latest"
+# Official OvertureMaps/data releases.json is frozen at this release while STAC
+# is the preferred discovery source. Use it only when the STAC endpoint itself
+# is unavailable; the subsequent S3 query still fails hard if the release is gone.
+OFFICIAL_STAC_FALLBACK_RELEASE="2026-07-22.0"
 BBOX=(4.20,50.75,4.55,50.95)
 
 
@@ -23,7 +27,12 @@ def resolve_release(value: str) -> str:
     # Overture's official STAC catalog, validates the release and still honors
     # OVERTURE_RELEASE when an intentional pin is required.
     from gws_no_website_certifier_v53_core import resolve_overture_release
-    return resolve_overture_release()
+    try:
+        return resolve_overture_release()
+    except RuntimeError as exc:
+        if str(exc).startswith("OVERTURE_STAC_UNAVAILABLE:"):
+            return OFFICIAL_STAC_FALLBACK_RELEASE
+        raise
 
 
 def place_address(v):
