@@ -1,0 +1,49 @@
+name: Anna Claire Clouds uncropped currentSrc harvest
+
+on:
+  push:
+    branches:
+      - anna-claire-clouds-harvest
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tools/anna_claire_clouds_harvest/requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install -r tools/anna_claire_clouds_harvest/requirements.txt
+          pip install playwright==1.52.0
+          which google-chrome || which google-chrome-stable || which chromium || true
+      - name: Harvest uncropped Bing source thumbnails
+        working-directory: tools/anna_claire_clouds_harvest
+        env:
+          TARGET_COUNT: "300"
+        run: python browser_expanded_preview_fast.py
+      - name: Report count
+        working-directory: tools/anna_claire_clouds_harvest
+        run: echo "Collected $(cat SOURCE_THUMB_COUNT.txt 2>/dev/null || echo 0)"
+      - name: Upload uncropped source-thumbnail ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: anna-claire-clouds-uncropped-source-thumbnails
+          path: |
+            tools/anna_claire_clouds_harvest/anna_claire_clouds_uncropped_source_thumbnails.zip
+            tools/anna_claire_clouds_harvest/SOURCE_THUMB_COUNT.txt
+          if-no-files-found: error
+          retention-days: 7
