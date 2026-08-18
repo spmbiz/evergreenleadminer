@@ -40,7 +40,7 @@ jobs:
           import global_capacity_broker as broker
           desired=json.load(open('control/desired_state.json'))
           hp=json.load(open('/tmp/hospitality-plan.json'))
-          d=broker.local_demand()
+          d=broker._effective_local_demand()
           print(json.dumps({
               'enabled': bool(desired.get('enabled')) and bool(desired.get('continuous', True)),
               'hospitality': int(hp.get('useful_backlog') or 0),
