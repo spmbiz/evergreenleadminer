@@ -18,13 +18,20 @@ import gws_fleet_worker as base
 # hardened STAC resolver used by the strict v5.3 certifier.
 base.DEFAULT_RELEASE = "latest"
 _base_query_overture = base.query_overture
+OFFICIAL_STAC_FALLBACK_RELEASE = "2026-07-22.0"
 
 
 def query_overture_current(targets: list[dict], release: str, threads: int):
     requested=str(release or "").strip()
     if not requested or requested.casefold() == "latest":
         from gws_no_website_certifier_v53_core import resolve_overture_release
-        requested=resolve_overture_release()
+        try:
+            requested=resolve_overture_release()
+        except RuntimeError as exc:
+            if str(exc).startswith("OVERTURE_STAC_UNAVAILABLE:"):
+                requested=OFFICIAL_STAC_FALLBACK_RELEASE
+            else:
+                raise
     return _base_query_overture(targets, requested, threads)
 
 
