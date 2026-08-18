@@ -1,0 +1,13 @@
+name: Sony strict quality completion manual
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disabled-on-character-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Style completion is owned by PR #4; this branch only builds character references."

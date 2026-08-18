@@ -1,0 +1,66 @@
+name: Sony strict character references PR
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sony-character-reference-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  character:
+    name: Sony character film ${{ matrix.film }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        film: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests beautifulsoup4 pillow imagehash numpy opencv-python-headless "yt-dlp[default]"
+      - name: Harvest strict character pack
+        run: |
+          mkdir -p output
+          set +e
+          python -m tools.harvest_sony18_characters_v2 --group ${{ matrix.film }} --output output > output/HARVEST_STDOUT.txt 2>&1
+          code=$?
+          cat output/HARVEST_STDOUT.txt
+          exit $code
+      - name: Validate character coverage
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          manifests=list(Path('output').rglob('CHARACTER_MANIFEST.json'))
+          if not manifests:
+              raise SystemExit('No character manifest produced')
+          for path in manifests:
+              data=json.loads(path.read_text())
+              covered=data.get('covered_characters',0)
+              requested=data.get('requested_characters',0)
+              refs=data.get('character_refs',0)
+              print(data['title'], 'covered', covered, '/', requested, 'refs', refs)
+              if covered < min(4, requested):
+                  raise SystemExit(f'Insufficient verified character coverage: {covered}/{requested}')
+          PY
+          find output -name CHARACTER_CONTACT_SHEET.jpg -print || true
+      - name: Upload strict character pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sony-character-v3-film-${{ matrix.film }}
+          path: output/
+          compression-level: 6
+          retention-days: 7
+          if-no-files-found: warn
