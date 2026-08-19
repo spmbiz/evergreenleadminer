@@ -524,7 +524,9 @@
       "provider": "github",
       "records": 333,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 333,
+      "verification_total": 333
     },
     {
       "batch": "gpt/gws_review/2026-08-19T121856Z_32243664979-1.jsonl",
@@ -533,7 +535,9 @@
       "provider": "github",
       "records": 33,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 28,
+      "verification_total": 33
     },
     {
       "batch": "gpt/gws_review/2026-08-19T132101Z_32246266991-1.jsonl",
@@ -542,9 +546,11 @@
       "provider": "github",
       "records": 28,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 27,
+      "verification_total": 28
     }
   ],
-  "pending_records": 2698,
+  "pending_records": 2692,
   "schema_version": 1
 }
