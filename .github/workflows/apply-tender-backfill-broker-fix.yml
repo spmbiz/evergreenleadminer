@@ -1,0 +1,63 @@
+name: Apply Tender Backfill Broker Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'control/tender_backfill_broker_fix_trigger.json'
+      - 'tools/apply_tender_backfill_broker_fix.py'
+      - '.github/workflows/apply-tender-backfill-broker-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch broker Tender repository identity
+        run: python tools/apply_tender_backfill_broker_fix.py
+      - name: Validate policy and broker identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          cfg=json.loads(Path('config/global_fleet.json').read_text())
+          assert cfg['github']['capacity'] == 20
+          assert cfg['workloads']['tenders']['repo'] == 'walidgdg1-ai/tender-engine'
+          assert cfg['workloads']['tenders']['min_slots_when_demanding'] >= 16
+          assert cfg['workloads']['gws']['min_slots_when_demanding'] <= 4
+          broker=Path('tools/global_capacity_broker_v3.py').read_text()
+          assert 'TENDER_REPO = "walidgdg1-ai/tender-engine"' in broker
+          assert 'TENDER_REPO = "spmbiz/tender-engine"' not in broker
+          print('Tender backfill broker policy OK')
+          PY
+      - name: Commit broker fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- tools/global_capacity_broker_v3.py; then
+            echo 'broker fix already applied'
+            exit 0
+          fi
+          git config user.name tender-engine-bot
+          git config user.email tender-engine-bot@users.noreply.github.com
+          git add tools/global_capacity_broker_v3.py
+          git commit -m 'fleet: point broker Tender demand at active repository'
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            git rebase --abort >/dev/null 2>&1 || true
+            sleep $((i*2))
+          done
+          exit 1
