@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API = "https://api.github.com"
 STATE_TAG = "global-fleet-broker"
 STATE_ASSET = "global-capacity.json"
-TENDER_REPO = "spmbiz/tender-engine"
+TENDER_REPO = "walidgdg1-ai/tender-engine"
 LEASE_LAUNCH_GRACE_SECONDS = 120
 
 
