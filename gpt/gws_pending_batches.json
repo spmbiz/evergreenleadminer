@@ -8,7 +8,7 @@
       "records": 13,
       "reviewed_at": "2026-08-16T14:25:46+00:00",
       "status": "verified_search_pass",
-      "verification_remaining": 0,
+      "verification_remaining": 10,
       "verification_total": 13
     },
     {
@@ -30,7 +30,7 @@
       "records": 1,
       "reviewed_at": "2026-08-16T02:54:58+00:00",
       "status": "verified_search_pass",
-      "verification_remaining": 0,
+      "verification_remaining": 1,
       "verification_total": 1
     },
     {
@@ -151,7 +151,7 @@
       "records": 230,
       "reviewed_at": null,
       "status": "pending",
-      "verification_remaining": 3,
+      "verification_remaining": 4,
       "verification_total": 230
     },
     {
@@ -557,7 +557,9 @@
       "provider": "github",
       "records": 21,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 6,
+      "verification_total": 21
     },
     {
       "batch": "gpt/gws_review/2026-08-21T222837Z_32531250646-1.jsonl",
@@ -566,7 +568,9 @@
       "provider": "github",
       "records": 1,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 1,
+      "verification_total": 1
     },
     {
       "batch": "gpt/gws_review/2026-08-21T225117Z_32533550954-1.jsonl",
@@ -575,7 +579,9 @@
       "provider": "github",
       "records": 2,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 1,
+      "verification_total": 2
     },
     {
       "batch": "gpt/gws_review/2026-08-21T230503Z_32534900106-1.jsonl",
@@ -584,7 +590,9 @@
       "provider": "github",
       "records": 3,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 1,
+      "verification_total": 3
     },
     {
       "batch": "gpt/gws_review/2026-08-22T000727Z_32538298339-1.jsonl",
@@ -593,9 +601,11 @@
       "provider": "github",
       "records": 2,
       "reviewed_at": null,
-      "status": "pending"
+      "status": "pending",
+      "verification_remaining": 2,
+      "verification_total": 2
     }
   ],
-  "pending_records": 1931,
+  "pending_records": 1925,
   "schema_version": 1
 }
